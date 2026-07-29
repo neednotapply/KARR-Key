@@ -6,8 +6,11 @@
 2. Keep Customer, Dealer, Installer, transport, protocol, data, and policy
    responsibilities in their existing modules.
 3. Preserve demo mode's no-live-command guarantee.
-4. Do not add recovered credentials, static universal keys, APKs, decompiler
+4. Do not add recovered credentials, static universal keys, decompiler
    payloads, or vehicle-identifying captures.
+5. APK or IDA additions are allowed only in the reviewed
+   `research/artifacts` Git LFS paths, with provenance and hashes added to the
+   artifact manifest.
 
 ## Validation
 
@@ -31,5 +34,6 @@ Describe:
 - tests performed;
 - any remaining production integration requirement.
 
-Do not include device secrets, account data, proprietary binaries, or raw
-vehicle captures in issues, commits, CI artifacts, or pull-request text.
+Do not include device secrets, account data, unreviewed proprietary binaries,
+or raw vehicle captures in issues, commits, CI artifacts, or pull-request
+text.

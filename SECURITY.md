@@ -22,10 +22,16 @@ conditions, and the smallest redacted evidence that demonstrates the issue.
 
 ## Repository security boundary
 
-The tracked repository must not contain original APKs, full reconstructed
-vendor source, IDA databases, native binaries, or recovered secrets. The
-`.gitignore` intentionally blocks the common payload formats and workspace
-directories.
+This private repository includes a reviewed Git LFS evidence set containing
+the four untouched source APKs and annotated native IDA databases under
+`research/artifacts`. Those paths are the only exceptions to the generic
+binary ignore rules. Do not make the repository public without an explicit
+legal, licensing, and secret-exposure review.
+
+The tracked repository must not contain full reconstructed vendor source,
+extracted managed binaries, recovered secrets, raw account/vehicle captures,
+or arbitrary APK/IDA/native-binary additions. Annotation notes must describe
+protocol behavior without reproducing key material.
 
 Production integrations must:
 

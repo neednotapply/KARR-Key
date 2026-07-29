@@ -1,0 +1,12 @@
+{
+  "mode": "apply",
+  "database": "C:\\Users\\mrnic\\Documents\\GitHub\\KARR-Master\\research\\artifacts\\ida\\karr_bt_dealer_v3.131\\libmono-native.i64",
+  "app": "karr_bt_dealer_v3.131",
+  "marker": "[KARR_MASTER_RESEARCH_UPDATE_2026_07_28]",
+  "comment_address": "0x0",
+  "note_sha256": "8FF864F2734B0A03AFF217940A5BC9A6784A0C8A67DE5CA04A9F651083528366",
+  "note_length": 781,
+  "persisted_length": 965,
+  "persisted_in_open_database": true,
+  "contains_secret_values": false
+}

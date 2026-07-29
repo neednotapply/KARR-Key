@@ -6,11 +6,12 @@ applications. KARR SWAT DL is intentionally excluded because its useful
 read-only dealer search behavior overlaps the Dealer app and it has no direct
 BLE protocol.
 
-This repository contains the clean-room Kotlin application, deterministic
-protocol and classifier tests, hardware-validation notes, and curated
-reverse-engineering documentation. It does **not** contain original APKs,
-embedded vendor credentials, universal device keys, full decompiler output, or
-IDA databases.
+This private repository contains the clean-room Kotlin application,
+deterministic protocol and classifier tests, hardware-validation notes,
+curated reverse-engineering documentation, the four untouched source APKs, and
+26 annotated IDA databases. APK and IDA artifacts are stored through Git LFS.
+It does **not** contain embedded vendor credentials, universal device keys, or
+the full decompiler output.
 
 > **Status:** research prototype, version 0.1.3. BLE discovery, candidate
 > classification, UART subscription, protocol parsing, authentication-state
@@ -88,6 +89,7 @@ app/build/outputs/apk/debug/app-debug.apk
 | `feature/dealer` | Dealer feature surface |
 | `feature/installer` | Installer feature surface |
 | `docs/research` | Curated four-app analysis, provenance, and indexes |
+| `research/artifacts` | Git LFS archive of the four original APKs and 26 annotated IDA databases |
 | `tools/reverse-engineering` | Source scripts used to generate the offline analysis |
 | `.github/workflows` | GitHub Actions build/test/lint validation |
 
@@ -99,6 +101,7 @@ app/build/outputs/apk/debug/app-debug.apk
 - [Connection authentication](CONNECTION_AUTHENTICATION.md)
 - [Validation history](VALIDATION.md)
 - [Curated reverse-engineering index](docs/research/README.md)
+- [Original APK and IDA artifact archive](research/artifacts/README.md)
 - [Repository layout and artifact boundary](docs/REPOSITORY_LAYOUT.md)
 - [Security policy](SECURITY.md)
 

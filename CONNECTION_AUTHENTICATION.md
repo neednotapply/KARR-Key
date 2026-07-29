@@ -37,6 +37,11 @@ Dealer 3.131 supports both the legacy eight-byte challenge and a newer
 material through its data/backend layer. It also has an optional Android
 bonding setting, but that setting defaults off.
 
+Installer 1.39 uses the same legacy command sequence:
+`RequestAuth(14) -> Read_Mode(34) -> ProvideAuth(15) -> AuthSuccess(16)`.
+Its optional Android bonding setting also defaults off, and its live workflow
+additionally depends on an authorized technician job.
+
 ## Pairing-code finding
 
 There is no evidence of one numeric Bluetooth PIN used by every KARR unit.
@@ -64,9 +69,15 @@ the application authentication response demonstrated by the capture.
 
 ## Recovered source locations
 
-- `../karr_bt_v2.15/01_managed/projects/QTAP/QTAP/App.cs`
-- `../karr_bt_v2.15/01_managed/projects/QTAP/QTAP/TransparentData.cs`
-- `../karr_bt_v2.15/01_managed/projects/QTAP/QTAP/QTAuth.cs`
-- `../karr_bt_dealer_v3.131/01_managed/projects/FRMBLEDealerApp/FRMBLEDealerApp/App.cs`
-- `../karr_bt_dealer_v3.131/01_managed/projects/FRMBLEDealerApp/FRMBLEDealerApp/TransparentData.cs`
-- `../karr_bt_dealer_v3.131/01_managed/projects/WebhouseStandard/Quantam/Protocol/AuthService.cs`
+These managed-code paths are in the full offline evidence archive; curated
+findings and annotated native IDA projects are tracked here:
+
+- `karr_bt_v2.15/01_managed/projects/QTAP/QTAP/App.cs`
+- `karr_bt_v2.15/01_managed/projects/QTAP/QTAP/TransparentData.cs`
+- `karr_bt_v2.15/01_managed/projects/QTAP/QTAP/QTAuth.cs`
+- `karr_bt_dealer_v3.131/01_managed/projects/FRMBLEDealerApp/FRMBLEDealerApp/App.cs`
+- `karr_bt_dealer_v3.131/01_managed/projects/FRMBLEDealerApp/FRMBLEDealerApp/TransparentData.cs`
+- `karr_bt_dealer_v3.131/01_managed/projects/WebhouseStandard/Quantam/Protocol/AuthService.cs`
+- `karr_installer_v1.39/01_managed/projects/FRMSWTBLEInstaller/FRMSWTBLEInstaller/TransparentData.cs`
+- `docs/research/apps/*/BLE_PROTOCOL.md`
+- `research/artifacts/ida/*/*.i64`
