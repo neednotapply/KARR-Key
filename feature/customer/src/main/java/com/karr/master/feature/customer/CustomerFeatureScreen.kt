@@ -62,11 +62,33 @@ fun CustomerFeatureScreen(
             }
         }
         item {
-            Text("Features", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Complete feature catalog",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                "${FeatureCatalog.customer.size} recovered customer features",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
-        items(FeatureCatalog.customer, key = FeatureDefinition::id) { feature ->
-            val decision = policy.authorize(session, feature)
-            CustomerFeatureCard(feature, decision) { onOpenFeature(feature) }
+        FeatureCatalog.customer.groupBy(FeatureDefinition::category).forEach { (category, features) ->
+            item(key = "category:$category") {
+                Text(
+                    category,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            items(features, key = FeatureDefinition::id) { feature ->
+                val decision = policy.authorize(session, feature)
+                CustomerFeatureCard(
+                    feature = feature,
+                    decision = decision,
+                    canPreview = session.demo,
+                ) {
+                    onOpenFeature(feature)
+                }
+            }
         }
     }
 }
@@ -75,6 +97,7 @@ fun CustomerFeatureScreen(
 private fun CustomerFeatureCard(
     feature: FeatureDefinition,
     decision: AuthorizationDecision,
+    canPreview: Boolean,
     onOpen: () -> Unit,
 ) {
     ElevatedCard(Modifier.fillMaxWidth()) {
@@ -108,6 +131,11 @@ private fun CustomerFeatureCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
+            }
+            if (decision is AuthorizationDecision.Denied && canPreview) {
+                Button(onClick = onOpen) {
+                    Text("Preview")
+                }
             }
         }
     }

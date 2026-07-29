@@ -83,6 +83,7 @@ data class FeatureDefinition(
     val id: String,
     val title: String,
     val summary: String,
+    val category: String,
     val sourceApp: String,
     val requiredRole: UserRole,
     val requiredCapabilities: Set<Capability>,

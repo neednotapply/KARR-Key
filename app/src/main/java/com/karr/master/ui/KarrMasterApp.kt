@@ -3,19 +3,16 @@ package com.karr.master.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -35,14 +32,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.karr.master.ble.BleController
+import com.karr.master.core.AuthorizationDecision
 import com.karr.master.core.FeatureCatalog
 import com.karr.master.core.FeatureDefinition
+import com.karr.master.core.RolePolicy
 import com.karr.master.core.Session
 import com.karr.master.core.TechnicianJob
 import com.karr.master.core.UserRole
@@ -91,14 +89,19 @@ fun KarrMasterApp(
             onProductionLogin = { username, password ->
                 scope.launch {
                     repository.login(username, password)
-                        .onSuccess { session = it }
+                        .onSuccess {
+                            session = it
+                            selectedFeature = null
+                            destination = MainDestination.HOME
+                        }
                         .onFailure { snackbar.showSnackbar(it.message ?: "Login failed.") }
                 }
             },
-            onDemoLogin = { roles ->
+            onDemoLogin = { role ->
                 scope.launch {
-                    session = repository.demoSession(roles)
-                    destination = MainDestination.HOME
+                    session = repository.demoSession(role)
+                    selectedFeature = null
+                    destination = destinationFor(role)
                 }
             },
             snackbar = snackbar,
@@ -130,6 +133,7 @@ fun KarrMasterApp(
                 vehicles = emptyList()
                 jobs = emptyList()
                 selectedFeature = null
+                destination = MainDestination.HOME
             }
         },
     )
@@ -161,7 +165,11 @@ private fun MasterShell(
                     Column {
                         Text("KARR MASTER", fontWeight = FontWeight.Black)
                         Text(
-                            if (session.demo) "Local demo • no live commands" else session.displayName,
+                            if (session.demo) {
+                                "${session.displayName} • no live commands"
+                            } else {
+                                session.displayName
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = if (session.demo) {
                                 MaterialTheme.colorScheme.error
@@ -200,6 +208,7 @@ private fun MasterShell(
         ) {
             when {
                 selectedFeature != null -> FeatureDetailScreen(
+                    session = session,
                     feature = selectedFeature,
                     onBack = onBackFromFeature,
                 )
@@ -242,12 +251,11 @@ private fun MasterShell(
 @Composable
 private fun LoginScreen(
     onProductionLogin: (String, CharArray) -> Unit,
-    onDemoLogin: (Set<UserRole>) -> Unit,
+    onDemoLogin: (UserRole) -> Unit,
     snackbar: SnackbarHostState,
 ) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var roles by remember { mutableStateOf(UserRole.entries.toSet()) }
 
     Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { padding ->
         LazyColumn(
@@ -318,29 +326,48 @@ private fun LoginScreen(
             item {
                 HorizontalDivider()
                 Spacer(Modifier.height(12.dp))
-                Text("Local demo roles", style = MaterialTheme.typography.titleMedium)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
+                Text("Choose a demo role", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Each safe demo opens one role and its complete recovered feature catalog.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(10.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     UserRole.entries.forEach { role ->
-                        FilterChip(
-                            selected = role in roles,
-                            onClick = {
-                                roles = if (role in roles) roles - role else roles + role
-                            },
-                            label = { Text(role.displayName()) },
-                        )
+                        val features = FeatureCatalog.forRole(role)
+                        ElevatedCard(
+                            onClick = { onDemoLogin(role) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Text(
+                                    "${role.displayName()} demo",
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
+                                Text(
+                                    "${features.size} features across " +
+                                        "${features.map { it.category }.distinct().size} sections",
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Text(
+                                    "Source: ${features.first().sourceApp}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(
+                                    "Open ${role.displayName()} demo",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
                     }
                 }
                 Spacer(Modifier.height(10.dp))
-                OutlinedButton(
-                    onClick = { onDemoLogin(roles) },
-                    enabled = roles.isNotEmpty(),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Open safe demo")
-                }
                 Text(
                     "Demo mode exercises navigation, data, BLE discovery, and codecs. " +
                         "Safety-sensitive commands remain locked.",
@@ -392,16 +419,8 @@ private fun DashboardScreen(
             }
         }
         items(session.roles.toList(), key = { it.name }) { role ->
-            val features = when (role) {
-                UserRole.CUSTOMER -> FeatureCatalog.customer
-                UserRole.DEALER -> FeatureCatalog.dealer
-                UserRole.INSTALLER -> FeatureCatalog.installer
-            }
-            val destination = when (role) {
-                UserRole.CUSTOMER -> MainDestination.CUSTOMER
-                UserRole.DEALER -> MainDestination.DEALER
-                UserRole.INSTALLER -> MainDestination.INSTALLER
-            }
+            val features = FeatureCatalog.forRole(role)
+            val destination = destinationFor(role)
             ElevatedCard(
                 onClick = { onDestination(destination) },
                 modifier = Modifier.fillMaxWidth(),
@@ -409,11 +428,11 @@ private fun DashboardScreen(
                 Column(Modifier.padding(18.dp)) {
                     Text(role.displayName(), style = MaterialTheme.typography.titleLarge)
                     Text(
-                        "${features.size} consolidated feature groups",
+                        "${features.size} features",
                         color = MaterialTheme.colorScheme.primary,
                     )
                     Text(
-                        features.joinToString(" • ") { it.title },
+                        features.map { it.category }.distinct().joinToString(" • "),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -439,9 +458,11 @@ private fun DashboardScreen(
 
 @Composable
 private fun FeatureDetailScreen(
+    session: Session,
     feature: FeatureDefinition,
     onBack: () -> Unit,
 ) {
+    val decision = RolePolicy().authorize(session, feature)
     LazyColumn(
         modifier = Modifier.padding(horizontal = 20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -452,11 +473,42 @@ private fun FeatureDetailScreen(
             }
         }
         item {
+            Text(
+                feature.category.uppercase(),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+            )
             Text(feature.title, style = MaterialTheme.typography.headlineMedium)
             Text(
                 feature.summary,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+        if (session.demo) {
+            item {
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(
+                            "DEMO PREVIEW",
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                        Text(
+                            if (feature.safetySensitive) {
+                                "The complete workflow is represented here, but its live action " +
+                                    "is locked without server authorization and explicit scope."
+                            } else {
+                                "This read-only surface is available in the demo. Production " +
+                                    "records require the typed API adapter."
+                            },
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
         }
         item {
             ElevatedCard(Modifier.fillMaxWidth()) {
@@ -471,21 +523,25 @@ private fun FeatureDetailScreen(
                         "Capabilities: ${feature.requiredCapabilities.joinToString { it.name }}",
                         style = MaterialTheme.typography.bodySmall,
                     )
-                    Text(
-                        if (feature.safetySensitive) {
-                            "This workflow requires production server authorization, " +
-                                "scope, audit, and explicit confirmation."
-                        } else {
-                            "The feature surface is wired; production data requires the typed API adapter."
-                        },
-                        color = if (feature.safetySensitive) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
+                    when (decision) {
+                        AuthorizationDecision.Allowed -> Text(
+                            "The current session has the role and capability required to " +
+                                "open this surface.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        is AuthorizationDecision.Denied -> Text(
+                            decision.reason,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                 }
             }
         }
     }
+}
+
+private fun destinationFor(role: UserRole): MainDestination = when (role) {
+    UserRole.CUSTOMER -> MainDestination.CUSTOMER
+    UserRole.DEALER -> MainDestination.DEALER
+    UserRole.INSTALLER -> MainDestination.INSTALLER
 }

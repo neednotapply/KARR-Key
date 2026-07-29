@@ -7,6 +7,7 @@ import com.karr.master.core.Session
 import com.karr.master.core.TechnicianJob
 import com.karr.master.core.UserRole
 import com.karr.master.core.VehicleSummary
+import com.karr.master.core.displayName
 import java.time.Instant
 
 class DefaultMasterRepository(
@@ -22,18 +23,25 @@ class DefaultMasterRepository(
             password.fill('\u0000')
         }
 
-    override suspend fun demoSession(roles: Set<UserRole>): Session {
-        val selectedRoles = roles.ifEmpty { UserRole.entries.toSet() }
+    override suspend fun demoSession(role: UserRole): Session {
+        val roles = setOf(role)
+        val accounts = when (role) {
+            UserRole.CUSTOMER -> listOf(
+                AccountScope("demo-customer", "Demo Customer"),
+            )
+            UserRole.DEALER,
+            UserRole.INSTALLER,
+            -> listOf(
+                AccountScope("demo-dealer", "Demo Dealer"),
+            )
+        }
         return Session(
             userId = "local-demo",
-            displayName = "Local integration demo",
-            roles = selectedRoles,
-            capabilities = capabilitiesFor(selectedRoles),
-            accounts = listOf(
-                AccountScope("demo-dealer", "Demo Dealer"),
-                AccountScope("demo-customer", "Demo Customer"),
-            ),
-            activeAccountId = "demo-dealer",
+            displayName = "${role.displayName()} demo",
+            roles = roles,
+            capabilities = capabilitiesFor(roles),
+            accounts = accounts,
+            activeAccountId = accounts.single().accountId,
             liveAuthorization = false,
             expiresAt = null,
             demo = true,
@@ -42,14 +50,23 @@ class DefaultMasterRepository(
 
     override suspend fun vehicles(session: Session): Result<List<VehicleSummary>> =
         if (session.demo) {
-            Result.success(demoVehicles)
+            Result.success(
+                when {
+                    UserRole.CUSTOMER in session.roles ->
+                        demoVehicles.filter { it.status == "Customer" }
+                    UserRole.DEALER in session.roles -> demoVehicles
+                    else -> emptyList()
+                },
+            )
         } else {
             serverApi.vehicles(session)
         }
 
     override suspend fun jobs(session: Session): Result<List<TechnicianJob>> =
         if (session.demo) {
-            Result.success(demoJobs)
+            Result.success(
+                if (UserRole.INSTALLER in session.roles) demoJobs else emptyList(),
+            )
         } else {
             serverApi.jobs(session)
         }

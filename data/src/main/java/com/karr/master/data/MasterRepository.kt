@@ -7,7 +7,7 @@ import com.karr.master.core.VehicleSummary
 
 interface MasterRepository {
     suspend fun login(username: String, password: CharArray): Result<Session>
-    suspend fun demoSession(roles: Set<UserRole>): Session
+    suspend fun demoSession(role: UserRole): Session
     suspend fun vehicles(session: Session): Result<List<VehicleSummary>>
     suspend fun jobs(session: Session): Result<List<TechnicianJob>>
     suspend fun logout()

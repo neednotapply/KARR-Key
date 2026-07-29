@@ -63,43 +63,63 @@ fun InstallerFeatureScreen(
             }
         }
         item {
-            Text("Workflows", style = MaterialTheme.typography.titleMedium)
+            Text("Complete feature catalog", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "${FeatureCatalog.installer.size} recovered installer features",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
-        items(FeatureCatalog.installer, key = FeatureDefinition::id) { feature ->
-            val decision = policy.authorize(session, feature)
-            ElevatedCard(Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+        FeatureCatalog.installer.groupBy(FeatureDefinition::category).forEach { (category, features) ->
+            item(key = "category:$category") {
+                Text(
+                    category,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            items(features, key = FeatureDefinition::id) { feature ->
+                val decision = policy.authorize(session, feature)
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Text(feature.title, style = MaterialTheme.typography.titleMedium)
-                        if (feature.safetySensitive) {
-                            Text(
-                                "JOB REQUIRED",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.error,
-                            )
-                        }
-                    }
-                    Text(
-                        feature.summary,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    when (decision) {
-                        AuthorizationDecision.Allowed -> Button(
-                            onClick = { onOpenFeature(feature) },
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
-                            Text("Open")
+                            Text(feature.title, style = MaterialTheme.typography.titleMedium)
+                            if (feature.safetySensitive) {
+                                Text(
+                                    "JOB REQUIRED",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
                         }
-                        is AuthorizationDecision.Denied -> Text(
-                            decision.reason,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
+                        Text(
+                            feature.summary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        when (decision) {
+                            AuthorizationDecision.Allowed -> Button(
+                                onClick = { onOpenFeature(feature) },
+                            ) {
+                                Text("Open")
+                            }
+                            is AuthorizationDecision.Denied -> {
+                                Text(
+                                    decision.reason,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                                if (session.demo) {
+                                    Button(onClick = { onOpenFeature(feature) }) {
+                                        Text("Preview")
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

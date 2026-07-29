@@ -14,7 +14,7 @@ Compose feature
 
 | Module | Responsibility |
 |---|---|
-| `app` | Process entrypoint, demo/login shell, navigation, shared UI |
+| `app` | Process entrypoint, single-role demo/login shell, navigation, shared UI |
 | `core` | Domain models, sessions, capabilities, and authorization policy |
 | `data` | Backend boundary, Keystore-backed storage, offline operations |
 | `protocol` | Packet framing, parsing, commands, authentication interface |

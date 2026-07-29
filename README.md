@@ -21,7 +21,8 @@ KARR applications.
 - Original (`0xAA`), counter (`0xBB`), and encrypted (`0x55`) packet codecs.
 - Android Keystore-backed token/payload encryption and an encrypted durable
   offline-operation queue.
-- Safe demo mode in which live mutation remains disabled.
+- Single-role Customer, Dealer, and Installer demos with the complete recovered
+  feature catalogs; live mutation remains disabled.
 
 ## Safety boundary
 
