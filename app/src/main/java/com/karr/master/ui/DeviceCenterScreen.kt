@@ -1,5 +1,6 @@
 package com.karr.master.ui
 
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,6 +13,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,21 +26,27 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.karr.master.ble.BleController
 import com.karr.master.ble.BleSessionState
 import com.karr.master.ble.DiscoveredDevice
 import com.karr.master.ble.KarrCandidateTier
 import com.karr.master.ble.KarrGatt
+import com.karr.master.protocol.DeviceKeyProvisioning
+import com.karr.master.protocol.DeviceKeyPurpose
 import com.karr.master.protocol.PacketParseResult
 import com.karr.master.protocol.QtCommand
 import com.karr.master.protocol.QtProtocolCodec
+import com.karr.master.protocol.ResearchKeyEncoding
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 @Composable
 fun DeviceCenterScreen(
     controller: BleController,
+    deviceKeys: DeviceKeyProvisioning,
     requestPermissions: (((Boolean) -> Unit) -> Unit),
     snackbar: SnackbarHostState,
     modifier: Modifier = Modifier,
@@ -55,6 +63,49 @@ fun DeviceCenterScreen(
     var lastNotification by remember { mutableStateOf<String?>(null) }
     var selfTest by remember { mutableStateOf<String?>(null) }
     var showOtherDevices by remember { mutableStateOf(false) }
+    var customerKeyInput by remember { mutableStateOf("") }
+    var dealerKeyInput by remember { mutableStateOf("") }
+    var customerKeyProvisioned by remember(deviceKeys) {
+        mutableStateOf(deviceKeys.isProvisioned(DeviceKeyPurpose.CUSTOMER))
+    }
+    var dealerKeyProvisioned by remember(deviceKeys) {
+        mutableStateOf(deviceKeys.isProvisioned(DeviceKeyPurpose.DEALER))
+    }
+
+    fun saveKey(
+        purpose: DeviceKeyPurpose,
+        input: String,
+        clearInput: () -> Unit,
+        markProvisioned: () -> Unit,
+    ) {
+        val parsed = ResearchKeyEncoding.parseLegacyHex(input)
+        val key = parsed.getOrElse { failure ->
+            scope.launch {
+                snackbar.showSnackbar(
+                    failure.message ?: "The research key is invalid.",
+                )
+            }
+            return
+        }
+        val saved = try {
+            deviceKeys.provision(purpose, key)
+        } finally {
+            key.fill(0)
+        }
+        saved.onSuccess {
+            clearInput()
+            markProvisioned()
+            scope.launch {
+                snackbar.showSnackbar("Key encrypted locally.")
+            }
+        }.onFailure { failure ->
+            scope.launch {
+                snackbar.showSnackbar(
+                    failure.message ?: "The key could not be stored.",
+                )
+            }
+        }
+    }
 
     LaunchedEffect(controller) {
         controller.notifications.collectLatest { bytes ->
@@ -130,9 +181,126 @@ fun DeviceCenterScreen(
                                 state is BleSessionState.Connecting ||
                                 state is BleSessionState.DiscoveringUart ||
                                 state is BleSessionState.UartSubscribed ||
-                                state is BleSessionState.AuthenticationRequired,
+                                state is BleSessionState.AuthenticationRequired ||
+                                state is BleSessionState.Authenticating,
                         ) {
                             Text("Disconnect")
+                        }
+                    }
+                }
+            }
+        }
+        item {
+            ElevatedCard(Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(
+                        "Legacy research authentication",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        "Provision only material authorized for the current research. " +
+                            "Values are encrypted with Android Keystore, never displayed " +
+                            "after saving, and are not bundled with the APK.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
+                        if (customerKeyProvisioned) {
+                            "Customer key: provisioned locally"
+                        } else {
+                            "Customer key: not provisioned"
+                        },
+                        color = if (customerKeyProvisioned) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                    OutlinedTextField(
+                        value = customerKeyInput,
+                        onValueChange = { customerKeyInput = it },
+                        label = { Text("Customer key (16-byte hex)") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                saveKey(
+                                    purpose = DeviceKeyPurpose.CUSTOMER,
+                                    input = customerKeyInput,
+                                    clearInput = { customerKeyInput = "" },
+                                    markProvisioned = { customerKeyProvisioned = true },
+                                )
+                            },
+                            enabled = customerKeyInput.isNotBlank(),
+                        ) {
+                            Text("Save Customer")
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                deviceKeys.remove(DeviceKeyPurpose.CUSTOMER)
+                                customerKeyInput = ""
+                                customerKeyProvisioned = false
+                            },
+                            enabled = customerKeyProvisioned,
+                        ) {
+                            Text("Clear")
+                        }
+                    }
+                    Text(
+                        if (dealerKeyProvisioned) {
+                            "Dealer / installer key: provisioned locally"
+                        } else {
+                            "Dealer / installer key: not provisioned"
+                        },
+                        color = if (dealerKeyProvisioned) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                    OutlinedTextField(
+                        value = dealerKeyInput,
+                        onValueChange = { dealerKeyInput = it },
+                        label = { Text("Dealer key (16-byte hex)") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                saveKey(
+                                    purpose = DeviceKeyPurpose.DEALER,
+                                    input = dealerKeyInput,
+                                    clearInput = { dealerKeyInput = "" },
+                                    markProvisioned = { dealerKeyProvisioned = true },
+                                )
+                            },
+                            enabled = dealerKeyInput.isNotBlank(),
+                        ) {
+                            Text("Save Dealer")
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                deviceKeys.remove(DeviceKeyPurpose.DEALER)
+                                dealerKeyInput = ""
+                                dealerKeyProvisioned = false
+                            },
+                            enabled = dealerKeyProvisioned,
+                        ) {
+                            Text("Clear")
                         }
                     }
                 }
@@ -181,12 +349,14 @@ fun DeviceCenterScreen(
                             Text("Send READ_STATE")
                         }
                     }
-                    if (state is BleSessionState.AuthenticationRequired) {
+                    if (state is BleSessionState.AuthenticationRequired ||
+                        state is BleSessionState.Authenticating
+                    ) {
                         Text(
-                            "The unit requested application authentication. The recovered " +
-                                "local challenge flow is the next compatibility layer; " +
-                                "Android Bluetooth pairing alone does not satisfy it.",
-                            color = MaterialTheme.colorScheme.error,
+                            "The unit requested application authentication. KARR Master " +
+                                "will read its mode, use the matching locally provisioned " +
+                                "key, and wait for AUTH_SUCCESS.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
@@ -358,6 +528,8 @@ private fun BleSessionState.label(
     is BleSessionState.AuthenticationRequired ->
         "KARR authentication required: ${name ?: address} " +
             "($challengeBytes-byte challenge). BLE link is healthy."
+    is BleSessionState.Authenticating ->
+        "Authenticating ${name ?: address}: $step"
     is BleSessionState.Ready -> "Authenticated and ready: ${name ?: address}"
     is BleSessionState.Error -> "Error: $message"
 }

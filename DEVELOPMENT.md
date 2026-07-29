@@ -32,6 +32,9 @@ substitutes for KARR application authentication.
 - Possible or broadcast-only advertisements remain diagnostic-only; connection
   requires a connectable `CONFIRMED_FORMAT` result.
 - UART subscription confirms transport, not authenticated readiness.
+- An 8-byte `REQUEST_AUTH` challenge triggers `READ_MODE`, selects the
+  matching locally provisioned Customer or Dealer/Installer material, sends
+  `PROVIDE_AUTH`, and still waits for the unit's `AUTH_SUCCESS`.
 - `Ready` requires a valid authentication-success notification for the current
   connection generation.
 - Disconnect invalidates authentication, counters, and outstanding responses.
@@ -58,6 +61,14 @@ service `49535343-FE7D-4AE5-8FA9-9FAFD205E455` with characteristic
 command-specific payload schemas must be confirmed individually from callers,
 authorized captures, and physical fixtures. Authentication must negotiate the
 supported unit mode without silent downgrade.
+
+The implemented legacy challenge transform is source-faithful for the
+recovered 8-byte flow. Customer/Valet mode incorporates the recovered unit
+serial positions; other legacy modes use Dealer/Installer material. Values
+must be explicitly entered in the Device center and are encrypted with
+Android Keystore. No research key is present in source, tests, resources,
+BuildConfig, logs, or release artifacts. A 32-byte challenge is rejected until
+an authorized per-unit AES provisioning path is implemented.
 
 The local APKs, managed decompilations, smali, and IDA databases are the
 compatibility source of truth. Managed C# callers are preferred for
@@ -95,7 +106,7 @@ hardware:
 
 - exact command payload schemas traced from the decompiled managed callers;
 - representative units and byte-exact golden BLE captures;
-- an explicit local provisioning path for per-unit authentication material;
+- the newer 32-byte/AES path with unit-scoped provisioning material;
 - local vehicle/work-record schemas and import/export formats;
 - signed firmware/CAN metadata, compatibility checks, and transfer rules;
 - production application ID, signing, privacy, and backup configuration.

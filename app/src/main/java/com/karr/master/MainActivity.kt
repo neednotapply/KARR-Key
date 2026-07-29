@@ -8,7 +8,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.karr.master.ble.AndroidBleController
 import com.karr.master.ble.BlePermissions
+import com.karr.master.data.EncryptedDeviceKeyStore
+import com.karr.master.data.EncryptedLocalValueStore
 import com.karr.master.data.LocalMasterRepository
+import com.karr.master.protocol.LegacyDeviceAuthenticator
 import com.karr.master.ui.KarrMasterApp
 import com.karr.master.ui.KarrMasterTheme
 
@@ -26,7 +29,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        bleController = AndroidBleController(this)
+        val deviceKeys = EncryptedDeviceKeyStore(
+            EncryptedLocalValueStore(this),
+        )
+        bleController = AndroidBleController(
+            context = this,
+            authenticator = LegacyDeviceAuthenticator(deviceKeys),
+        )
         val repository = LocalMasterRepository()
 
         setContent {
@@ -34,6 +43,7 @@ class MainActivity : ComponentActivity() {
                 KarrMasterApp(
                     repository = repository,
                     bleController = bleController,
+                    deviceKeys = deviceKeys,
                     requestBlePermissions = ::requestBlePermissions,
                 )
             }

@@ -4,12 +4,12 @@ KARR Master is an independent native Android research prototype that
 consolidates Customer, Dealer, and Installer workflows recovered from legacy
 KARR applications.
 
-> **Status:** version 0.2.1. KARR Master is offline-only and Bluetooth-first.
+> **Status:** version 0.2.2. KARR Master is offline-only and Bluetooth-first.
 > It opens directly to the device center, requests no Android Internet
 > permission, and contains no login or backend adapter. BLE discovery,
 > transparent-UART subscription, packet parsing, authentication-state
-> diagnostics, local workflow navigation, and encrypted local storage are
-> implemented.
+> diagnostics, locally provisioned legacy challenge authentication, local
+> workflow navigation, and encrypted local storage are implemented.
 
 ## Capabilities
 
@@ -26,6 +26,9 @@ KARR applications.
   for connectable advertisements with a confirmed recovered identifier.
 - Shared transparent-UART discovery, subscription, notification parsing, and
   explicit transport/authentication states.
+- Recovered 8-byte legacy challenge authentication with explicit Customer and
+  Dealer/Installer key provisioning. Provisioned values are encrypted with
+  Android Keystore and are never compiled into the application.
 - Original (`0xAA`), counter (`0xBB`), and encrypted (`0x55`) packet codecs.
 - Android Keystore-backed local-value encryption and an encrypted local
   operation journal.
@@ -38,6 +41,11 @@ BLE discovery or a GATT connection is not application authentication. A
 safety-sensitive command remains locked until the connected unit sends
 `AUTH_SUCCESS` for the current BLE connection and the user explicitly starts
 the operation.
+
+Authorized research keys are entered manually in the Device center. KARR
+Master stores only their Android-Keystore-encrypted form, never displays a
+saved value, and removes authenticated state on disconnect. The legacy flow
+does not cover the newer 32-byte/per-unit AES authentication path.
 
 The recovered APKs, managed decompilations, and IDA projects are offline
 compatibility evidence. KARR Master does not contact their original services

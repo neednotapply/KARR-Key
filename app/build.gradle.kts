@@ -11,8 +11,8 @@ android {
         applicationId = "com.karr.master"
         minSdk = 23
         targetSdk = 36
-        versionCode = 6
-        versionName = "0.2.1"
+        versionCode = 7
+        versionName = "0.2.2"
     }
 
     buildFeatures {

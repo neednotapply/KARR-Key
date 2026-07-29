@@ -27,6 +27,11 @@ sealed interface BleSessionState {
         val name: String?,
         val challengeBytes: Int,
     ) : BleSessionState
+    data class Authenticating(
+        val address: String,
+        val name: String?,
+        val step: String,
+    ) : BleSessionState
     data class Ready(val address: String, val name: String?) : BleSessionState
     data class Error(val message: String) : BleSessionState
 }

@@ -55,6 +55,7 @@ import com.karr.master.data.MasterRepository
 import com.karr.master.feature.customer.CustomerFeatureScreen
 import com.karr.master.feature.dealer.DealerFeatureScreen
 import com.karr.master.feature.installer.InstallerFeatureScreen
+import com.karr.master.protocol.DeviceKeyProvisioning
 import kotlin.math.abs
 
 private enum class MainDestination(
@@ -73,6 +74,7 @@ private enum class MainDestination(
 fun KarrMasterApp(
     repository: MasterRepository,
     bleController: BleController,
+    deviceKeys: DeviceKeyProvisioning,
     requestBlePermissions: (((Boolean) -> Unit) -> Unit),
 ) {
     val session = remember(repository) { repository.localSession() }
@@ -92,6 +94,7 @@ fun KarrMasterApp(
         vehicles = vehicles,
         jobs = jobs,
         bleController = bleController,
+        deviceKeys = deviceKeys,
         requestBlePermissions = requestBlePermissions,
         snackbar = snackbar,
         onDestination = {
@@ -113,6 +116,7 @@ private fun MasterShell(
     vehicles: List<VehicleSummary>,
     jobs: List<TechnicianJob>,
     bleController: BleController,
+    deviceKeys: DeviceKeyProvisioning,
     requestBlePermissions: (((Boolean) -> Unit) -> Unit),
     snackbar: SnackbarHostState,
     onDestination: (MainDestination) -> Unit,
@@ -231,6 +235,7 @@ private fun MasterShell(
                 )
                 destination == MainDestination.DEVICE -> DeviceCenterScreen(
                     controller = bleController,
+                    deviceKeys = deviceKeys,
                     requestPermissions = requestBlePermissions,
                     snackbar = snackbar,
                     modifier = Modifier.fillMaxSize(),

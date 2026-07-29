@@ -13,17 +13,26 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.content.Context
 import android.os.Build
+import com.karr.master.protocol.AuthenticationAction
+import com.karr.master.protocol.DeviceAuthenticator
+import com.karr.master.protocol.KarrAuthenticationSession
 import com.karr.master.protocol.PacketParseResult
 import com.karr.master.protocol.QtCommand
 import com.karr.master.protocol.QtProtocolCodec
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
@@ -31,6 +40,7 @@ import kotlinx.coroutines.withTimeout
 @SuppressLint("MissingPermission")
 class AndroidBleController(
     context: Context,
+    authenticator: DeviceAuthenticator,
 ) : BleController {
     private val appContext = context.applicationContext
     private val manager = appContext.getSystemService(BluetoothManager::class.java)
@@ -38,6 +48,9 @@ class AndroidBleController(
         get() = manager?.adapter
 
     private val writeMutex = Mutex()
+    private val callbackScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val authentication = KarrAuthenticationSession(authenticator)
+    private val notificationEvents = Channel<NotificationEvent>(Channel.UNLIMITED)
     private val discovered = ConcurrentHashMap<String, DiscoveredDevice>()
     private val _state = MutableStateFlow<BleSessionState>(BleSessionState.Idle)
     private val _devices = MutableStateFlow<List<DiscoveredDevice>>(emptyList())
@@ -54,6 +67,14 @@ class AndroidBleController(
     override val state: StateFlow<BleSessionState> = _state.asStateFlow()
     override val devices: StateFlow<List<DiscoveredDevice>> = _devices.asStateFlow()
     override val notifications: SharedFlow<ByteArray> = _notifications.asSharedFlow()
+
+    init {
+        callbackScope.launch {
+            for (event in notificationEvents) {
+                processNotification(event)
+            }
+        }
+    }
 
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
@@ -138,6 +159,7 @@ class AndroidBleController(
             if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 val previousState = _state.value
                 pendingWrite?.complete(false)
+                authentication.reset()
                 closeGatt(callbackGatt)
                 _state.value = if (status == BluetoothGatt.GATT_SUCCESS) {
                     BleSessionState.Idle
@@ -298,6 +320,7 @@ class AndroidBleController(
     }
 
     override fun disconnect() {
+        authentication.reset()
         pendingWrite?.cancel()
         pendingWrite = null
         uartCharacteristic = null
@@ -312,13 +335,22 @@ class AndroidBleController(
     }
 
     override suspend fun send(packet: ByteArray): Result<Unit> = runCatching {
+        writePacket(packet, requireReady = true).getOrThrow()
+    }
+
+    private suspend fun writePacket(
+        packet: ByteArray,
+        requireReady: Boolean,
+    ): Result<Unit> = runCatching {
         require(packet.isNotEmpty()) { "Cannot send an empty BLE packet." }
         writeMutex.withLock {
             val activeGatt = requireNotNull(gatt) { "No BLE device is connected." }
             val characteristic = requireNotNull(uartCharacteristic) {
                 "KARR UART is not ready."
             }
-            check(_state.value is BleSessionState.Ready) { "BLE session is not ready." }
+            if (requireReady) {
+                check(_state.value is BleSessionState.Ready) { "BLE session is not ready." }
+            }
 
             val supportsResponse =
                 characteristic.properties and BluetoothGattCharacteristic.PROPERTY_WRITE != 0
@@ -358,9 +390,12 @@ class AndroidBleController(
     override fun shutdown() {
         stopScan()
         disconnect()
+        notificationEvents.close()
+        callbackScope.cancel()
     }
 
     private fun failAndClose(message: String, callbackGatt: BluetoothGatt) {
+        authentication.reset()
         pendingWrite?.complete(false)
         closeGatt(callbackGatt)
         _state.value = BleSessionState.Error(message)
@@ -372,30 +407,83 @@ class AndroidBleController(
     ) {
         val copy = value.copyOf()
         _notifications.tryEmit(copy)
-        when (val parsed = QtProtocolCodec.parse(copy)) {
-            is PacketParseResult.Failure -> Unit
-            is PacketParseResult.Success -> {
-                when (parsed.packet.command) {
-                    QtCommand.REQUEST_AUTH -> {
-                        _state.value = BleSessionState.AuthenticationRequired(
-                            address = callbackGatt.device.address,
-                            name = connectedName(callbackGatt),
-                            challengeBytes = parsed.packet.payload.size,
-                        )
-                    }
-                    QtCommand.AUTH_SUCCESS -> {
-                        _state.value = BleSessionState.Ready(
-                            address = callbackGatt.device.address,
-                            name = connectedName(callbackGatt),
-                        )
-                    }
-                    QtCommand.AUTH_FAILED -> {
-                        _state.value = BleSessionState.Error(
-                            "KARR application authentication was rejected.",
-                        )
-                    }
-                    else -> Unit
+        notificationEvents.trySend(
+            NotificationEvent(
+                gatt = callbackGatt,
+                value = copy,
+            ),
+        )
+    }
+
+    private suspend fun processNotification(event: NotificationEvent) {
+        if (gatt !== event.gatt) {
+            return
+        }
+        val parsed = QtProtocolCodec.parse(event.value)
+        if (parsed !is PacketParseResult.Success) {
+            return
+        }
+        val address = event.gatt.device.address
+        val name = connectedName(event.gatt)
+        val action = authentication.onPacket(
+            unitSerial = name.orEmpty(),
+            packet = parsed.packet,
+        )
+        when (action) {
+            AuthenticationAction.None -> Unit
+            is AuthenticationAction.Send -> {
+                _state.value = when (action.command) {
+                    QtCommand.READ_MODE -> BleSessionState.AuthenticationRequired(
+                        address = address,
+                        name = name,
+                        challengeBytes = parsed.packet.payload.size,
+                    )
+                    QtCommand.PROVIDE_AUTH -> BleSessionState.Authenticating(
+                        address = address,
+                        name = name,
+                        step = "Sending local challenge response",
+                    )
+                    else -> BleSessionState.Authenticating(
+                        address = address,
+                        name = name,
+                        step = action.command.name,
+                    )
                 }
+                val packet = QtProtocolCodec.generateOriginal(
+                    command = action.command,
+                    payload = action.payload,
+                )
+                try {
+                    writePacket(packet, requireReady = false).getOrElse { failure ->
+                        authentication.reset()
+                        failAndClose(
+                            failure.message ?: "KARR authentication write failed.",
+                            event.gatt,
+                        )
+                        return
+                    }
+                    if (action.command == QtCommand.READ_MODE) {
+                        _state.value = BleSessionState.Authenticating(
+                            address = address,
+                            name = name,
+                            step = "Reading unit mode",
+                        )
+                    }
+                } finally {
+                    if (action.command == QtCommand.PROVIDE_AUTH) {
+                        action.payload.fill(0)
+                        packet.fill(0)
+                    }
+                }
+            }
+            AuthenticationAction.Authenticated -> {
+                _state.value = BleSessionState.Ready(
+                    address = address,
+                    name = name,
+                )
+            }
+            is AuthenticationAction.Failed -> {
+                failAndClose(action.reason, event.gatt)
             }
         }
     }
@@ -406,10 +494,16 @@ class AndroidBleController(
     private fun closeGatt(callbackGatt: BluetoothGatt) {
         runCatching { callbackGatt.close() }
         if (gatt === callbackGatt) {
+            authentication.reset()
             gatt = null
             uartCharacteristic = null
         }
     }
+
+    private data class NotificationEvent(
+        val gatt: BluetoothGatt,
+        val value: ByteArray,
+    )
 
     private object BluetoothDeviceTransport {
         const val LE = 2

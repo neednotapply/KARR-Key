@@ -13,7 +13,10 @@ object GattStatus {
         previousState: BleSessionState,
     ): String = when {
         status == PEER_TERMINATED &&
-            previousState is BleSessionState.AuthenticationRequired ->
+            (
+                previousState is BleSessionState.AuthenticationRequired ||
+                    previousState is BleSessionState.Authenticating
+                ) ->
             "KARR authentication timed out; the unit ended the healthy BLE link " +
                 "(GATT status 19). A valid local challenge response is required."
         status == PEER_TERMINATED ->
