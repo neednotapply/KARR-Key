@@ -2,21 +2,20 @@
 
 ## Architecture
 
-KARR Master keeps UI, authorization, data, protocol, and BLE lifetimes
-separate:
+KARR Master keeps UI, local data, protocol, and BLE lifetimes separate:
 
 ```text
 Compose feature
-  -> role/capability policy
-  -> typed repository or workflow boundary
-  -> authorized backend and/or authenticated BLE session
+  -> local role/capability workspace
+  -> typed local repository or workflow boundary
+  -> authenticated BLE session
 ```
 
 | Module | Responsibility |
 |---|---|
-| `app` | Process entrypoint, single-role demo/login shell, navigation, shared UI |
-| `core` | Domain models, sessions, capabilities, and authorization policy |
-| `data` | Backend boundary, Keystore-backed storage, offline operations |
+| `app` | Process entrypoint, Bluetooth-first shell, navigation, shared UI |
+| `core` | Domain models, local roles, capabilities, and device policy |
+| `data` | Local workspace, Keystore-backed storage, local operation journal |
 | `protocol` | Packet framing, parsing, commands, authentication interface |
 | `ble` | Serialized scan/connect/discover/subscribe/write session |
 | `feature:customer` | Customer vehicle surface |
@@ -24,24 +23,29 @@ Compose feature
 | `feature:installer` | Technician job surface |
 
 Feature screens do not own long-lived BLE callbacks or secret material.
-Transport does not decide authorization. Demo sessions never authorize
-safety-sensitive operations.
+Transport state is the source of device readiness. Local role selection never
+substitutes for KARR application authentication.
 
 ## Required invariants
 
 - A BLE candidate classification identifies a radio family, not ownership.
+- Possible or broadcast-only advertisements remain diagnostic-only; connection
+  requires a connectable `CONFIRMED_FORMAT` result.
 - UART subscription confirms transport, not authenticated readiness.
 - `Ready` requires a valid authentication-success notification for the current
   connection generation.
 - Disconnect invalidates authentication, counters, and outstanding responses.
 - Writes remain serialized and correlated with expected responses/timeouts.
-- Customer controls require current vehicle scope; Dealer mutations require
-  account/vehicle scope; Installer work requires an authorized technician job.
-- Firmware, CAN, enrollment, key, sale, repair, and removal paths require
-  server authorization, compatible signed artifacts where applicable, explicit
-  confirmation, and auditable result handling.
-- No workflow falls back to a recovered static key when network or
-  authorization services are unavailable.
+- Safety-sensitive actions require an authenticated BLE session and explicit
+  confirmation.
+- Firmware and CAN paths additionally require compatible signed local
+  artifacts, power preconditions, acknowledged transfer, and verification.
+- Recovered universal credentials are never compiled into the application.
+- The visible feature catalog contains only local-record or direct-Bluetooth
+  workflows; server accounts, push alerts, maps, remote history, transactions,
+  and submissions stay excluded.
+- The application manifest must not request `INTERNET` or
+  `ACCESS_NETWORK_STATE`; `preBuild` enforces this contract.
 
 ## BLE and protocol compatibility
 
@@ -55,6 +59,12 @@ command-specific payload schemas must be confirmed individually from callers,
 authorized captures, and physical fixtures. Authentication must negotiate the
 supported unit mode without silent downgrade.
 
+The local APKs, managed decompilations, smali, and IDA databases are the
+compatibility source of truth. Managed C# callers are preferred for
+application behavior; the IDA databases primarily explain Xamarin/Mono, JNI,
+TLS, and startup boundaries. None of these research artifacts are runtime
+dependencies.
+
 ## Validation
 
 Run the complete check before handing off a change:
@@ -66,26 +76,30 @@ Run the complete check before handing off a change:
 - Protocol changes require byte-exact positive and negative vectors.
 - BLE-classification changes require confirmed, possible, and unrelated
   advertisement cases.
-- Authorization changes require denied demo/expired/wrong-role cases.
+- Device-policy changes require unauthenticated, disconnected, and wrong-role
+  cases.
 - Android lifecycle or UI changes require an emulator or authorized-device
   smoke test.
+- Horizontal swipes change only primary sections. Feature details consume the
+  Android back action to return to their parent section.
 - Never attach credentials, device keys, raw authentication material,
   vehicle-identifying captures, or arbitrary proprietary binaries.
 
 CI intentionally skips Git LFS because research artifacts are not build
 inputs.
 
-## External integration requirements
+## Remaining offline compatibility work
 
-Production behavior remains blocked on:
+Completing device workflows requires only local evidence and authorized test
+hardware:
 
-- current backend schemas and authorized test accounts for each role;
-- server-issued role/capability and account/vehicle/job scope;
-- a server-authorized per-unit challenge-response contract;
-- representative units and golden packet captures;
-- signed firmware/CAN metadata and transfer rules;
-- production application ID, signing, maps, push, audit, privacy, backup, and
-  telemetry configuration.
+- exact command payload schemas traced from the decompiled managed callers;
+- representative units and byte-exact golden BLE captures;
+- an explicit local provisioning path for per-unit authentication material;
+- local vehicle/work-record schemas and import/export formats;
+- signed firmware/CAN metadata, compatibility checks, and transfer rules;
+- production application ID, signing, privacy, and backup configuration.
 
-Do not substitute values recovered from the archived applications for these
-requirements.
+Do not introduce a network client to fill a compatibility gap. Record the gap,
+return to the preserved artifacts and authorized fixtures, and add byte-exact
+tests before enabling the affected command.

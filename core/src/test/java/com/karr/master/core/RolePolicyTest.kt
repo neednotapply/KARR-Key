@@ -8,39 +8,39 @@ class RolePolicyTest {
     private val policy = RolePolicy()
 
     @Test
-    fun deniesSafetySensitiveFeatureInDemoSession() {
+    fun deniesSafetySensitiveFeatureWithoutAuthenticatedBluetooth() {
         val feature = FeatureCatalog.customer.first { it.id == "customer.controls" }
         val session = Session(
-            userId = "demo",
-            displayName = "Demo",
+            displayName = "Offline",
             roles = setOf(UserRole.CUSTOMER),
             capabilities = setOf(Capability.CUSTOMER_CONTROL),
-            accounts = emptyList(),
-            activeAccountId = null,
-            liveAuthorization = false,
-            expiresAt = null,
-            demo = true,
         )
 
-        val decision = policy.authorize(session, feature)
+        val decision = policy.authorize(
+            session = session,
+            feature = feature,
+            deviceAuthenticated = false,
+        )
 
         assertTrue(decision is AuthorizationDecision.Denied)
     }
 
     @Test
-    fun allowsReadFeatureWithRoleAndCapability() {
-        val feature = FeatureCatalog.dealer.first { it.id == "dealer.inventory" }
+    fun allowsSafetySensitiveFeatureAfterBluetoothAuthentication() {
+        val feature = FeatureCatalog.customer.first { it.id == "customer.controls" }
         val session = Session(
-            userId = "dealer",
-            displayName = "Dealer",
-            roles = setOf(UserRole.DEALER),
-            capabilities = setOf(Capability.DEALER_INVENTORY),
-            accounts = emptyList(),
-            activeAccountId = null,
-            liveAuthorization = true,
-            expiresAt = null,
+            displayName = "Offline",
+            roles = setOf(UserRole.CUSTOMER),
+            capabilities = setOf(Capability.CUSTOMER_CONTROL),
         )
 
-        assertEquals(AuthorizationDecision.Allowed, policy.authorize(session, feature))
+        assertEquals(
+            AuthorizationDecision.Allowed,
+            policy.authorize(
+                session = session,
+                feature = feature,
+                deviceAuthenticated = true,
+            ),
+        )
     }
 }

@@ -8,7 +8,7 @@ import com.karr.master.core.UserRole
 import java.time.Instant
 import java.util.UUID
 
-enum class OfflineOperationState {
+enum class LocalOperationState {
     PENDING,
     IN_FLIGHT,
     SUCCEEDED,
@@ -16,21 +16,21 @@ enum class OfflineOperationState {
     FAILED_PERMANENT,
 }
 
-data class OfflineOperation(
+data class LocalOperation(
     val id: String,
     val role: UserRole,
     val type: String,
     val scope: String,
     val payload: String,
     val idempotencyKey: String,
-    val state: OfflineOperationState,
+    val state: LocalOperationState,
     val attempts: Int,
     val createdUtc: Instant,
     val updatedUtc: Instant,
     val lastError: String?,
 )
 
-class OfflineOperationStore(
+class LocalOperationStore(
     context: Context,
     private val cipher: StringCipher = AndroidKeystoreCipher("karr_master_queue_v1"),
 ) : SQLiteOpenHelper(context, "karr_master_operations.db", null, DATABASE_VERSION) {
@@ -57,7 +57,7 @@ class OfflineOperationStore(
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         check(oldVersion == newVersion) {
-            "No destructive offline queue migration is defined."
+            "No destructive local-operation migration is defined."
         }
     }
 
@@ -66,16 +66,16 @@ class OfflineOperationStore(
         type: String,
         scope: String,
         payload: String,
-    ): OfflineOperation {
+    ): LocalOperation {
         val now = Instant.now()
-        val operation = OfflineOperation(
+        val operation = LocalOperation(
             id = UUID.randomUUID().toString(),
             role = role,
             type = type,
             scope = scope,
             payload = payload,
             idempotencyKey = UUID.randomUUID().toString(),
-            state = OfflineOperationState.PENDING,
+            state = LocalOperationState.PENDING,
             attempts = 0,
             createdUtc = now,
             updatedUtc = now,
@@ -85,15 +85,15 @@ class OfflineOperationStore(
         return operation
     }
 
-    fun pending(limit: Int = 100): List<OfflineOperation> {
+    fun pending(limit: Int = 100): List<LocalOperation> {
         require(limit in 1..500)
         return readableDatabase.query(
             "operations",
             COLUMNS,
             "state IN (?, ?)",
             arrayOf(
-                OfflineOperationState.PENDING.name,
-                OfflineOperationState.FAILED_RETRYABLE.name,
+                LocalOperationState.PENDING.name,
+                LocalOperationState.FAILED_RETRYABLE.name,
             ),
             null,
             null,
@@ -103,14 +103,14 @@ class OfflineOperationStore(
             buildList {
                 while (cursor.moveToNext()) {
                     add(
-                        OfflineOperation(
+                        LocalOperation(
                             id = cursor.getString(0),
                             role = UserRole.valueOf(cursor.getString(1)),
                             type = cursor.getString(2),
                             scope = cipher.decrypt(cursor.getString(3)),
                             payload = cipher.decrypt(cursor.getString(4)),
                             idempotencyKey = cursor.getString(5),
-                            state = OfflineOperationState.valueOf(cursor.getString(6)),
+                            state = LocalOperationState.valueOf(cursor.getString(6)),
                             attempts = cursor.getInt(7),
                             createdUtc = Instant.parse(cursor.getString(8)),
                             updatedUtc = Instant.parse(cursor.getString(9)),
@@ -124,7 +124,7 @@ class OfflineOperationStore(
 
     fun updateState(
         id: String,
-        state: OfflineOperationState,
+        state: LocalOperationState,
         attempts: Int,
         lastError: String? = null,
     ) {
@@ -144,10 +144,10 @@ class OfflineOperationStore(
             "id = ?",
             arrayOf(id),
         )
-        check(changed == 1) { "Offline operation was not found." }
+        check(changed == 1) { "Local operation was not found." }
     }
 
-    private fun OfflineOperation.toValues() = ContentValues().apply {
+    private fun LocalOperation.toValues() = ContentValues().apply {
         put("id", id)
         put("role", role.name)
         put("type", type)

@@ -30,7 +30,6 @@ import com.karr.master.ble.BleSessionState
 import com.karr.master.ble.DiscoveredDevice
 import com.karr.master.ble.KarrCandidateTier
 import com.karr.master.ble.KarrGatt
-import com.karr.master.core.Session
 import com.karr.master.protocol.PacketParseResult
 import com.karr.master.protocol.QtCommand
 import com.karr.master.protocol.QtProtocolCodec
@@ -39,7 +38,6 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun DeviceCenterScreen(
-    session: Session,
     controller: BleController,
     requestPermissions: (((Boolean) -> Unit) -> Unit),
     snackbar: SnackbarHostState,
@@ -49,6 +47,10 @@ fun DeviceCenterScreen(
     val devices by controller.devices.collectAsState()
     val candidates = devices.filter { it.classification.isCandidate }
     val otherDevices = devices.filterNot { it.classification.isCandidate }
+    val confirmedCount = candidates.count {
+        it.classification.tier == KarrCandidateTier.CONFIRMED_FORMAT
+    }
+    val possibleCount = candidates.size - confirmedCount
     val scope = rememberCoroutineScope()
     var lastNotification by remember { mutableStateOf<String?>(null) }
     var selfTest by remember { mutableStateOf<String?>(null) }
@@ -87,7 +89,7 @@ fun DeviceCenterScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text("Connection", style = MaterialTheme.typography.titleMedium)
-                    Text(state.label(candidates.size, devices.size))
+                    Text(state.label(confirmedCount, possibleCount, devices.size))
                     Text(
                         "UART service: ${KarrGatt.UART_SERVICE}",
                         style = MaterialTheme.typography.bodySmall,
@@ -174,25 +176,16 @@ fun DeviceCenterScreen(
                                     }
                                 }
                             },
-                            enabled = session.liveAuthorization &&
-                                state is BleSessionState.Ready,
+                            enabled = state is BleSessionState.Ready,
                         ) {
                             Text("Send READ_STATE")
                         }
                     }
-                    if (!session.liveAuthorization) {
-                        Text(
-                            "Live commands are locked until a production session supplies " +
-                                "server authorization and device authentication.",
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
                     if (state is BleSessionState.AuthenticationRequired) {
                         Text(
-                            "The unit requested KARR application authentication. This is " +
-                                "separate from Android Bluetooth pairing; demo mode has no " +
-                                "authorized challenge-response provider.",
+                            "The unit requested application authentication. The recovered " +
+                                "local challenge flow is the next compatibility layer; " +
+                                "Android Bluetooth pairing alone does not satisfy it.",
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodySmall,
                         )
@@ -212,7 +205,7 @@ fun DeviceCenterScreen(
         }
         item {
             Text(
-                scanCountLabel(candidates.size, devices.size),
+                scanCountLabel(confirmedCount, possibleCount, devices.size),
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
@@ -226,10 +219,10 @@ fun DeviceCenterScreen(
             item {
                 Text(
                     if (state is BleSessionState.Scanning) {
-                        "Scanning for KARR candidates; all nearby BLE advertisements " +
+                        "Scanning for KARR-format signals; all nearby BLE advertisements " +
                             "are still being counted."
                     } else {
-                        "No KARR candidates found. Scanning never auto-connects."
+                        "No KARR-format signals found. Scanning never auto-connects."
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -238,14 +231,18 @@ fun DeviceCenterScreen(
             items(candidates, key = { "candidate:${it.address}" }) { device ->
                 DiscoveredDeviceCard(
                     device = device,
-                    onConnect = {
-                        controller.connect(device.address).onFailure { failure ->
-                            scope.launch {
-                                snackbar.showSnackbar(
-                                    failure.message ?: "Connection failed.",
-                                )
+                    onConnect = if (device.connectionEligible) {
+                        {
+                            controller.connect(device.address).onFailure { failure ->
+                                scope.launch {
+                                    snackbar.showSnackbar(
+                                        failure.message ?: "Connection failed.",
+                                    )
+                                }
                             }
                         }
+                    } else {
+                        null
                     },
                 )
             }
@@ -321,6 +318,21 @@ private fun DiscoveredDeviceCard(
                     },
                     style = MaterialTheme.typography.bodySmall,
                 )
+                if (device.classification.isCandidate && !device.connectable) {
+                    Text(
+                        "Broadcast-only advertisement; connection unavailable.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                } else if (
+                    device.classification.tier == KarrCandidateTier.POSSIBLE
+                ) {
+                    Text(
+                        "Possible evidence only; connection disabled.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
             if (onConnect != null) {
                 OutlinedButton(onClick = onConnect) {
@@ -332,11 +344,13 @@ private fun DiscoveredDeviceCard(
 }
 
 private fun BleSessionState.label(
-    candidateCount: Int,
+    confirmedCount: Int,
+    possibleCount: Int,
     nearbyCount: Int,
 ): String = when (this) {
     BleSessionState.Idle -> "Idle"
-    BleSessionState.Scanning -> "Scanning - ${scanCountLabel(candidateCount, nearbyCount)}"
+    BleSessionState.Scanning ->
+        "Scanning - ${scanCountLabel(confirmedCount, possibleCount, nearbyCount)}"
     is BleSessionState.Connecting -> "Connecting to $address"
     is BleSessionState.DiscoveringUart -> "Discovering KARR UART on $address"
     is BleSessionState.UartSubscribed ->
@@ -348,9 +362,13 @@ private fun BleSessionState.label(
     is BleSessionState.Error -> "Error: $message"
 }
 
-private fun scanCountLabel(candidateCount: Int, nearbyCount: Int): String =
-    "$candidateCount KARR ${if (candidateCount == 1) "Candidate" else "Candidates"} Found" +
-        " / $nearbyCount Nearby ${if (nearbyCount == 1) "Device" else "Devices"} Found"
+private fun scanCountLabel(
+    confirmedCount: Int,
+    possibleCount: Int,
+    nearbyCount: Int,
+): String =
+    "$confirmedCount Confirmed KARR / $possibleCount Possible Signals" +
+        " / $nearbyCount Nearby Devices"
 
 private fun ByteArray.toHex(): String =
     joinToString(separator = " ") { byte -> "%02X".format(byte.toInt() and 0xff) }

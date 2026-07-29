@@ -143,4 +143,44 @@ class CompatibleKarrDeviceTest {
             ).tier,
         )
     }
+
+    @Test
+    fun connectionRequiresConfirmedFormatAndConnectableAdvertisement() {
+        val confirmed = KarrDeviceClassification(
+            tier = KarrCandidateTier.CONFIRMED_FORMAT,
+            evidence = "test",
+        )
+        val possible = KarrDeviceClassification(
+            tier = KarrCandidateTier.POSSIBLE,
+            evidence = "test",
+        )
+
+        assertTrue(
+            DiscoveredDevice(
+                address = "00:00:00:00:00:01",
+                name = "DR D029A54D",
+                rssi = -50,
+                connectable = true,
+                classification = confirmed,
+            ).connectionEligible,
+        )
+        assertFalse(
+            DiscoveredDevice(
+                address = "00:00:00:00:00:02",
+                name = null,
+                rssi = -50,
+                connectable = false,
+                classification = confirmed,
+            ).connectionEligible,
+        )
+        assertFalse(
+            DiscoveredDevice(
+                address = "00:00:00:00:00:03",
+                name = "Nearby television",
+                rssi = -50,
+                connectable = true,
+                classification = possible,
+            ).connectionEligible,
+        )
+    }
 }

@@ -8,8 +8,13 @@ data class DiscoveredDevice(
     val address: String,
     val name: String?,
     val rssi: Int,
+    val connectable: Boolean,
     val classification: KarrDeviceClassification,
-)
+) {
+    val connectionEligible: Boolean
+        get() = connectable &&
+            classification.tier == KarrCandidateTier.CONFIRMED_FORMAT
+}
 
 sealed interface BleSessionState {
     data object Idle : BleSessionState

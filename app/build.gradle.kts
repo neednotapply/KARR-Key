@@ -11,8 +11,8 @@ android {
         applicationId = "com.karr.master"
         minSdk = 23
         targetSdk = 36
-        versionCode = 4
-        versionName = "0.1.3"
+        versionCode = 6
+        versionName = "0.2.1"
     }
 
     buildFeatures {
@@ -55,4 +55,27 @@ dependencies {
 
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     testImplementation("junit:junit:4.13.2")
+}
+
+val verifyOfflineManifest by tasks.registering {
+    val manifest = layout.projectDirectory.file("src/main/AndroidManifest.xml")
+    inputs.file(manifest)
+    doLast {
+        val manifestText = manifest.asFile.readText()
+        listOf(
+            "android.permission.INTERNET",
+            "android.permission.ACCESS_NETWORK_STATE",
+        ).forEach { permission ->
+            val declaration = Regex(
+                """<uses-permission\s+[^>]*android:name="$permission"[^>]*/>""",
+            ).find(manifestText)?.value
+            check(declaration?.contains("""tools:node="remove"""") == true) {
+                "$permission must have an explicit manifest-merger removal rule."
+            }
+        }
+    }
+}
+
+tasks.named("preBuild").configure {
+    dependsOn(verifyOfflineManifest)
 }

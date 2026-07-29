@@ -25,6 +25,7 @@ import com.karr.master.core.VehicleSummary
 fun CustomerFeatureScreen(
     session: Session,
     vehicles: List<VehicleSummary>,
+    deviceAuthenticated: Boolean,
     onOpenFeature: (FeatureDefinition) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -37,14 +38,14 @@ fun CustomerFeatureScreen(
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Customer", style = MaterialTheme.typography.headlineMedium)
                 Text(
-                    "Controls and account features migrated from KARR BT 2.15.",
+                    "Vehicle controls and account tools reconstructed from KARR BT 2.15.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
         if (vehicles.isNotEmpty()) {
             item {
-                Text("Authorized vehicles", style = MaterialTheme.typography.titleMedium)
+                Text("Vehicles", style = MaterialTheme.typography.titleMedium)
             }
             items(vehicles, key = { it.vehicleId }) { vehicle ->
                 ElevatedCard(Modifier.fillMaxWidth()) {
@@ -63,11 +64,11 @@ fun CustomerFeatureScreen(
         }
         item {
             Text(
-                "Complete feature catalog",
+                "Feature catalog",
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
-                "${FeatureCatalog.customer.size} recovered customer features",
+                "${FeatureCatalog.customer.size} customer features",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -80,11 +81,10 @@ fun CustomerFeatureScreen(
                 )
             }
             items(features, key = FeatureDefinition::id) { feature ->
-                val decision = policy.authorize(session, feature)
+                val decision = policy.authorize(session, feature, deviceAuthenticated)
                 CustomerFeatureCard(
                     feature = feature,
                     decision = decision,
-                    canPreview = session.demo,
                 ) {
                     onOpenFeature(feature)
                 }
@@ -97,7 +97,6 @@ fun CustomerFeatureScreen(
 private fun CustomerFeatureCard(
     feature: FeatureDefinition,
     decision: AuthorizationDecision,
-    canPreview: Boolean,
     onOpen: () -> Unit,
 ) {
     ElevatedCard(Modifier.fillMaxWidth()) {
@@ -112,7 +111,7 @@ private fun CustomerFeatureCard(
                 Text(feature.title, style = MaterialTheme.typography.titleMedium)
                 if (feature.safetySensitive) {
                     Text(
-                        "LIVE AUTH",
+                        "BLE AUTH",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -132,9 +131,9 @@ private fun CustomerFeatureCard(
                     color = MaterialTheme.colorScheme.error,
                 )
             }
-            if (decision is AuthorizationDecision.Denied && canPreview) {
+            if (decision is AuthorizationDecision.Denied) {
                 Button(onClick = onOpen) {
-                    Text("Preview")
+                    Text("Inspect")
                 }
             }
         }

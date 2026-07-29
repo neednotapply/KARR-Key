@@ -103,10 +103,13 @@ class AndroidBleController(
         val displayName = name
             ?: classification.recoveredName
             ?: existing?.classification?.recoveredName
+        val observedConnectable =
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.O || result.isConnectable
         discovered[device.address] = DiscoveredDevice(
             address = device.address,
             name = displayName,
             rssi = result.rssi,
+            connectable = existing?.connectable == true || observedConnectable,
             classification = classification,
         )
         _devices.value = discovered.values.sortedWith(
@@ -276,8 +279,12 @@ class AndroidBleController(
     override fun connect(address: String): Result<Unit> = runCatching {
         val activeAdapter = requireNotNull(adapter) { "Bluetooth is not available." }
         check(activeAdapter.isEnabled) { "Bluetooth is turned off." }
-        check(discovered[address]?.classification?.isCandidate == true) {
+        val candidate = discovered[address]
+        check(candidate?.classification?.isCandidate == true) {
             "This advertisement has no recovered KARR identifier."
+        }
+        check(candidate.connectionEligible) {
+            "Connect requires a connectable advertisement with a confirmed KARR identifier."
         }
         stopScan()
         disconnect()

@@ -4,35 +4,46 @@ KARR Master is an independent native Android research prototype that
 consolidates Customer, Dealer, and Installer workflows recovered from legacy
 KARR applications.
 
-> **Status:** version 0.1.3. BLE discovery and classification, UART
-> subscription, packet parsing, authentication-state diagnostics, safe demo
-> navigation, encrypted local storage, and policy gates are implemented.
-> Production account services and authorized per-device authentication are not
-> configured.
+> **Status:** version 0.2.1. KARR Master is offline-only and Bluetooth-first.
+> It opens directly to the device center, requests no Android Internet
+> permission, and contains no login or backend adapter. BLE discovery,
+> transparent-UART subscription, packet parsing, authentication-state
+> diagnostics, local workflow navigation, and encrypted local storage are
+> implemented.
 
 ## Capabilities
 
 - Kotlin and Jetpack Compose UI with role-aware Customer, Dealer, and Installer
   surfaces.
+- Horizontal page gestures across the five primary sections, Android back
+  navigation from feature details, and bundled navigation icons.
+- Red-black application theming and a monochrome car adaptive launcher icon
+  with a dedicated layer for Android themed icons.
+- Direct startup into the Bluetooth device center; no account sign-in, cloud
+  synchronization, push, maps service, telemetry, or production API.
 - BLE scanning with recovered `DR`/`QT` identifiers, manufacturer-frame
-  evidence tiers, and unrelated-device diagnostics.
+  evidence tiers, and unrelated-device diagnostics. Connect is offered only
+  for connectable advertisements with a confirmed recovered identifier.
 - Shared transparent-UART discovery, subscription, notification parsing, and
   explicit transport/authentication states.
 - Original (`0xAA`), counter (`0xBB`), and encrypted (`0x55`) packet codecs.
-- Android Keystore-backed token/payload encryption and an encrypted durable
-  offline-operation queue.
-- Single-role Customer, Dealer, and Installer demos with the complete recovered
-  feature catalogs; live mutation remains disabled.
+- Android Keystore-backed local-value encryption and an encrypted local
+  operation journal.
+- One local workspace containing only Customer, Dealer, and Installer
+  workflows that can operate on local records or direct Bluetooth.
 
 ## Safety boundary
 
-BLE discovery or a GATT connection is not vehicle authorization. Live mutation
-requires an authenticated backend, server-issued role/capability data, current
-account/vehicle/technician-job scope, authorized device challenge-response,
-and explicit user intent.
+BLE discovery or a GATT connection is not application authentication. A
+safety-sensitive command remains locked until the connected unit sends
+`AUTH_SUCCESS` for the current BLE connection and the user explicitly starts
+the operation.
 
-Recovered credentials, universal device keys, and challenge responses are not
-included in the application source or documentation.
+The recovered APKs, managed decompilations, and IDA projects are offline
+compatibility evidence. KARR Master does not contact their original services
+at runtime. Recovered universal credentials are not embedded in the
+application; any per-unit material must be provisioned locally and protected
+by Android Keystore.
 
 ## Build
 
@@ -45,6 +56,9 @@ Requirements:
 ```powershell
 .\gradlew.bat --no-daemon testDebugUnitTest lintDebug assembleDebug
 ```
+
+`preBuild` runs `verifyOfflineManifest`, which fails if the application starts
+requesting `INTERNET` or `ACCESS_NETWORK_STATE`.
 
 On Linux or macOS, use `./gradlew` instead of `.\gradlew.bat`. The debug APK is
 written to `app/build/outputs/apk/debug/app-debug.apk`.
@@ -67,7 +81,7 @@ prerelease. It creates no release when the trees are identical.
 | `core` | Roles, capabilities, sessions, domain models, and policy |
 | `protocol` | Packet codecs, command definitions, and compatibility tests |
 | `ble` | Android scan/connect/discover/notify/write lifecycle |
-| `data` | Repository boundaries, Keystore storage, and offline queue |
+| `data` | Local workspace, Keystore storage, and local operation journal |
 | `feature/*` | Customer, Dealer, and Installer Compose surfaces |
 | `research` | Three original APKs and their annotated IDA projects |
 

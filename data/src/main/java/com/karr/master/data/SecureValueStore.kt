@@ -2,17 +2,17 @@ package com.karr.master.data
 
 import android.content.Context
 
-interface TokenStore {
+interface SecureValueStore {
     fun put(name: String, value: String)
     fun get(name: String): String?
     fun remove(name: String)
     fun clear()
 }
 
-class EncryptedTokenStore(
+class EncryptedLocalValueStore(
     context: Context,
-    private val cipher: StringCipher = AndroidKeystoreCipher("karr_master_tokens_v1"),
-) : TokenStore {
+    private val cipher: StringCipher = AndroidKeystoreCipher("karr_master_local_values_v1"),
+) : SecureValueStore {
     private val preferences = context.getSharedPreferences(
         "karr_master_secure_values",
         Context.MODE_PRIVATE,

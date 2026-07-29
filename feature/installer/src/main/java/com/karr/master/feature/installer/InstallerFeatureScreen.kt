@@ -25,6 +25,7 @@ import com.karr.master.core.TechnicianJob
 fun InstallerFeatureScreen(
     session: Session,
     jobs: List<TechnicianJob>,
+    deviceAuthenticated: Boolean,
     onOpenFeature: (FeatureDefinition) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -37,13 +38,19 @@ fun InstallerFeatureScreen(
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Installer", style = MaterialTheme.typography.headlineMedium)
                 Text(
-                    "Job-scoped fitment workflows migrated from Installer 1.39.",
+                    "Work records and fitment tools reconstructed from Installer 1.39.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
         item {
-            Text("Technician jobs", style = MaterialTheme.typography.titleMedium)
+            Text("Work records", style = MaterialTheme.typography.titleMedium)
+            if (jobs.isEmpty()) {
+                Text(
+                    "No work records yet.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         items(jobs, key = { it.jobId }) { job ->
             ElevatedCard(Modifier.fillMaxWidth()) {
@@ -63,9 +70,9 @@ fun InstallerFeatureScreen(
             }
         }
         item {
-            Text("Complete feature catalog", style = MaterialTheme.typography.titleMedium)
+            Text("Feature catalog", style = MaterialTheme.typography.titleMedium)
             Text(
-                "${FeatureCatalog.installer.size} recovered installer features",
+                "${FeatureCatalog.installer.size} installer features",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -78,7 +85,7 @@ fun InstallerFeatureScreen(
                 )
             }
             items(features, key = FeatureDefinition::id) { feature ->
-                val decision = policy.authorize(session, feature)
+                val decision = policy.authorize(session, feature, deviceAuthenticated)
                 ElevatedCard(Modifier.fillMaxWidth()) {
                     Column(
                         modifier = Modifier.padding(16.dp),
@@ -91,7 +98,7 @@ fun InstallerFeatureScreen(
                             Text(feature.title, style = MaterialTheme.typography.titleMedium)
                             if (feature.safetySensitive) {
                                 Text(
-                                    "JOB REQUIRED",
+                                    "BLE AUTH",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.error,
                                 )
@@ -113,10 +120,8 @@ fun InstallerFeatureScreen(
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.error,
                                 )
-                                if (session.demo) {
-                                    Button(onClick = { onOpenFeature(feature) }) {
-                                        Text("Preview")
-                                    }
+                                Button(onClick = { onOpenFeature(feature) }) {
+                                    Text("Inspect")
                                 }
                             }
                         }

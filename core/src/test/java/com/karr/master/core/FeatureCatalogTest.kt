@@ -6,11 +6,32 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FeatureCatalogTest {
+    private val removedBackendFeatureIds = setOf(
+        "customer.alerts",
+        "customer.alert_configuration",
+        "customer.geofences",
+        "customer.configuration",
+        "customer.logs",
+        "customer.requests",
+        "customer.violations",
+        "customer.users",
+        "dealer.sales",
+        "dealer.pending_sales",
+        "dealer.unwind",
+        "dealer.offline_sales",
+        "dealer.bookings",
+        "dealer.returns",
+        "dealer.tent_mode",
+        "dealer.snow_mode",
+        "dealer.statistics",
+        "installer.control_room",
+    )
+
     @Test
-    fun exposesCompleteCatalogForEachRole() {
-        assertEquals(23, FeatureCatalog.customer.size)
-        assertEquals(27, FeatureCatalog.dealer.size)
-        assertEquals(24, FeatureCatalog.installer.size)
+    fun exposesOfflineCapableCatalogForEachRole() {
+        assertEquals(16, FeatureCatalog.customer.size)
+        assertEquals(18, FeatureCatalog.dealer.size)
+        assertEquals(23, FeatureCatalog.installer.size)
 
         UserRole.entries.forEach { role ->
             val features = FeatureCatalog.forRole(role)
@@ -19,6 +40,11 @@ class FeatureCatalogTest {
             assertTrue(features.all { it.requiredRole == role })
             assertTrue(features.all { it.category.isNotBlank() })
         }
+    }
+
+    @Test
+    fun excludesRecoveredBackendDependentWorkflows() {
+        assertTrue(FeatureCatalog.all.none { it.id in removedBackendFeatureIds })
     }
 
     @Test

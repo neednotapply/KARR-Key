@@ -1,9 +1,9 @@
 package com.karr.master.protocol
 
 /**
- * Production implementations must retrieve scoped key material through an
- * authenticated server flow and place it in Android Keystore-backed storage.
- * The legacy static keys recovered from older clients are intentionally absent.
+ * Offline implementations obtain per-unit key material through explicit local
+ * provisioning and keep it in Android Keystore-backed storage. KARR Master
+ * never contacts a server and never bundles recovered universal credentials.
  */
 interface DeviceKeyProvider {
     suspend fun keyForUnit(

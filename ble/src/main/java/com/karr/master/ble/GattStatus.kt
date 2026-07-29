@@ -15,7 +15,7 @@ object GattStatus {
         status == PEER_TERMINATED &&
             previousState is BleSessionState.AuthenticationRequired ->
             "KARR authentication timed out; the unit ended the healthy BLE link " +
-                "(GATT status 19). An authorized challenge response is required."
+                "(GATT status 19). A valid local challenge response is required."
         status == PEER_TERMINATED ->
             "The peripheral ended the BLE link (GATT status 19)."
         status == CONNECTION_TIMEOUT ->

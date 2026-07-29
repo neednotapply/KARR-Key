@@ -8,8 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.karr.master.ble.AndroidBleController
 import com.karr.master.ble.BlePermissions
-import com.karr.master.data.DefaultMasterRepository
-import com.karr.master.data.EncryptedTokenStore
+import com.karr.master.data.LocalMasterRepository
 import com.karr.master.ui.KarrMasterApp
 import com.karr.master.ui.KarrMasterTheme
 
@@ -28,9 +27,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         bleController = AndroidBleController(this)
-        val repository = DefaultMasterRepository(
-            tokenStore = EncryptedTokenStore(this),
-        )
+        val repository = LocalMasterRepository()
 
         setContent {
             KarrMasterTheme {

@@ -25,6 +25,7 @@ import com.karr.master.core.VehicleSummary
 fun DealerFeatureScreen(
     session: Session,
     vehicles: List<VehicleSummary>,
+    deviceAuthenticated: Boolean,
     onOpenFeature: (FeatureDefinition) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -37,7 +38,7 @@ fun DealerFeatureScreen(
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Dealer", style = MaterialTheme.typography.headlineMedium)
                 Text(
-                    "Inventory, transactions, and unit service from BT Dealer 3.131.",
+                    "Inventory and unit service tools reconstructed from BT Dealer 3.131.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -47,16 +48,16 @@ fun DealerFeatureScreen(
                 Column(Modifier.padding(16.dp)) {
                     Text("Inventory snapshot", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "${vehicles.size} authorized demo vehicles • account scope enforced",
+                        "${vehicles.size} saved vehicles",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
         }
         item {
-            Text("Complete feature catalog", style = MaterialTheme.typography.titleMedium)
+            Text("Feature catalog", style = MaterialTheme.typography.titleMedium)
             Text(
-                "${FeatureCatalog.dealer.size} recovered dealer features",
+                "${FeatureCatalog.dealer.size} dealer features",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -69,7 +70,7 @@ fun DealerFeatureScreen(
                 )
             }
             items(features, key = FeatureDefinition::id) { feature ->
-                val decision = policy.authorize(session, feature)
+                val decision = policy.authorize(session, feature, deviceAuthenticated)
                 ElevatedCard(Modifier.fillMaxWidth()) {
                     Column(
                         modifier = Modifier.padding(16.dp),
@@ -82,7 +83,7 @@ fun DealerFeatureScreen(
                             Text(feature.title, style = MaterialTheme.typography.titleMedium)
                             if (feature.safetySensitive) {
                                 Text(
-                                    "AUDITED",
+                                    "BLE AUTH",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.error,
                                 )
@@ -104,10 +105,8 @@ fun DealerFeatureScreen(
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.error,
                                 )
-                                if (session.demo) {
-                                    Button(onClick = { onOpenFeature(feature) }) {
-                                        Text("Preview")
-                                    }
+                                Button(onClick = { onOpenFeature(feature) }) {
+                                    Text("Inspect")
                                 }
                             }
                         }

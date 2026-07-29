@@ -12,13 +12,7 @@ enum class Capability {
     VEHICLE_READ,
     VEHICLE_LOCATION,
     CUSTOMER_CONTROL,
-    CUSTOMER_ALERTS,
-    CUSTOMER_GEOFENCES,
-    CUSTOMER_LOGS,
-    CUSTOMER_USERS,
     DEALER_INVENTORY,
-    DEALER_SALES,
-    DEALER_BOOKINGS,
     DEALER_DEVICE_SERVICE,
     INSTALLER_JOBS,
     INSTALLER_FITMENT,
@@ -30,13 +24,8 @@ enum class Capability {
     DEVICE_CAN_TRANSFER,
     DEVICE_FIRMWARE_TRANSFER,
     DEVICE_KEY_MANAGEMENT,
-    OFFLINE_QUEUE,
+    LOCAL_RECORDS,
 }
-
-data class AccountScope(
-    val accountId: String,
-    val displayName: String,
-)
 
 data class VehicleSummary(
     val vehicleId: String,
@@ -68,15 +57,9 @@ enum class JobType {
 }
 
 data class Session(
-    val userId: String,
     val displayName: String,
     val roles: Set<UserRole>,
     val capabilities: Set<Capability>,
-    val accounts: List<AccountScope>,
-    val activeAccountId: String?,
-    val liveAuthorization: Boolean,
-    val expiresAt: Instant?,
-    val demo: Boolean = false,
 )
 
 data class FeatureDefinition(

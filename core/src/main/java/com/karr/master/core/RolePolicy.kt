@@ -4,9 +4,10 @@ class RolePolicy {
     fun authorize(
         session: Session?,
         feature: FeatureDefinition,
+        deviceAuthenticated: Boolean = false,
     ): AuthorizationDecision {
         if (session == null) {
-            return AuthorizationDecision.Denied("Sign in is required.")
+            return AuthorizationDecision.Denied("Open the local workspace first.")
         }
         if (feature.requiredRole !in session.roles) {
             return AuthorizationDecision.Denied(
@@ -19,9 +20,9 @@ class RolePolicy {
                 "Missing capability: ${missing.first().name}.",
             )
         }
-        if (feature.safetySensitive && !session.liveAuthorization) {
+        if (feature.safetySensitive && !deviceAuthenticated) {
             return AuthorizationDecision.Denied(
-                "Live server authorization is required for this operation.",
+                "An authenticated Bluetooth device is required for this operation.",
             )
         }
         return AuthorizationDecision.Allowed
