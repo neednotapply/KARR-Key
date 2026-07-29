@@ -1,0 +1,75 @@
+﻿{
+    "generated_utc":  "2026-07-28T14:20:12.4639240Z",
+    "passed":  true,
+    "app_count":  4,
+    "totals":  {
+                   "managed_assemblies":  536,
+                   "managed_projects":  536,
+                   "jadx_java_files":  14460,
+                   "smali_files":  27120,
+                   "native_libraries":  26,
+                   "ida_databases":  26,
+                   "ida_functions":  55374
+               },
+    "apps":  [
+                 {
+                     "slug":  "karr_bt_dealer_v3.131",
+                     "apk_sha256":  "95C495EF795BC7AF4A0E3A753BDE3756087E4F7F7BB451E428E68880C67C72A3",
+                     "managed_assemblies":  190,
+                     "managed_projects":  190,
+                     "jadx_java_files":  5200,
+                     "smali_files":  9876,
+                     "native_libraries":  6,
+                     "ida_databases":  6,
+                     "ida_functions":  12954,
+                     "api_route_rows":  86,
+                     "view_rows":  22,
+                     "all_ida_functions_commented":  true
+                 },
+                 {
+                     "slug":  "karr_bt_v2.15",
+                     "apk_sha256":  "225A84E725AA1B7E8C0992B78EE926D59D2801481F21593AB59ECF70A5A95181",
+                     "managed_assemblies":  80,
+                     "managed_projects":  80,
+                     "jadx_java_files":  3301,
+                     "smali_files":  6119,
+                     "native_libraries":  6,
+                     "ida_databases":  6,
+                     "ida_functions":  13085,
+                     "api_route_rows":  34,
+                     "view_rows":  52,
+                     "all_ida_functions_commented":  true
+                 },
+                 {
+                     "slug":  "karr_installer_v1.39",
+                     "apk_sha256":  "5B4FE7BCC588835B57DFD41D1C16FA7AF27BE6118F4B822C0C8A3A5DCA40385D",
+                     "managed_assemblies":  196,
+                     "managed_projects":  196,
+                     "jadx_java_files":  2815,
+                     "smali_files":  4956,
+                     "native_libraries":  8,
+                     "ida_databases":  8,
+                     "ida_functions":  16388,
+                     "api_route_rows":  88,
+                     "view_rows":  42,
+                     "all_ida_functions_commented":  true
+                 },
+                 {
+                     "slug":  "karr_swat_dl_v2.05",
+                     "apk_sha256":  "F2E061F289E42217E8C448AAD41C1175B6D306BA27AB3FA1A43DB1A1DB328AEE",
+                     "managed_assemblies":  70,
+                     "managed_projects":  70,
+                     "jadx_java_files":  3144,
+                     "smali_files":  6169,
+                     "native_libraries":  6,
+                     "ida_databases":  6,
+                     "ida_functions":  12947,
+                     "api_route_rows":  57,
+                     "view_rows":  8,
+                     "all_ida_functions_commented":  true
+                 }
+             ],
+    "errors":  [
+
+               ]
+}

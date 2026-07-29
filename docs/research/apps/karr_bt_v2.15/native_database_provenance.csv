@@ -1,0 +1,7 @@
+﻿"library","sha256","database","seeded_from_identical_prior_database","seed_source"
+"libmono-btls-shared.so","6A06EC51FC4F30B293B5DD4B05EA63F1527839845B74F6DD5C3448C6DED9B877","04_native\ida_databases\libmono-btls-shared.i64","False","generated-or-already-present"
+"libmonodroid.so","D80395781396861A42AAB0D691C765FC4AAB169F4631792BE03B9A8E06105D07","04_native\ida_databases\libmonodroid.i64","False","generated-or-already-present"
+"libmono-native.so","022225ECE8167A9479B0C6DEB7B5B7E4B4EDBFF551511E37FA0F5F52FA533EC2","04_native\ida_databases\libmono-native.i64","False","generated-or-already-present"
+"libmonosgen-2.0.so","F96D74407DC349D0EAAF4960352D023585308AA9801BD1992670B63BC6F97DDB","04_native\ida_databases\libmonosgen-2.0.i64","False",""
+"libxa-internal-api.so","04DB97DED45ADCE1761D961A2D75C3F0D4C0502252E6F313B3EF27FF4B0E019F","04_native\ida_databases\libxa-internal-api.i64","False",""
+"libxamarin-app.so","7B14290C9A1C9389C1F1891240C68590D789F332396142175066C534CD27A2F0","04_native\ida_databases\libxamarin-app.i64","False",""

@@ -1,0 +1,7 @@
+﻿"library","sha256","database","seeded_from_identical_prior_database","seed_source"
+"libmono-btls-shared.so","69FE809289E2F2F7DCF0B94FA057837BCBD251EBAB893F51D6A7575FEF4DF8BA","04_native\ida_databases\libmono-btls-shared.i64","True","C:\Users\mrnic\Documents\Playground\karr_xapk_compare\karr_v0.89_original_decomp_ida\04_native\ida_databases\libmono-btls-shared.i64"
+"libmonodroid.so","334CD3F7E2E9716939998FD212A73357181A4832429098EEC163A9750A46E6CE","04_native\ida_databases\libmonodroid.i64","False",""
+"libmono-native.so","69D6BADD8172153C44240EF229F2B08A5051A46CE3485AD7C588F7E32459654C","04_native\ida_databases\libmono-native.i64","True","C:\Users\mrnic\Documents\Playground\karr_xapk_compare\karr_v0.89_original_decomp_ida\04_native\ida_databases\libmono-native.i64"
+"libmonosgen-2.0.so","01AF2C69767BBF1913D38D5D09DCBE3F95DD565BABA8ACA9AB4B2E27158115A5","04_native\ida_databases\libmonosgen-2.0.i64","False",""
+"libxa-internal-api.so","CFC1DAC01D4DCA06991D67B434FDB0CBFEFA693D14A72EF1D046E04B285FF9A5","04_native\ida_databases\libxa-internal-api.i64","True","C:\Users\mrnic\Documents\Playground\karr_xapk_compare\karr_v0.89_original_decomp_ida\04_native\ida_databases\libxa-internal-api.i64"
+"libxamarin-app.so","7BCCBFFF11721BEE94B269D1B4055C6F3AFD85DC9991593B6CC5A674CDCC5535","04_native\ida_databases\libxamarin-app.i64","False",""

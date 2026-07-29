@@ -1,0 +1,49 @@
+# Gradle and Android Studio
+.gradle/
+.kotlin/
+**/build/
+.idea/
+*.iml
+local.properties
+
+# Signing and secrets
+*.jks
+*.keystore
+keystore.properties
+secrets.properties
+.env
+.env.*
+google-services.json
+
+# Local device and diagnostic output
+captures/
+build/validation/
+*.hprof
+
+# Operating-system/editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Proprietary and oversized reverse-engineering payloads
+local-research/
+research/raw/
+00_original_package/
+01_managed/
+02_java_jadx/
+03_apktool_smali/
+04_native/
+logs/
+*.apk
+*.apks
+*.aab
+*.xapk
+*.dex
+*.so
+*.dll
+*.i64
+*.idb
+*.exe
+assemblies.blob
+**/managed_symbols.csv
