@@ -51,13 +51,12 @@ logs/
 assemblies.blob
 **/managed_symbols.csv
 
-# Only the four reviewed research projects are allowed back through the broad
+# Only the three reviewed research projects are allowed back through the broad
 # ignores above. Their binary filenames are explicitly enumerated.
 !research/README.md
 !research/karr_bt_dealer_v3.131/
 !research/karr_bt_v2.15/
 !research/karr_installer_v1.39/
-!research/karr_swat_dl_v2.05/
 research/karr_*/**
 !research/karr_*/KNOWN_DATA.md
 !research/karr_*/manifest.json
@@ -85,10 +84,3 @@ research/karr_*/**
 !research/karr_installer_v1.39/ida-project/libsqlite3_xamarin.i64
 !research/karr_installer_v1.39/ida-project/libxa-internal-api.i64
 !research/karr_installer_v1.39/ida-project/libxamarin-app.i64
-!research/karr_swat_dl_v2.05/KARR+SWAT+DL_2.05_APKPure.apk
-!research/karr_swat_dl_v2.05/ida-project/libmono-btls-shared.i64
-!research/karr_swat_dl_v2.05/ida-project/libmonodroid.i64
-!research/karr_swat_dl_v2.05/ida-project/libmono-native.i64
-!research/karr_swat_dl_v2.05/ida-project/libmonosgen-2.0.i64
-!research/karr_swat_dl_v2.05/ida-project/libxa-internal-api.i64
-!research/karr_swat_dl_v2.05/ida-project/libxamarin-app.i64

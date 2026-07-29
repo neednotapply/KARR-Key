@@ -52,6 +52,12 @@ GitHub Actions retains the debug APK, SHA-256 checksum, and Android package
 metadata in `karr-master-debug-<commit SHA>`. The package is debug-signed and
 intended only for development and authorized-device testing.
 
+The Nightly Release workflow runs automatically each day at 2:15 AM Pacific.
+It compares `main` with the newest non-draft GitHub release. When the
+repository has changed, it runs the full test/lint/build command and publishes
+the debug APK, SHA-256 checksum, and Android package metadata as a dated
+prerelease. It creates no release when the trees are identical.
+
 ## Repository
 
 | Path | Purpose |
@@ -62,7 +68,7 @@ intended only for development and authorized-device testing.
 | `ble` | Android scan/connect/discover/notify/write lifecycle |
 | `data` | Repository boundaries, Keystore storage, and offline queue |
 | `feature/*` | Customer, Dealer, and Installer Compose surfaces |
-| `research` | Four original APKs and their annotated IDA projects |
+| `research` | Three original APKs and their annotated IDA projects |
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for architecture, trust boundaries, tests,
 and integration requirements. See [research/README.md](research/README.md) for

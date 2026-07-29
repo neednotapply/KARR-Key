@@ -42,10 +42,3 @@ research/karr_installer_v1.39/ida-project/libmonosgen-2.0.i64 filter=lfs diff=lf
 research/karr_installer_v1.39/ida-project/libsqlite3_xamarin.i64 filter=lfs diff=lfs merge=lfs -text
 research/karr_installer_v1.39/ida-project/libxa-internal-api.i64 filter=lfs diff=lfs merge=lfs -text
 research/karr_installer_v1.39/ida-project/libxamarin-app.i64 filter=lfs diff=lfs merge=lfs -text
-research/karr_swat_dl_v2.05/KARR+SWAT+DL_2.05_APKPure.apk filter=lfs diff=lfs merge=lfs -text
-research/karr_swat_dl_v2.05/ida-project/libmono-btls-shared.i64 filter=lfs diff=lfs merge=lfs -text
-research/karr_swat_dl_v2.05/ida-project/libmonodroid.i64 filter=lfs diff=lfs merge=lfs -text
-research/karr_swat_dl_v2.05/ida-project/libmono-native.i64 filter=lfs diff=lfs merge=lfs -text
-research/karr_swat_dl_v2.05/ida-project/libmonosgen-2.0.i64 filter=lfs diff=lfs merge=lfs -text
-research/karr_swat_dl_v2.05/ida-project/libxa-internal-api.i64 filter=lfs diff=lfs merge=lfs -text
-research/karr_swat_dl_v2.05/ida-project/libxamarin-app.i64 filter=lfs diff=lfs merge=lfs -text
