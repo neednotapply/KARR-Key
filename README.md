@@ -1,54 +1,37 @@
 # KARR Master
 
-KARR Master is an independent native Android consolidation of the useful
-Customer, Dealer, and Installer surfaces recovered from three legacy KARR
-applications. KARR SWAT DL is intentionally excluded because its useful
-read-only dealer search behavior overlaps the Dealer app and it has no direct
-BLE protocol.
+KARR Master is an independent native Android research prototype that
+consolidates Customer, Dealer, and Installer workflows recovered from legacy
+KARR applications.
 
-This private repository contains the clean-room Kotlin application,
-deterministic protocol and classifier tests, hardware-validation notes,
-curated reverse-engineering documentation, the four untouched source APKs, and
-26 annotated IDA databases. APK and IDA artifacts are stored through Git LFS.
-It does **not** contain embedded vendor credentials, universal device keys, or
-the full decompiler output.
+> **Status:** version 0.1.3. BLE discovery and classification, UART
+> subscription, packet parsing, authentication-state diagnostics, safe demo
+> navigation, encrypted local storage, and policy gates are implemented.
+> Production account services and authorized per-device authentication are not
+> configured.
 
-> **Status:** research prototype, version 0.1.3. BLE discovery, candidate
-> classification, UART subscription, protocol parsing, authentication-state
-> diagnostics, local demo navigation, encrypted local storage, and policy gates
-> are implemented. Production account services and authorized per-device
-> authentication are not configured.
+## Capabilities
 
-## Current capabilities
-
-- Native Kotlin and Jetpack Compose UI.
-- Independent Customer, Dealer, and Installer feature modules.
-- Server-derived role and capability policy.
-- Live BLE scanning with recovered `DR`/`QT` identifiers, Dealer manufacturer
-  frames, evidence tiers, nearby-device counts, and unrelated-device
-  diagnostics.
-- Shared Microchip/KARR UART discovery and notification subscription.
-- Explicit separation between a healthy BLE link, a pending KARR
-  authentication challenge, and an authenticated session.
-- Byte-compatible original (`0xAA`), counter (`0xBB`), and encrypted (`0x55`)
-  packet codecs.
-- Android Keystore-backed token and payload encryption.
-- Durable encrypted offline-operation queue.
-- Local safe-demo mode with live mutation disabled.
+- Kotlin and Jetpack Compose UI with role-aware Customer, Dealer, and Installer
+  surfaces.
+- BLE scanning with recovered `DR`/`QT` identifiers, manufacturer-frame
+  evidence tiers, and unrelated-device diagnostics.
+- Shared transparent-UART discovery, subscription, notification parsing, and
+  explicit transport/authentication states.
+- Original (`0xAA`), counter (`0xBB`), and encrypted (`0x55`) packet codecs.
+- Android Keystore-backed token/payload encryption and an encrypted durable
+  offline-operation queue.
+- Safe demo mode in which live mutation remains disabled.
 
 ## Safety boundary
 
-BLE discovery or GATT connection is not vehicle authorization. Demo mode never
-sends vehicle commands. Live mutation requires all of:
+BLE discovery or a GATT connection is not vehicle authorization. Live mutation
+requires an authenticated backend, server-issued role/capability data, current
+account/vehicle/technician-job scope, authorized device challenge-response,
+and explicit user intent.
 
-1. a configured, authenticated backend;
-2. server-issued role and capability entitlements;
-3. current account, vehicle, or technician-job scope;
-4. authorized device challenge-response;
-5. an explicit user action.
-
-The recovered static Customer/Dealer keys and cloud/API credentials are not
-copied into this project.
+Recovered credentials, universal device keys, and challenge responses are not
+included in the application source or documentation.
 
 ## Build
 
@@ -56,73 +39,42 @@ Requirements:
 
 - JDK 17 or newer;
 - Android SDK 36;
-- an Android SDK path in `local.properties` or `ANDROID_HOME`.
-
-On Windows:
+- `local.properties` or `ANDROID_HOME` configured for that SDK.
 
 ```powershell
-.\gradlew.bat testDebugUnitTest lintDebug assembleDebug
+.\gradlew.bat --no-daemon testDebugUnitTest lintDebug assembleDebug
 ```
 
-On Linux or macOS:
+On Linux or macOS, use `./gradlew` instead of `.\gradlew.bat`. The debug APK is
+written to `app/build/outputs/apk/debug/app-debug.apk`.
 
-```bash
-./gradlew testDebugUnitTest lintDebug assembleDebug
-```
+GitHub Actions retains the debug APK, SHA-256 checksum, and Android package
+metadata in `karr-master-debug-<commit SHA>`. The package is debug-signed and
+intended only for development and authorized-device testing.
 
-The debug APK is written to:
-
-```text
-app/build/outputs/apk/debug/app-debug.apk
-```
-
-Successful GitHub Actions runs retain the debug APK, its SHA-256 checksum, and
-Android build metadata for 90 days. Download the
-`karr-master-debug-<commit SHA>` artifact from the workflow run's **Artifacts**
-section, or with:
-
-```text
-gh run download <run ID> -n karr-master-debug-<commit SHA>
-```
-
-The retained package is debug-signed and intended for development and
-authorized device testing, not production distribution.
-
-## Repository map
+## Repository
 
 | Path | Purpose |
 |---|---|
-| `app` | Login/demo shell, role-aware navigation, dashboard, device center |
-| `core` | Roles, capabilities, sessions, domain models, authorization |
-| `protocol` | Packet codecs, command definitions, parsing, compatibility tests |
-| `ble` | Android scan/connect/discover/notify/write session |
-| `data` | Server boundaries, Keystore storage, encrypted offline queue |
-| `feature/customer` | Customer feature surface |
-| `feature/dealer` | Dealer feature surface |
-| `feature/installer` | Installer feature surface |
-| `docs/research` | Curated four-app analysis, provenance, and indexes |
-| `research/artifacts` | Git LFS archive of the four original APKs and 26 annotated IDA databases |
-| `tools/reverse-engineering` | Source scripts used to generate the offline analysis |
-| `.github/workflows` | GitHub Actions build/test/lint validation |
+| `app` | Application shell, navigation, dashboard, and device center |
+| `core` | Roles, capabilities, sessions, domain models, and policy |
+| `protocol` | Packet codecs, command definitions, and compatibility tests |
+| `ble` | Android scan/connect/discover/notify/write lifecycle |
+| `data` | Repository boundaries, Keystore storage, and offline queue |
+| `feature/*` | Customer, Dealer, and Installer Compose surfaces |
+| `research` | Four original APKs and their annotated IDA projects |
 
-## Documentation
+See [DEVELOPMENT.md](DEVELOPMENT.md) for architecture, trust boundaries, tests,
+and integration requirements. See [research/README.md](research/README.md) for
+the optional Git LFS evidence set and selective checkout instructions.
 
-- [Architecture](ARCHITECTURE.md)
-- [Migration status](MIGRATION_STATUS.md)
-- [Bluetooth identifiers](BLUETOOTH_IDENTIFIERS.md)
-- [Connection authentication](CONNECTION_AUTHENTICATION.md)
-- [Validation history](VALIDATION.md)
-- [Curated reverse-engineering index](docs/research/README.md)
-- [Original APK and IDA artifact archive](research/artifacts/README.md)
-- [Repository layout and artifact boundary](docs/REPOSITORY_LAYOUT.md)
-- [Security policy](SECURITY.md)
-
-## Project identity and licensing
+## Identity and licensing
 
 This is not an official KARR, Webhouse Group, Southwest Dealer Services, or
-vehicle-manufacturer project. Product names are used only to identify the
-interoperability and research subject.
+vehicle-manufacturer project. Product names identify the interoperability and
+research subject only.
 
-No open-source license has been selected yet. Until one is added, the repository
-does not grant redistribution or modification rights. See [NOTICE.md](NOTICE.md)
-before publishing or accepting outside contributions.
+No open-source license has been selected. Until one is added, this repository
+does not grant redistribution or modification rights. The original APKs retain
+their owners' rights and are not covered by any future license for KARR
+Master's independently written code.

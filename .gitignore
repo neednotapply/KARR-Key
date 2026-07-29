@@ -31,6 +31,7 @@ __pycache__/
 # Proprietary and oversized reverse-engineering payloads
 local-research/
 research/raw/
+research/*
 00_original_package/
 01_managed/
 02_java_jadx/
@@ -50,17 +51,44 @@ logs/
 assemblies.blob
 **/managed_symbols.csv
 
-# The private repository intentionally archives only these reviewed binary
-# evidence paths through Git LFS. Generic APK/IDA paths above remain ignored.
-!research/
-!research/artifacts/
-!research/artifacts/apks/
-!research/artifacts/apks/**/
-!research/artifacts/apks/**/*.apk
-!research/artifacts/ida/
-!research/artifacts/ida/**/
-!research/artifacts/ida/**/*.i64
-!research/artifacts/ida/**/*.json
-!research/artifacts/ARTIFACT_MANIFEST.csv
-!research/artifacts/README.md
-research/artifacts/ida/_logs/
+# Only the four reviewed research projects are allowed back through the broad
+# ignores above. Their binary filenames are explicitly enumerated.
+!research/README.md
+!research/karr_bt_dealer_v3.131/
+!research/karr_bt_v2.15/
+!research/karr_installer_v1.39/
+!research/karr_swat_dl_v2.05/
+research/karr_*/**
+!research/karr_*/KNOWN_DATA.md
+!research/karr_*/manifest.json
+!research/karr_*/ida-project/
+!research/karr_bt_dealer_v3.131/KARR+BT+Dealer_3.131_APKPure.apk
+!research/karr_bt_dealer_v3.131/ida-project/libmono-btls-shared.i64
+!research/karr_bt_dealer_v3.131/ida-project/libmonodroid.i64
+!research/karr_bt_dealer_v3.131/ida-project/libmono-native.i64
+!research/karr_bt_dealer_v3.131/ida-project/libmonosgen-2.0.i64
+!research/karr_bt_dealer_v3.131/ida-project/libxa-internal-api.i64
+!research/karr_bt_dealer_v3.131/ida-project/libxamarin-app.i64
+!research/karr_bt_v2.15/KARR+BT_2.15_APKPure.apk
+!research/karr_bt_v2.15/ida-project/libmono-btls-shared.i64
+!research/karr_bt_v2.15/ida-project/libmonodroid.i64
+!research/karr_bt_v2.15/ida-project/libmono-native.i64
+!research/karr_bt_v2.15/ida-project/libmonosgen-2.0.i64
+!research/karr_bt_v2.15/ida-project/libxa-internal-api.i64
+!research/karr_bt_v2.15/ida-project/libxamarin-app.i64
+!research/karr_installer_v1.39/KARR+Installer_1.39_APKPure.apk
+!research/karr_installer_v1.39/ida-project/libe_sqlite3.i64
+!research/karr_installer_v1.39/ida-project/libmono-btls-shared.i64
+!research/karr_installer_v1.39/ida-project/libmonodroid.i64
+!research/karr_installer_v1.39/ida-project/libmono-native.i64
+!research/karr_installer_v1.39/ida-project/libmonosgen-2.0.i64
+!research/karr_installer_v1.39/ida-project/libsqlite3_xamarin.i64
+!research/karr_installer_v1.39/ida-project/libxa-internal-api.i64
+!research/karr_installer_v1.39/ida-project/libxamarin-app.i64
+!research/karr_swat_dl_v2.05/KARR+SWAT+DL_2.05_APKPure.apk
+!research/karr_swat_dl_v2.05/ida-project/libmono-btls-shared.i64
+!research/karr_swat_dl_v2.05/ida-project/libmonodroid.i64
+!research/karr_swat_dl_v2.05/ida-project/libmono-native.i64
+!research/karr_swat_dl_v2.05/ida-project/libmonosgen-2.0.i64
+!research/karr_swat_dl_v2.05/ida-project/libxa-internal-api.i64
+!research/karr_swat_dl_v2.05/ida-project/libxamarin-app.i64
