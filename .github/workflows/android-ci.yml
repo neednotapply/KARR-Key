@@ -33,3 +33,20 @@ jobs:
 
       - name: Test, lint, and assemble
         run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
+
+      - name: Record APK checksum
+        run: |
+          sha256sum app/build/outputs/apk/debug/app-debug.apk \
+            > app/build/outputs/apk/debug/app-debug.apk.sha256
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: karr-master-debug-${{ github.sha }}
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/debug/app-debug.apk.sha256
+            app/build/outputs/apk/debug/output-metadata.json
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0

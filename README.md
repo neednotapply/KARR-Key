@@ -76,6 +76,18 @@ The debug APK is written to:
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
+Successful GitHub Actions runs retain the debug APK, its SHA-256 checksum, and
+Android build metadata for 90 days. Download the
+`karr-master-debug-<commit SHA>` artifact from the workflow run's **Artifacts**
+section, or with:
+
+```text
+gh run download <run ID> -n karr-master-debug-<commit SHA>
+```
+
+The retained package is debug-signed and intended for development and
+authorized device testing, not production distribution.
+
 ## Repository map
 
 | Path | Purpose |
