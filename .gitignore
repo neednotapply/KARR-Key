@@ -25,6 +25,8 @@ build/validation/
 Thumbs.db
 *.swp
 *.swo
+__pycache__/
+*.pyc
 
 # Proprietary and oversized reverse-engineering payloads
 local-research/
@@ -47,3 +49,18 @@ logs/
 *.exe
 assemblies.blob
 **/managed_symbols.csv
+
+# The private repository intentionally archives only these reviewed binary
+# evidence paths through Git LFS. Generic APK/IDA paths above remain ignored.
+!research/
+!research/artifacts/
+!research/artifacts/apks/
+!research/artifacts/apks/**/
+!research/artifacts/apks/**/*.apk
+!research/artifacts/ida/
+!research/artifacts/ida/**/
+!research/artifacts/ida/**/*.i64
+!research/artifacts/ida/**/*.json
+!research/artifacts/ARTIFACT_MANIFEST.csv
+!research/artifacts/README.md
+research/artifacts/ida/_logs/

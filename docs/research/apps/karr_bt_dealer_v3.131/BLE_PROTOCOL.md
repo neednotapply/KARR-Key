@@ -42,6 +42,15 @@ session-generation correlation.
 security APIs and stores it in `SecureStorage`. Exact keys and credential-like
 constants are intentionally not repeated here.
 
+### 2026-07-28 capture confirmation
+
+The observed vehicle units advertised as `DR D029A54D` and `DR 0F9ACB56`.
+After UART subscription, a valid Original-mode `0xAA` packet carried command
+`0x0E` (`RequestAuth`) and an eight-byte challenge. GATT status 19 was the
+peer ending the link after that application-authentication request remained
+unanswered. Dealer's backend/per-unit key flow, not Android bonding or a
+single numeric pairing code, is the relevant current authorization boundary.
+
 ## Command families
 
 `EnumQtCommand` defines command values `0..78`, plus `253`, `254`, and `255`.

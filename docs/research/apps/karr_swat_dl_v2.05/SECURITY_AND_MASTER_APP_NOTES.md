@@ -30,3 +30,8 @@
 The locator should remain read-only. Adding the master app's BLE modules must
 not turn a map/search result into authorization to connect to or control that
 vehicle.
+
+The 2026-07-28 connection investigation did not change this boundary:
+recovered SWAT DL contains no BLE discovery, transparent UART transport, or
+unit-authentication flow. Its archived IDA databases carry that explicit
+negative finding so they are not mistaken for another connection authority.

@@ -144,3 +144,31 @@ then supplied only for the local validation build:
   or curated research files.
 
 The repository was intentionally left uncommitted and unstaged for owner review.
+
+## Original APK and updated IDA archive
+
+The private Git LFS artifact pass on 2026-07-28 validated:
+
+- four APKs copied byte-for-byte from each app's `00_original_package`
+  directory;
+- all four repository APK SHA-256 values match both the offline source files
+  and `docs/research/collection/collection_validation.json`;
+- 26 IDA 9.1 databases copied from the four apps' `04_native/ida_databases`
+  directories: Dealer 6, Customer/BT 6, Installer 8, and SWAT DL 6;
+- the prior IDA coverage remains 55,374 functions with every indexed function
+  carrying its existing generated comment;
+- all 26 databases received the
+  `[KARR_MASTER_RESEARCH_UPDATE_2026_07_28]` note, were saved, closed, reopened
+  by IDA, and passed marker/content validation;
+- every IDA source hash differs from its repository hash after the annotation,
+  while the manifest retains both hashes;
+- 26 apply reports and 26 reopen-validation reports were generated, with no
+  report claiming embedded secret values;
+- `ARTIFACT_MANIFEST.csv` contains 30 records totaling 509,810,807 bytes
+  (approximately 0.475 GiB before Git LFS transfer overhead).
+
+The added database note records the observed `DR` candidates, Original-mode
+`RequestAuth` challenge, GATT-status-19 diagnosis, per-app authentication
+boundary, and SWAT DL negative BLE finding. It deliberately points to the
+managed C# evidence rather than assigning fabricated meanings to Xamarin/Mono
+native runtime functions.

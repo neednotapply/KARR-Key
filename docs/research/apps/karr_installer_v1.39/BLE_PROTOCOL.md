@@ -53,6 +53,15 @@ per-device/job keys, hardware-backed storage, session invalidation on
 disconnect, and protocol negotiation. It must not fall back to static keys
 when the network or authorization service is unavailable.
 
+### 2026-07-28 capture confirmation
+
+Installer's managed flow confirms
+`RequestAuth(14) -> Read_Mode(34) -> ProvideAuth(15) -> AuthSuccess(16)`.
+The Pixel capture of command `0x0E` with an eight-byte challenge is consistent
+with this legacy path. Android GATT status 19 followed because the peer ended
+the link after the request went unanswered. Optional `Bond51` defaults false;
+bonding does not replace application authentication or technician-job scope.
+
 ## Transfer safety
 
 For CAN and firmware transfers:

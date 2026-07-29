@@ -50,6 +50,16 @@ master app should not carry these constants forward. It should use current,
 server-authorized per-device key distribution, Keystore-backed storage, and
 the newer protocol where the unit supports it.
 
+### 2026-07-28 capture confirmation
+
+A Pixel capture reached UART notification subscription and then received a
+valid Original-mode `0xAA` packet with command `0x0E` (`RequestAuth`) and an
+eight-byte challenge. The recovered sequence is
+`RequestAuth(14) -> Read_Mode(34) -> ProvideAuth(15) -> AuthSuccess(16)`.
+The unit later ended the unanswered session with Android GATT status 19.
+Therefore, subscription confirms transport only; it is not authenticated
+readiness or evidence of a universal Bluetooth PIN.
+
 ## Compatibility implementation
 
 Preserve byte compatibility through golden tests, but wrap it behind:
