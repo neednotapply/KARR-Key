@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.karr.master"
+    namespace = "com.karr.key"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.karr.master"
+        applicationId = "com.karr.key"
         minSdk = 23
         targetSdk = 36
         versionCode = 8
@@ -29,6 +29,16 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.outputs.forEach { output ->
+            (output as com.android.build.api.variant.impl.VariantOutputImpl)
+                .outputFileName
+                .set("KARR-Key.apk")
         }
     }
 }

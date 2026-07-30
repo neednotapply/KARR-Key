@@ -1,10 +1,10 @@
-# KARR Master
+# KARR Key
 
-KARR Master is an independent native Android research prototype that
+KARR Key is an independent native Android research prototype that
 consolidates Customer, Dealer, and Installer workflows recovered from legacy
 KARR applications.
 
-> **Status:** version 0.3.0. KARR Master is offline-only and Bluetooth-first.
+> **Status:** version 0.3.0. KARR Key is offline-only and Bluetooth-first.
 > It opens directly to the device center, requests no Android Internet
 > permission, and contains no login or backend adapter. BLE discovery,
 > transparent-UART subscription, packet parsing, authentication-state
@@ -50,8 +50,8 @@ safety-sensitive command remains locked until the connected unit sends
 `AUTH_SUCCESS` for the current BLE connection and the user explicitly starts
 the operation.
 
-Authorized research keys are entered manually in the Device center. KARR
-Master stores only their Android-Keystore-encrypted form, never displays a
+Authorized research keys are entered manually in the Device center. KARR Key
+stores only their Android-Keystore-encrypted form, never displays a
 saved value, and removes authenticated state on disconnect. A provisioned key
 unlocks its corresponding local role catalog; it does not mark a live unit
 authenticated. The legacy flow does not cover the newer 32-byte/per-unit AES
@@ -63,7 +63,7 @@ requires compatible authorized bytes, integrity metadata, power checks,
 chunk acknowledgement, and installed-version verification.
 
 The recovered APKs, managed decompilations, and IDA projects are offline
-compatibility evidence. KARR Master does not contact their original services
+compatibility evidence. KARR Key does not contact their original services
 at runtime. Recovered universal credentials are not embedded in the
 application; any per-unit material must be provisioned locally and protected
 by Android Keystore.
@@ -84,10 +84,11 @@ Requirements:
 requesting `INTERNET` or `ACCESS_NETWORK_STATE`.
 
 On Linux or macOS, use `./gradlew` instead of `.\gradlew.bat`. The debug APK is
-written to `app/build/outputs/apk/debug/app-debug.apk`.
+written to `app/build/outputs/apk/debug/KARR-Key.apk`.
 
 GitHub Actions retains the debug APK, SHA-256 checksum, and Android package
-metadata in `karr-master-debug-<commit SHA>`. The package is debug-signed and
+metadata in `KARR-Key-debug-<commit SHA>`. The APK is named `KARR-Key.apk`,
+uses application ID `com.karr.key`, is debug-signed, and is
 intended only for development and authorized-device testing.
 
 The Nightly Release workflow runs automatically each day at 2:15 AM Pacific.
@@ -120,5 +121,5 @@ research subject only.
 
 No open-source license has been selected. Until one is added, this repository
 does not grant redistribution or modification rights. The original APKs retain
-their owners' rights and are not covered by any future license for KARR
-Master's independently written code.
+their owners' rights and are not covered by any future license for KARR Key's
+independently written code.

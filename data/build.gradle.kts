@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.karr.master.data"
+    namespace = "com.karr.key.data"
     compileSdk = 36
 
     defaultConfig {

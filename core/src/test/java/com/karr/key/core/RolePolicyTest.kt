@@ -1,0 +1,46 @@
+package com.karr.key.core
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class RolePolicyTest {
+    private val policy = RolePolicy()
+
+    @Test
+    fun deniesSafetySensitiveFeatureWithoutAuthenticatedBluetooth() {
+        val feature = FeatureCatalog.customer.first { it.id == "customer.controls" }
+        val session = Session(
+            displayName = "Offline",
+            roles = setOf(UserRole.CUSTOMER),
+            capabilities = setOf(Capability.CUSTOMER_CONTROL),
+        )
+
+        val decision = policy.authorize(
+            session = session,
+            feature = feature,
+            deviceAuthenticated = false,
+        )
+
+        assertTrue(decision is AuthorizationDecision.Denied)
+    }
+
+    @Test
+    fun allowsSafetySensitiveFeatureAfterBluetoothAuthentication() {
+        val feature = FeatureCatalog.customer.first { it.id == "customer.controls" }
+        val session = Session(
+            displayName = "Offline",
+            roles = setOf(UserRole.CUSTOMER),
+            capabilities = setOf(Capability.CUSTOMER_CONTROL),
+        )
+
+        assertEquals(
+            AuthorizationDecision.Allowed,
+            policy.authorize(
+                session = session,
+                feature = feature,
+                deviceAuthenticated = true,
+            ),
+        )
+    }
+}

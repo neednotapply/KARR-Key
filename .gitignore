@@ -18,6 +18,7 @@ google-services.json
 # Local device and diagnostic output
 captures/
 build/validation/
+.codex-remote-attachments/
 *.hprof
 
 # Operating-system/editor noise

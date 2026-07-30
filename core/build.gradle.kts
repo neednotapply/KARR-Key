@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.karr.master.core"
+    namespace = "com.karr.key.core"
     compileSdk = 36
 
     defaultConfig {

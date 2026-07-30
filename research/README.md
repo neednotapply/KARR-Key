@@ -1,7 +1,7 @@
 # Preserved KARR research evidence
 
 This directory contains the smallest reviewable evidence set retained with
-KARR Master:
+KARR Key:
 
 - three untouched source APKs;
 - one IDA project directory per APK;
@@ -9,7 +9,7 @@ KARR Master:
 - a concise known-data document and an integrity/coverage manifest per app.
 
 The APK and IDA files are stored with Git LFS. They are research inputs, not
-Android build inputs, and are never packaged into KARR Master.
+Android build inputs, and are never packaged into KARR Key.
 
 ## Projects
 
@@ -49,7 +49,7 @@ comment. Real exports and symbol-bearing names were retained; stripped
 functions remain honestly auto-named rather than receiving speculative names.
 
 The repository databases also contain the persistent marker
-`[KARR_MASTER_RESEARCH_UPDATE_2026_07_28]`. It records the observed `DR`
+`[KARR_KEY_RESEARCH_UPDATE_2026_07_28]`. It records the observed `DR`
 devices, the `0x0E` authentication challenge, the GATT-status-19 diagnosis,
 and the app-specific authorization boundaries. No credential, key, or
 challenge response is included.
@@ -68,7 +68,7 @@ binaries:
 
 ```powershell
 $env:GIT_LFS_SKIP_SMUDGE = "1"
-git clone https://github.com/neednotapply/KARR-Master.git
+git clone https://github.com/neednotapply/KARR-Key.git
 ```
 
 To fetch one research project later:

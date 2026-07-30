@@ -2,7 +2,7 @@
 
 ## Architecture
 
-KARR Master keeps UI, local data, protocol, and BLE lifetimes separate:
+KARR Key keeps UI, local data, protocol, and BLE lifetimes separate:
 
 ```text
 Compose tool

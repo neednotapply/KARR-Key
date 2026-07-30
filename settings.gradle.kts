@@ -14,7 +14,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "KarrMaster"
+rootProject.name = "KARR-Key"
 
 include(
     ":app",
