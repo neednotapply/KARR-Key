@@ -23,8 +23,10 @@ Compose feature
 | `feature:installer` | Technician job surface |
 
 Feature screens do not own long-lived BLE callbacks or secret material.
-Transport state is the source of device readiness. Local role selection never
-substitutes for KARR application authentication.
+Transport state is the source of device readiness. Provisioned Customer
+material exposes the Customer catalog; provisioned Dealer material exposes
+Dealer and Installer catalogs. Catalog access never substitutes for a live
+unit's KARR application authentication.
 
 ## Required invariants
 
@@ -39,6 +41,8 @@ substitutes for KARR application authentication.
   connection generation.
 - Disconnect invalidates authentication, counters, and outstanding responses.
 - Writes remain serialized and correlated with expected responses/timeouts.
+- A provisioned key grants only its recovered local role surface. Device
+  mutations still require the current connection to reach `Ready`.
 - Safety-sensitive actions require an authenticated BLE session and explicit
   confirmation.
 - Firmware and CAN paths additionally require compatible signed local
@@ -61,6 +65,12 @@ service `49535343-FE7D-4AE5-8FA9-9FAFD205E455` with characteristic
 command-specific payload schemas must be confirmed individually from callers,
 authorized captures, and physical fixtures. Authentication must negotiate the
 supported unit mode without silent downgrade.
+
+`RecoveredWorkflowCatalog` contains only packets backed by recovered managed
+callers. Feature pages distinguish GATT write acceptance from a matching unit
+notification, require confirmation for mutating packets, and retain command
+metadata in the encrypted local operation journal without recording payload
+contents.
 
 The implemented legacy challenge transform is source-faithful for the
 recovered 8-byte flow. Customer/Valet mode incorporates the recovered unit
@@ -104,7 +114,7 @@ inputs.
 Completing device workflows requires only local evidence and authorized test
 hardware:
 
-- exact command payload schemas traced from the decompiled managed callers;
+- remaining command payload schemas not yet exercised by a managed caller;
 - representative units and byte-exact golden BLE captures;
 - the newer 32-byte/AES path with unit-scoped provisioning material;
 - local vehicle/work-record schemas and import/export formats;

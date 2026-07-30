@@ -4,12 +4,13 @@ KARR Master is an independent native Android research prototype that
 consolidates Customer, Dealer, and Installer workflows recovered from legacy
 KARR applications.
 
-> **Status:** version 0.2.2. KARR Master is offline-only and Bluetooth-first.
+> **Status:** version 0.3.0. KARR Master is offline-only and Bluetooth-first.
 > It opens directly to the device center, requests no Android Internet
 > permission, and contains no login or backend adapter. BLE discovery,
 > transparent-UART subscription, packet parsing, authentication-state
 > diagnostics, locally provisioned legacy challenge authentication, local
-> workflow navigation, and encrypted local storage are implemented.
+> key-gated workflow navigation, recovered live device actions, and encrypted
+> local storage are implemented.
 
 ## Capabilities
 
@@ -29,6 +30,13 @@ KARR applications.
 - Recovered 8-byte legacy challenge authentication with explicit Customer and
   Dealer/Installer key provisioning. Provisioned values are encrypted with
   Android Keystore and are never compiled into the application.
+- Provisioning Customer material exposes the complete offline Customer
+  catalog. Provisioning Dealer material exposes the complete offline Dealer
+  and Installer catalogs.
+- Evidence-backed read and mutation actions are available from their feature
+  pages. Mutations require an authenticated unit plus a per-command
+  confirmation, and unit notifications are shown separately from Android
+  GATT delivery.
 - Original (`0xAA`), counter (`0xBB`), and encrypted (`0x55`) packet codecs.
 - Android Keystore-backed local-value encryption and an encrypted local
   operation journal.
@@ -44,8 +52,15 @@ the operation.
 
 Authorized research keys are entered manually in the Device center. KARR
 Master stores only their Android-Keystore-encrypted form, never displays a
-saved value, and removes authenticated state on disconnect. The legacy flow
-does not cover the newer 32-byte/per-unit AES authentication path.
+saved value, and removes authenticated state on disconnect. A provisioned key
+unlocks its corresponding local role catalog; it does not mark a live unit
+authenticated. The legacy flow does not cover the newer 32-byte/per-unit AES
+authentication path.
+
+Firmware and CAN transfer pages remain visible with the appropriate Dealer
+material, but a key is not a firmware/CAN artifact. Live transfer additionally
+requires compatible authorized bytes, integrity metadata, power checks,
+chunk acknowledgement, and installed-version verification.
 
 The recovered APKs, managed decompilations, and IDA projects are offline
 compatibility evidence. KARR Master does not contact their original services

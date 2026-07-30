@@ -496,6 +496,12 @@ object FeatureCatalog {
         UserRole.INSTALLER -> installer
     }
 
+    fun capabilitiesFor(roles: Set<UserRole>): Set<Capability> =
+        roles
+            .flatMap(::forRole)
+            .flatMap(FeatureDefinition::requiredCapabilities)
+            .toSet()
+
     private fun feature(
         id: String,
         title: String,

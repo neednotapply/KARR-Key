@@ -11,12 +11,14 @@ import com.karr.master.ble.BlePermissions
 import com.karr.master.data.EncryptedDeviceKeyStore
 import com.karr.master.data.EncryptedLocalValueStore
 import com.karr.master.data.LocalMasterRepository
+import com.karr.master.data.LocalOperationStore
 import com.karr.master.protocol.LegacyDeviceAuthenticator
 import com.karr.master.ui.KarrMasterApp
 import com.karr.master.ui.KarrMasterTheme
 
 class MainActivity : ComponentActivity() {
     private lateinit var bleController: AndroidBleController
+    private lateinit var operationStore: LocalOperationStore
     private var permissionResult: ((Boolean) -> Unit)? = null
 
     private val permissionLauncher = registerForActivityResult(
@@ -37,6 +39,7 @@ class MainActivity : ComponentActivity() {
             authenticator = LegacyDeviceAuthenticator(deviceKeys),
         )
         val repository = LocalMasterRepository()
+        operationStore = LocalOperationStore(this)
 
         setContent {
             KarrMasterTheme {
@@ -44,6 +47,7 @@ class MainActivity : ComponentActivity() {
                     repository = repository,
                     bleController = bleController,
                     deviceKeys = deviceKeys,
+                    operationStore = operationStore,
                     requestBlePermissions = ::requestBlePermissions,
                 )
             }
@@ -52,6 +56,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         bleController.shutdown()
+        operationStore.close()
         super.onDestroy()
     }
 

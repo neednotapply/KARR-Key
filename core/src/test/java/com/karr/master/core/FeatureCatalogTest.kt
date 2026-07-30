@@ -61,4 +61,17 @@ class FeatureCatalogTest {
         assertSame(FeatureCatalog.dealer, FeatureCatalog.forRole(UserRole.DEALER))
         assertSame(FeatureCatalog.installer, FeatureCatalog.forRole(UserRole.INSTALLER))
     }
+
+    @Test
+    fun capabilityLookupContainsEveryFeatureRequirementForSelectedRoles() {
+        val roles = setOf(UserRole.CUSTOMER, UserRole.INSTALLER)
+        val capabilities = FeatureCatalog.capabilitiesFor(roles)
+
+        assertTrue(
+            roles
+                .flatMap(FeatureCatalog::forRole)
+                .all { feature -> feature.requiredCapabilities.all(capabilities::contains) },
+        )
+        assertTrue(Capability.DEALER_INVENTORY !in capabilities)
+    }
 }

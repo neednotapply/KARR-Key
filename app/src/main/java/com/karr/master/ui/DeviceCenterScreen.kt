@@ -47,6 +47,7 @@ import kotlinx.coroutines.launch
 fun DeviceCenterScreen(
     controller: BleController,
     deviceKeys: DeviceKeyProvisioning,
+    onProvisioningChanged: () -> Unit,
     requestPermissions: (((Boolean) -> Unit) -> Unit),
     snackbar: SnackbarHostState,
     modifier: Modifier = Modifier,
@@ -95,6 +96,7 @@ fun DeviceCenterScreen(
         saved.onSuccess {
             clearInput()
             markProvisioned()
+            onProvisioningChanged()
             scope.launch {
                 snackbar.showSnackbar("Key encrypted locally.")
             }
@@ -208,6 +210,13 @@ fun DeviceCenterScreen(
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Text(
+                        "Customer material exposes the Customer workflow catalog. Dealer " +
+                            "material exposes Dealer and Installer. Live device actions " +
+                            "still require this unit to return AUTH_SUCCESS.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
                         if (customerKeyProvisioned) {
                             "Customer key: provisioned locally"
                         } else {
@@ -249,6 +258,7 @@ fun DeviceCenterScreen(
                                 deviceKeys.remove(DeviceKeyPurpose.CUSTOMER)
                                 customerKeyInput = ""
                                 customerKeyProvisioned = false
+                                onProvisioningChanged()
                             },
                             enabled = customerKeyProvisioned,
                         ) {
@@ -297,6 +307,7 @@ fun DeviceCenterScreen(
                                 deviceKeys.remove(DeviceKeyPurpose.DEALER)
                                 dealerKeyInput = ""
                                 dealerKeyProvisioned = false
+                                onProvisioningChanged()
                             },
                             enabled = dealerKeyProvisioned,
                         ) {

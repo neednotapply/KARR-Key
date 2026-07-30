@@ -11,6 +11,7 @@ import java.util.UUID
 enum class LocalOperationState {
     PENDING,
     IN_FLIGHT,
+    DELIVERED_TO_GATT,
     SUCCEEDED,
     FAILED_RETRYABLE,
     FAILED_PERMANENT,
@@ -87,17 +88,41 @@ class LocalOperationStore(
 
     fun pending(limit: Int = 100): List<LocalOperation> {
         require(limit in 1..500)
-        return readableDatabase.query(
-            "operations",
-            COLUMNS,
-            "state IN (?, ?)",
-            arrayOf(
+        return query(
+            selection = "state IN (?, ?)",
+            selectionArgs = arrayOf(
                 LocalOperationState.PENDING.name,
                 LocalOperationState.FAILED_RETRYABLE.name,
             ),
+            orderBy = "created_utc ASC",
+            limit = limit,
+        )
+    }
+
+    fun recent(limit: Int = 100): List<LocalOperation> {
+        require(limit in 1..500)
+        return query(
+            selection = null,
+            selectionArgs = null,
+            orderBy = "created_utc DESC",
+            limit = limit,
+        )
+    }
+
+    private fun query(
+        selection: String?,
+        selectionArgs: Array<String>?,
+        orderBy: String,
+        limit: Int,
+    ): List<LocalOperation> =
+        readableDatabase.query(
+            "operations",
+            COLUMNS,
+            selection,
+            selectionArgs,
             null,
             null,
-            "created_utc ASC",
+            orderBy,
             limit.toString(),
         ).use { cursor ->
             buildList {
@@ -120,7 +145,6 @@ class LocalOperationStore(
                 }
             }
         }
-    }
 
     fun updateState(
         id: String,

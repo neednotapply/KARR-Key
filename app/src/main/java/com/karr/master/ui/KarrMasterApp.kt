@@ -24,8 +24,10 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -42,42 +44,59 @@ import androidx.compose.ui.unit.dp
 import com.karr.master.R
 import com.karr.master.ble.BleController
 import com.karr.master.ble.BleSessionState
-import com.karr.master.core.AuthorizationDecision
 import com.karr.master.core.FeatureCatalog
 import com.karr.master.core.FeatureDefinition
-import com.karr.master.core.RolePolicy
+import com.karr.master.core.ResearchAccess
 import com.karr.master.core.Session
 import com.karr.master.core.TechnicianJob
 import com.karr.master.core.UserRole
 import com.karr.master.core.VehicleSummary
-import com.karr.master.core.displayName
+import com.karr.master.data.LocalOperationStore
 import com.karr.master.data.MasterRepository
 import com.karr.master.feature.customer.CustomerFeatureScreen
 import com.karr.master.feature.dealer.DealerFeatureScreen
 import com.karr.master.feature.installer.InstallerFeatureScreen
+import com.karr.master.protocol.DeviceKeyPurpose
 import com.karr.master.protocol.DeviceKeyProvisioning
 import kotlin.math.abs
 
-private enum class MainDestination(
+internal enum class MainDestination(
     val label: String,
     val iconRes: Int,
     val role: UserRole? = null,
 ) {
     HOME("Home", R.drawable.ic_nav_home),
-    CUSTOMER("Customer", R.drawable.ic_nav_customer),
-    DEALER("Dealer", R.drawable.ic_nav_dealer),
-    INSTALLER("Installer", R.drawable.ic_nav_installer),
+    CUSTOMER("Customer", R.drawable.ic_nav_customer, UserRole.CUSTOMER),
+    DEALER("Dealer", R.drawable.ic_nav_dealer, UserRole.DEALER),
+    INSTALLER("Installer", R.drawable.ic_nav_installer, UserRole.INSTALLER),
     DEVICE("Device", R.drawable.ic_nav_bluetooth),
 }
+
+internal fun mainDestinationsFor(roles: Set<UserRole>): List<MainDestination> =
+    MainDestination.entries.filter { destination ->
+        destination.role == null || destination.role in roles
+    }
 
 @Composable
 fun KarrMasterApp(
     repository: MasterRepository,
     bleController: BleController,
     deviceKeys: DeviceKeyProvisioning,
+    operationStore: LocalOperationStore,
     requestBlePermissions: (((Boolean) -> Unit) -> Unit),
 ) {
-    val session = remember(repository) { repository.localSession() }
+    var provisioningRevision by remember { mutableIntStateOf(0) }
+    val session = remember(repository, deviceKeys, provisioningRevision) {
+        ResearchAccess.restrictSession(
+            base = repository.localSession(),
+            customerKeyProvisioned = deviceKeys.isProvisioned(
+                DeviceKeyPurpose.CUSTOMER,
+            ),
+            dealerKeyProvisioned = deviceKeys.isProvisioned(
+                DeviceKeyPurpose.DEALER,
+            ),
+        )
+    }
     val vehicles = remember(repository) { repository.vehicles() }
     val jobs = remember(repository) { repository.jobs() }
     val bleState by bleController.state.collectAsState()
@@ -95,6 +114,8 @@ fun KarrMasterApp(
         jobs = jobs,
         bleController = bleController,
         deviceKeys = deviceKeys,
+        operationStore = operationStore,
+        onProvisioningChanged = { provisioningRevision++ },
         requestBlePermissions = requestBlePermissions,
         snackbar = snackbar,
         onDestination = {
@@ -117,15 +138,15 @@ private fun MasterShell(
     jobs: List<TechnicianJob>,
     bleController: BleController,
     deviceKeys: DeviceKeyProvisioning,
+    operationStore: LocalOperationStore,
+    onProvisioningChanged: () -> Unit,
     requestBlePermissions: (((Boolean) -> Unit) -> Unit),
     snackbar: SnackbarHostState,
     onDestination: (MainDestination) -> Unit,
     onOpenFeature: (FeatureDefinition) -> Unit,
     onBackFromFeature: () -> Unit,
 ) {
-    val visibleDestinations = MainDestination.entries.filter { tab ->
-        tab.role == null || tab.role in session.roles
-    }
+    val visibleDestinations = mainDestinationsFor(session.roles)
     val swipeThreshold = with(LocalDensity.current) { 72.dp.toPx() }
     val pageSwipeModifier = if (selectedFeature == null) {
         Modifier.pointerInput(destination, visibleDestinations) {
@@ -159,6 +180,14 @@ private fun MasterShell(
         onBackFromFeature()
     }
 
+    LaunchedEffect(session.roles, destination, selectedFeature) {
+        val destinationAllowed = destination.role == null || destination.role in session.roles
+        val featureAllowed = selectedFeature?.requiredRole?.let(session.roles::contains) ?: true
+        if (!destinationAllowed || !featureAllowed) {
+            onDestination(MainDestination.DEVICE)
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -168,8 +197,10 @@ private fun MasterShell(
                         Text(
                             if (deviceAuthenticated) {
                                 "Device authenticated"
+                            } else if (session.roles.isEmpty()) {
+                                "Provision a research key"
                             } else {
-                                "Ready to connect"
+                                "${session.roles.joinToString { role -> role.name.lowercase() }} access ready"
                             },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -205,10 +236,16 @@ private fun MasterShell(
                 .then(pageSwipeModifier),
         ) {
             when {
-                selectedFeature != null -> FeatureDetailScreen(
+                selectedFeature != null -> FeatureWorkflowScreen(
                     session = session,
                     feature = selectedFeature,
                     deviceAuthenticated = deviceAuthenticated,
+                    controller = bleController,
+                    operationStore = operationStore,
+                    snackbar = snackbar,
+                    onOpenDevice = {
+                        onDestination(MainDestination.DEVICE)
+                    },
                     onBack = onBackFromFeature,
                 )
                 destination == MainDestination.HOME -> DashboardScreen()
@@ -236,6 +273,7 @@ private fun MasterShell(
                 destination == MainDestination.DEVICE -> DeviceCenterScreen(
                     controller = bleController,
                     deviceKeys = deviceKeys,
+                    onProvisioningChanged = onProvisioningChanged,
                     requestPermissions = requestBlePermissions,
                     snackbar = snackbar,
                     modifier = Modifier.fillMaxSize(),
@@ -358,67 +396,5 @@ private fun FeatureSummary(
             description,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-    }
-}
-
-@Composable
-private fun FeatureDetailScreen(
-    session: Session,
-    feature: FeatureDefinition,
-    deviceAuthenticated: Boolean,
-    onBack: () -> Unit,
-) {
-    val decision = RolePolicy().authorize(session, feature, deviceAuthenticated)
-    LazyColumn(
-        modifier = Modifier.padding(horizontal = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        item {
-            OutlinedButton(onClick = onBack) {
-                Text("Back")
-            }
-        }
-        item {
-            Text(
-                feature.category.uppercase(),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Text(feature.title, style = MaterialTheme.typography.headlineMedium)
-            Text(
-                feature.summary,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        item {
-            ElevatedCard(Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text("Recovered compatibility source", style = MaterialTheme.typography.titleMedium)
-                    Text("Source: ${feature.sourceApp}")
-                    Text("Role: ${feature.requiredRole.displayName()}")
-                    Text(
-                        "Capabilities: ${feature.requiredCapabilities.joinToString { it.name }}",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    when (decision) {
-                        AuthorizationDecision.Allowed -> Text(
-                            if (feature.safetySensitive) {
-                                "The current Bluetooth session is authenticated for local work."
-                            } else {
-                                "This surface uses local records or recovered protocol behavior."
-                            },
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        is AuthorizationDecision.Denied -> Text(
-                            decision.reason,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                }
-            }
-        }
     }
 }
