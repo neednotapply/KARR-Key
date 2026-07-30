@@ -2,10 +2,10 @@
 <resources>
     <style name="Theme.KarrMaster" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:windowLightStatusBar">false</item>
-        <item name="android:statusBarColor">#050505</item>
-        <item name="android:navigationBarColor">#050505</item>
-        <item name="android:windowBackground">#050505</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">#FFF8F6</item>
         <item name="android:colorAccent">#FF3B30</item>
     </style>
 </resources>

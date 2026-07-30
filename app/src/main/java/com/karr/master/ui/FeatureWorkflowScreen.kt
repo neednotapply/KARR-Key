@@ -2,16 +2,17 @@ package com.karr.master.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -24,7 +25,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.karr.master.ble.BleController
 import com.karr.master.ble.BleSessionState
@@ -55,7 +59,6 @@ fun FeatureWorkflowScreen(
     operationStore: LocalOperationStore,
     snackbar: SnackbarHostState,
     onOpenDevice: () -> Unit,
-    onBack: () -> Unit,
 ) {
     val decision = RolePolicy().authorize(session, feature, deviceAuthenticated)
     val actions = remember(feature.id) {
@@ -279,187 +282,243 @@ fun FeatureWorkflowScreen(
         )
     }
 
-    LazyColumn(
-        modifier = Modifier.padding(horizontal = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        item {
-            OutlinedButton(onClick = onBack) {
-                Text("Back")
+    ResponsiveContent(
+        modifier = Modifier.fillMaxSize(),
+        contentMaxWidth = 920.dp,
+    ) { contentModifier ->
+        LazyColumn(
+            modifier = contentModifier,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                top = 20.dp,
+                bottom = 32.dp,
+            ),
+        ) {
+            item {
+                Text(
+                    feature.category.uppercase(),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    feature.title,
+                    style = MaterialTheme.typography.headlineMedium,
+                )
+                Text(
+                    feature.summary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-        }
-        item {
-            Text(
-                feature.category.uppercase(),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Text(feature.title, style = MaterialTheme.typography.headlineMedium)
-            Text(
-                feature.summary,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        item {
-            ElevatedCard(Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text("Research access", style = MaterialTheme.typography.titleMedium)
-                    Text("Source: ${feature.sourceApp}")
-                    Text("Role: ${feature.requiredRole.displayName()}")
-                    when (decision) {
-                        AuthorizationDecision.Allowed -> Text(
-                            if (feature.safetySensitive) {
-                                "The corresponding local key is provisioned and the current " +
-                                    "Bluetooth session is authenticated."
-                            } else {
-                                "The corresponding local key is provisioned for this workflow."
-                            },
-                            color = MaterialTheme.colorScheme.primary,
+            item {
+                OutlinedCard(Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(
+                            "Research access",
+                            style = MaterialTheme.typography.titleMedium,
                         )
-                        is AuthorizationDecision.Denied -> Text(
-                            decision.reason,
-                            color = MaterialTheme.colorScheme.error,
+                        StatusPill(
+                            featureAvailability(
+                                session = session,
+                                feature = feature,
+                                deviceAuthenticated = deviceAuthenticated,
+                            ),
+                        )
+                        Text(
+                            when (decision) {
+                                AuthorizationDecision.Allowed -> {
+                                    if (feature.safetySensitive) {
+                                        "Local role material and the current authenticated " +
+                                            "device session authorize this workflow."
+                                    } else {
+                                        "Local role material authorizes this workflow."
+                                    }
+                                }
+                                is AuthorizationDecision.Denied -> decision.reason
+                            },
+                            color = if (decision == AuthorizationDecision.Allowed) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.error
+                            },
                         )
                     }
                 }
             }
-        }
-        if (opensDeviceCenter) {
-            item {
-                Button(onClick = onOpenDevice) {
-                    Text("Open Device center")
+            if (opensDeviceCenter) {
+                item {
+                    Button(onClick = onOpenDevice) {
+                        Text("Open device connection")
+                    }
                 }
             }
-        }
-        if (actions.isNotEmpty()) {
-            item {
-                Text(
-                    "Recovered device operations",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                if (!deviceAuthenticated) {
-                    Text(
-                        "Connect and complete unit authentication before sending commands.",
-                        color = MaterialTheme.colorScheme.error,
+            if (actions.isNotEmpty()) {
+                item {
+                    SectionHeader(
+                        title = "Device operations",
+                        supportingText = if (deviceAuthenticated) {
+                            "Commands use the authenticated Bluetooth session."
+                        } else {
+                            "Connect and complete unit authentication before sending commands."
+                        },
                     )
                 }
-            }
-            items(actions, key = RecoveredDeviceAction::id) { action ->
-                ElevatedCard(Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Text(action.label, style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            action.description,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            "${action.command.name} (${action.source})",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (action.mutating) {
-                                Button(
-                                    onClick = { pendingAction = action },
-                                    enabled =
-                                        decision == AuthorizationDecision.Allowed &&
-                                            deviceAuthenticated &&
-                                            !sending &&
-                                            awaitingCommandCode == null,
-                                ) {
-                                    Text("Review and send")
-                                }
-                            } else {
-                                OutlinedButton(
-                                    onClick = { execute(action) },
-                                    enabled =
-                                        decision == AuthorizationDecision.Allowed &&
-                                            deviceAuthenticated &&
-                                            !sending &&
-                                            awaitingCommandCode == null,
-                                ) {
-                                    Text("Run read")
+                items(actions, key = RecoveredDeviceAction::id) { action ->
+                    OutlinedCard(Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Text(
+                                action.label,
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Text(
+                                action.description,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                if (action.mutating) {
+                                    Button(
+                                        onClick = { pendingAction = action },
+                                        enabled =
+                                            decision == AuthorizationDecision.Allowed &&
+                                                deviceAuthenticated &&
+                                                !sending &&
+                                                awaitingCommandCode == null,
+                                    ) {
+                                        Text("Review and send")
+                                    }
+                                } else {
+                                    OutlinedButton(
+                                        onClick = { execute(action) },
+                                        enabled =
+                                            decision == AuthorizationDecision.Allowed &&
+                                                deviceAuthenticated &&
+                                                !sending &&
+                                                awaitingCommandCode == null,
+                                    ) {
+                                        Text("Run read")
+                                    }
                                 }
                             }
                         }
                     }
                 }
+            } else if (!opensDeviceCenter) {
+                item {
+                    OutlinedCard(Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                "Local workflow",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Text(
+                                "This workflow uses local records or operator input and " +
+                                    "does not send a direct unit packet.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
             }
-        } else if (!opensDeviceCenter) {
             item {
-                ElevatedCard(Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Text("Local workflow", style = MaterialTheme.typography.titleMedium)
+                TechnicalDetails {
+                    Text("Role", style = MaterialTheme.typography.labelLarge)
+                    Text(feature.requiredRole.displayName())
+                    Text(
+                        "Recovered source",
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                    Text(feature.sourceApp)
+                    limitation?.let { text ->
                         Text(
-                            "This workflow uses local records or operator input and does not " +
-                                "send a direct unit packet.",
+                            "Protocol boundary",
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                        Text(
+                            text,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                }
-            }
-        }
-        limitation?.let { text ->
-            item {
-                ElevatedCard(Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Text("Protocol boundary", style = MaterialTheme.typography.titleMedium)
-                        Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (actions.isNotEmpty()) {
+                        Text(
+                            "Recovered command mapping",
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                        actions.forEach { action ->
+                            CodeSurface(
+                                "${action.label}: ${action.command.name} (${action.source})",
+                            )
+                        }
                     }
                 }
             }
-        }
-        commandStatus?.let { status ->
-            item {
-                Text("Command status", style = MaterialTheme.typography.titleMedium)
-                Text(status)
+            commandStatus?.let { status ->
+                item {
+                    OutlinedCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics {
+                                liveRegion = LiveRegionMode.Polite
+                                stateDescription = status
+                            },
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text(
+                                "Command status",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Text(status)
+                        }
+                    }
+                }
             }
-        }
-        lastResponse?.let { response ->
-            item {
-                Text("Latest unit notification", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    response,
-                    fontFamily = FontFamily.Monospace,
-                    style = MaterialTheme.typography.bodySmall,
-                )
+            lastResponse?.let { response ->
+                item {
+                    SectionHeader(title = "Latest unit notification")
+                    CodeSurface(response)
+                }
             }
-        }
-        if (showsLocalHistory) {
-            item {
-                Text("Encrypted operation history", style = MaterialTheme.typography.titleMedium)
-                if (recentOperations.isEmpty()) {
-                    Text(
-                        "No device-command attempts have been recorded.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+            if (showsLocalHistory) {
+                item {
+                    SectionHeader(
+                        title = "Encrypted operation history",
+                        supportingText = if (recentOperations.isEmpty()) {
+                            "No device-command attempts have been recorded."
+                        } else {
+                            "${recentOperations.size} recent local records"
+                        },
                     )
                 }
-            }
-            items(recentOperations, key = LocalOperation::id) { operation ->
-                ElevatedCard(Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Text(operation.type, style = MaterialTheme.typography.titleSmall)
-                        Text("${operation.role.name} - ${operation.state.name}")
-                        Text(
-                            "${operation.scope} - ${operation.createdUtc}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                items(recentOperations, key = LocalOperation::id) { operation ->
+                    OutlinedCard(Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text(
+                                operation.type,
+                                style = MaterialTheme.typography.titleSmall,
+                            )
+                            Text("${operation.role.name} • ${operation.state.name}")
+                            Text(
+                                "${operation.scope} • ${operation.createdUtc}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
