@@ -5,9 +5,9 @@
 KARR Master keeps UI, local data, protocol, and BLE lifetimes separate:
 
 ```text
-Compose feature
-  -> local role/capability workspace
-  -> typed local repository or workflow boundary
+Compose tool
+  -> local role/capability policy
+  -> recovered device workflow
   -> authenticated BLE session
 ```
 
@@ -15,14 +15,11 @@ Compose feature
 |---|---|
 | `app` | Process entrypoint, Bluetooth-first shell, navigation, shared UI |
 | `core` | Domain models, local roles, capabilities, and device policy |
-| `data` | Local workspace, Keystore-backed storage, local operation journal |
+| `data` | Keystore-backed access state and local operation journal |
 | `protocol` | Packet framing, parsing, commands, authentication interface |
 | `ble` | Serialized scan/connect/discover/subscribe/write session |
-| `feature:customer` | Customer vehicle surface |
-| `feature:dealer` | Dealer inventory/service surface |
-| `feature:installer` | Technician job surface |
 
-Feature screens do not own long-lived BLE callbacks or secret material.
+Tool screens do not own long-lived BLE callbacks or secret material.
 Transport state is the source of device readiness. Provisioned Customer
 material exposes the Customer catalog; provisioned Dealer material exposes
 Dealer and Installer catalogs. Catalog access never substitutes for a live
@@ -45,12 +42,11 @@ unit's KARR application authentication.
   mutations still require the current connection to reach `Ready`.
 - Safety-sensitive actions require an authenticated BLE session and explicit
   confirmation.
-- Firmware and CAN paths additionally require compatible signed local
-  artifacts, power preconditions, acknowledged transfer, and verification.
 - Recovered universal credentials are never compiled into the application.
-- The visible feature catalog contains only local-record or direct-Bluetooth
-  workflows; server accounts, push alerts, maps, remote history, transactions,
-  and submissions stay excluded.
+- Every visible tool either opens the BLE connection flow or exposes recovered
+  device actions. Inventory, jobs, accounts, imported records, external
+  artifacts, support links, maps, remote history, transactions, and submissions
+  stay excluded.
 - The application manifest must not request `INTERNET` or
   `ACCESS_NETWORK_STATE`; `preBuild` enforces this contract.
 
@@ -117,8 +113,6 @@ hardware:
 - remaining command payload schemas not yet exercised by a managed caller;
 - representative units and byte-exact golden BLE captures;
 - the newer 32-byte/AES path with unit-scoped provisioning material;
-- local vehicle/work-record schemas and import/export formats;
-- signed firmware/CAN metadata, compatibility checks, and transfer rules;
 - production application ID, signing, privacy, and backup configuration.
 
 Do not introduce a network client to fill a compatibility gap. Record the gap,

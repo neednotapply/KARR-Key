@@ -6,7 +6,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FeatureCatalogTest {
-    private val removedBackendFeatureIds = setOf(
+    private val unsupportedOfflineFeatureIds = setOf(
+        "customer.account",
+        "customer.location",
+        "customer.local_history",
+        "customer.instructions",
+        "customer.contact",
         "customer.alerts",
         "customer.alert_configuration",
         "customer.geofences",
@@ -24,14 +29,39 @@ class FeatureCatalogTest {
         "dealer.tent_mode",
         "dealer.snow_mode",
         "dealer.statistics",
+        "dealer.accounts",
+        "dealer.sync",
+        "dealer.inventory",
+        "dealer.vehicle_search",
+        "dealer.serial_search",
+        "dealer.products",
+        "dealer.status",
+        "dealer.locations",
+        "dealer.artifacts",
+        "dealer.firmware",
+        "dealer.user_settings",
         "installer.control_room",
+        "installer.jobs",
+        "installer.schedule",
+        "installer.account",
+        "installer.product",
+        "installer.vehicle",
+        "installer.vin",
+        "installer.barcode",
+        "installer.serial",
+        "installer.can_selection",
+        "installer.completion",
+        "installer.replacement",
+        "installer.can_transfer",
+        "installer.firmware",
+        "installer.offline",
     )
 
     @Test
-    fun exposesOfflineCapableCatalogForEachRole() {
-        assertEquals(16, FeatureCatalog.customer.size)
-        assertEquals(18, FeatureCatalog.dealer.size)
-        assertEquals(23, FeatureCatalog.installer.size)
+    fun exposesBluetoothCapableCatalogForEachRole() {
+        assertEquals(11, FeatureCatalog.customer.size)
+        assertEquals(7, FeatureCatalog.dealer.size)
+        assertEquals(9, FeatureCatalog.installer.size)
 
         UserRole.entries.forEach { role ->
             val features = FeatureCatalog.forRole(role)
@@ -43,8 +73,22 @@ class FeatureCatalogTest {
     }
 
     @Test
-    fun excludesRecoveredBackendDependentWorkflows() {
-        assertTrue(FeatureCatalog.all.none { it.id in removedBackendFeatureIds })
+    fun excludesDatabaseAndArtifactDependentWorkflows() {
+        assertTrue(FeatureCatalog.all.none { it.id in unsupportedOfflineFeatureIds })
+        assertEquals(
+            setOf(
+                Capability.VEHICLE_READ,
+                Capability.CUSTOMER_CONTROL,
+                Capability.DEALER_DEVICE_SERVICE,
+                Capability.INSTALLER_FITMENT,
+                Capability.INSTALLER_REPAIR,
+                Capability.INSTALLER_REMOVAL,
+                Capability.DEVICE_CONNECT,
+                Capability.DEVICE_SETTINGS,
+                Capability.DEVICE_DIAGNOSTICS,
+            ),
+            FeatureCatalog.all.flatMap(FeatureDefinition::requiredCapabilities).toSet(),
+        )
     }
 
     @Test
@@ -72,6 +116,6 @@ class FeatureCatalogTest {
                 .flatMap(FeatureCatalog::forRole)
                 .all { feature -> feature.requiredCapabilities.all(capabilities::contains) },
         )
-        assertTrue(Capability.DEALER_INVENTORY !in capabilities)
+        assertTrue(Capability.DEALER_DEVICE_SERVICE !in capabilities)
     }
 }

@@ -7,7 +7,7 @@ class RolePolicy {
         deviceAuthenticated: Boolean = false,
     ): AuthorizationDecision {
         if (session == null) {
-            return AuthorizationDecision.Denied("Open the local workspace first.")
+            return AuthorizationDecision.Denied("Provision local access material first.")
         }
         if (feature.requiredRole !in session.roles) {
             return AuthorizationDecision.Denied(

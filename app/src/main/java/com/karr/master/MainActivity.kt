@@ -56,6 +56,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        bleController.setReconnectAllowed(true)
+    }
+
+    override fun onStop() {
+        bleController.setReconnectAllowed(false)
+        super.onStop()
+    }
+
     override fun onDestroy() {
         bleController.shutdown()
         operationStore.close()

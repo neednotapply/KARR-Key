@@ -15,17 +15,41 @@ class GattStatusTest {
             ),
         )
 
-        assertTrue(message.contains("authentication timed out"))
-        assertTrue(message.contains("status 19"))
+        assertTrue(message.contains("application authentication"))
+        assertTrue(message.contains("provisioned key"))
     }
 
     @Test
-    fun distinguishesCommonAndroidGattFailures() {
+    fun explainsCommonAndroidConnectionFailuresWithoutBareStatusCodes() {
         val idle = BleSessionState.Idle
-        assertTrue(GattStatus.disconnectMessage(8, idle).contains("timed out"))
-        assertTrue(GattStatus.disconnectMessage(19, idle).contains("peripheral ended"))
+        assertTrue(GattStatus.disconnectMessage(0, idle).contains("closed without an Android error"))
+        assertTrue(GattStatus.disconnectMessage(8, idle).contains("stopped responding"))
+        assertTrue(GattStatus.disconnectMessage(19, idle).contains("KARR unit closed"))
         assertTrue(GattStatus.disconnectMessage(22, idle).contains("locally"))
-        assertTrue(GattStatus.disconnectMessage(62, idle).contains("could not be established"))
-        assertTrue(GattStatus.disconnectMessage(133, idle).contains("generic"))
+        assertTrue(GattStatus.disconnectMessage(62, idle).contains("could not establish"))
+        assertTrue(GattStatus.disconnectMessage(133, idle).contains("could not establish or maintain"))
+    }
+
+    @Test
+    fun explainsGattWriteFailuresInOperationContext() {
+        assertTrue(
+            GattStatus.operationFailure("UART write", 8)
+                .contains("not authorized"),
+        )
+        assertTrue(
+            GattStatus.operationFailure("UART write", 133)
+                .contains("lost the active Bluetooth GATT session"),
+        )
+        assertTrue(
+            GattStatus.operationFailure("UART write", 143)
+                .contains("congested"),
+        )
+    }
+
+    @Test
+    fun explainsAndroidScanFailures() {
+        assertTrue(GattStatus.scanFailure(1).contains("already running"))
+        assertTrue(GattStatus.scanFailure(5).contains("no Bluetooth scanning resources"))
+        assertTrue(GattStatus.scanFailure(6).contains("limiting Bluetooth scans"))
     }
 }

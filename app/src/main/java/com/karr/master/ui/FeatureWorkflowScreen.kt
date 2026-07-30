@@ -37,7 +37,6 @@ import com.karr.master.core.FeatureDefinition
 import com.karr.master.core.RolePolicy
 import com.karr.master.core.Session
 import com.karr.master.core.displayName
-import com.karr.master.data.LocalOperation
 import com.karr.master.data.LocalOperationState
 import com.karr.master.data.LocalOperationStore
 import com.karr.master.protocol.PacketParseResult
@@ -74,14 +73,10 @@ fun FeatureWorkflowScreen(
     var commandStatus by remember(feature.id) { mutableStateOf<String?>(null) }
     var lastResponse by remember(feature.id) { mutableStateOf<String?>(null) }
     var sending by remember(feature.id) { mutableStateOf(false) }
-    var recentOperations by remember(feature.id) {
-        mutableStateOf<List<LocalOperation>>(emptyList())
-    }
     var awaitingOperationId by remember(feature.id) { mutableStateOf<String?>(null) }
     var awaitingCommandCode by remember(feature.id) { mutableStateOf<Int?>(null) }
     var commandGeneration by remember(feature.id) { mutableIntStateOf(0) }
     val opensDeviceCenter = feature.id in DEVICE_CENTER_FEATURES
-    val showsLocalHistory = feature.id in LOCAL_HISTORY_FEATURES
 
     LaunchedEffect(controller, feature.id) {
         controller.notifications.collect { bytes ->
@@ -147,14 +142,6 @@ fun FeatureWorkflowScreen(
                         }
                     }
                 }
-            }
-        }
-    }
-
-    LaunchedEffect(feature.id, commandStatus) {
-        if (showsLocalHistory) {
-            recentOperations = withContext(Dispatchers.IO) {
-                operationStore.recent(50)
             }
         }
     }
@@ -491,37 +478,6 @@ fun FeatureWorkflowScreen(
                     CodeSurface(response)
                 }
             }
-            if (showsLocalHistory) {
-                item {
-                    SectionHeader(
-                        title = "Encrypted operation history",
-                        supportingText = if (recentOperations.isEmpty()) {
-                            "No device-command attempts have been recorded."
-                        } else {
-                            "${recentOperations.size} recent local records"
-                        },
-                    )
-                }
-                items(recentOperations, key = LocalOperation::id) { operation ->
-                    OutlinedCard(Modifier.fillMaxWidth()) {
-                        Column(
-                            modifier = Modifier.padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            Text(
-                                operation.type,
-                                style = MaterialTheme.typography.titleSmall,
-                            )
-                            Text("${operation.role.name} • ${operation.state.name}")
-                            Text(
-                                "${operation.scope} • ${operation.createdUtc}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-            }
         }
     }
 }
@@ -530,11 +486,6 @@ private val DEVICE_CENTER_FEATURES = setOf(
     "customer.device",
     "dealer.bluetooth",
     "installer.bluetooth",
-)
-
-private val LOCAL_HISTORY_FEATURES = setOf(
-    "customer.local_history",
-    "installer.offline",
 )
 
 private const val MAX_RESPONSE_PREVIEW_BYTES = 48

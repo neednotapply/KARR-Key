@@ -12,14 +12,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PrimaryScrollableTabRow
-import androidx.compose.material3.Tab
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
@@ -36,29 +34,19 @@ import com.karr.master.R
 import com.karr.master.core.FeatureCatalog
 import com.karr.master.core.FeatureDefinition
 import com.karr.master.core.Session
-import com.karr.master.core.TechnicianJob
 import com.karr.master.core.UserRole
-import com.karr.master.core.VehicleSummary
-import com.karr.master.feature.customer.CustomerWorkspaceSummary
-import com.karr.master.feature.dealer.DealerWorkspaceSummary
-import com.karr.master.feature.installer.InstallerWorkspaceSummary
 
 @Composable
 internal fun AdaptiveToolsScreen(
     session: Session,
-    selectedRole: UserRole?,
     selectedFeature: FeatureDefinition?,
-    vehicles: List<VehicleSummary>,
-    jobs: List<TechnicianJob>,
     deviceAuthenticated: Boolean,
     query: String,
     selectedCategory: String?,
     listState: LazyListState,
-    onRoleSelected: (UserRole) -> Unit,
     onQueryChanged: (String) -> Unit,
     onCategorySelected: (String?) -> Unit,
     onOpenFeature: (FeatureDefinition) -> Unit,
-    onOpenAccessKeys: () -> Unit,
     detailContent: @Composable (FeatureDefinition) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -68,18 +56,13 @@ internal fun AdaptiveToolsScreen(
             Row(Modifier.fillMaxSize()) {
                 ToolsCatalogPane(
                     session = session,
-                    selectedRole = selectedRole,
-                    vehicles = vehicles,
-                    jobs = jobs,
                     deviceAuthenticated = deviceAuthenticated,
                     query = query,
                     selectedCategory = selectedCategory,
                     listState = listState,
-                    onRoleSelected = onRoleSelected,
                     onQueryChanged = onQueryChanged,
                     onCategorySelected = onCategorySelected,
                     onOpenFeature = onOpenFeature,
-                    onOpenAccessKeys = onOpenAccessKeys,
                     modifier = Modifier
                         .weight(0.43f)
                         .fillMaxSize(),
@@ -98,18 +81,13 @@ internal fun AdaptiveToolsScreen(
         } else {
             ToolsCatalogPane(
                 session = session,
-                selectedRole = selectedRole,
-                vehicles = vehicles,
-                jobs = jobs,
                 deviceAuthenticated = deviceAuthenticated,
                 query = query,
                 selectedCategory = selectedCategory,
                 listState = listState,
-                onRoleSelected = onRoleSelected,
                 onQueryChanged = onQueryChanged,
                 onCategorySelected = onCategorySelected,
                 onOpenFeature = onOpenFeature,
-                onOpenAccessKeys = onOpenAccessKeys,
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -119,35 +97,20 @@ internal fun AdaptiveToolsScreen(
 @Composable
 private fun ToolsCatalogPane(
     session: Session,
-    selectedRole: UserRole?,
-    vehicles: List<VehicleSummary>,
-    jobs: List<TechnicianJob>,
     deviceAuthenticated: Boolean,
     query: String,
     selectedCategory: String?,
     listState: LazyListState = rememberLazyListState(),
-    onRoleSelected: (UserRole) -> Unit,
     onQueryChanged: (String) -> Unit,
     onCategorySelected: (String?) -> Unit,
     onOpenFeature: (FeatureDefinition) -> Unit,
-    onOpenAccessKeys: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val availableRoles = UserRole.entries.filter(session.roles::contains)
-    if (availableRoles.isEmpty()) {
-        ToolsLockedState(
-            onOpenAccessKeys = onOpenAccessKeys,
-            modifier = modifier,
-        )
-        return
-    }
-
-    val role = selectedRole?.takeIf(availableRoles::contains) ?: availableRoles.first()
-    val features = FeatureCatalog.forRole(role)
+    val features = FeatureCatalog.all
     val categories = features.map(FeatureDefinition::category).distinct()
-    val filtered = toolsFeaturesFor(role, query, selectedCategory)
+    val filtered = toolsFeaturesFor(query, selectedCategory)
 
-    LaunchedEffect(role, categories) {
+    LaunchedEffect(categories) {
         if (selectedCategory != null && selectedCategory !in categories) {
             onCategorySelected(null)
         }
@@ -164,35 +127,11 @@ private fun ToolsCatalogPane(
             bottom = 32.dp,
         ),
     ) {
-        item(key = "role-tabs") {
-            if (availableRoles.size > 1) {
-                PrimaryScrollableTabRow(
-                    selectedTabIndex = availableRoles.indexOf(role),
-                ) {
-                    availableRoles.forEach { tabRole ->
-                        Tab(
-                            selected = role == tabRole,
-                            onClick = { onRoleSelected(tabRole) },
-                            text = { Text(tabRole.displayLabel()) },
-                        )
-                    }
-                }
-            }
-        }
-
-        item(key = "workspace-summary:$role") {
-            WorkspaceSummary(
-                role = role,
-                vehicles = vehicles,
-                jobs = jobs,
-            )
-        }
-
         item(key = "search") {
             OutlinedTextField(
                 value = query,
                 onValueChange = onQueryChanged,
-                label = { Text("Search ${role.displayLabel().lowercase()} tools") },
+                label = { Text("Search tools") },
                 leadingIcon = {
                     Icon(
                         painter = painterResource(R.drawable.ic_search),
@@ -207,7 +146,7 @@ private fun ToolsCatalogPane(
             )
         }
 
-        item(key = "categories:$role") {
+        item(key = "categories") {
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -254,7 +193,7 @@ private fun ToolsCatalogPane(
             filtered
                 .groupBy(FeatureDefinition::category)
                 .forEach { (category, categoryFeatures) ->
-                    item(key = "heading:$role:$category") {
+                    item(key = "heading:$category") {
                         Text(
                             text = category,
                             modifier = Modifier
@@ -278,19 +217,6 @@ private fun ToolsCatalogPane(
                     }
                 }
         }
-    }
-}
-
-@Composable
-private fun WorkspaceSummary(
-    role: UserRole,
-    vehicles: List<VehicleSummary>,
-    jobs: List<TechnicianJob>,
-) {
-    when (role) {
-        UserRole.CUSTOMER -> CustomerWorkspaceSummary(vehicles)
-        UserRole.DEALER -> DealerWorkspaceSummary(vehicles)
-        UserRole.INSTALLER -> InstallerWorkspaceSummary(jobs)
     }
 }
 
@@ -337,40 +263,30 @@ private fun FeatureListRow(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            StatusPill(availability)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                RoleTag(feature.requiredRole)
+                StatusPill(availability)
+            }
         }
     }
 }
 
 @Composable
-private fun ToolsLockedState(
-    onOpenAccessKeys: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    ResponsiveContent(modifier = modifier) { contentModifier ->
-        Column(
-            modifier = contentModifier.padding(top = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            SectionHeader(
-                title = "Tools are locked",
-                supportingText = "Provision an authorized local research key to open the role workspaces.",
-            )
-            OutlinedCard(Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text(
-                        "Customer material unlocks Customer tools. Dealer material unlocks Dealer and Installer tools.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Button(onClick = onOpenAccessKeys) {
-                        Text("Open access keys")
-                    }
-                }
-            }
-        }
+private fun RoleTag(role: UserRole) {
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        shape = MaterialTheme.shapes.small,
+    ) {
+        Text(
+            text = role.displayLabel(),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
 
@@ -381,17 +297,20 @@ private fun UserRole.displayLabel(): String = when (this) {
 }
 
 internal fun toolsFeaturesFor(
-    role: UserRole,
     query: String = "",
     category: String? = null,
 ): List<FeatureDefinition> {
     val normalizedQuery = query.trim()
-    return FeatureCatalog.forRole(role).filter { feature ->
+    return FeatureCatalog.all.filter { feature ->
         val categoryMatches = category == null || feature.category == category
         val queryMatches = normalizedQuery.isEmpty() ||
             feature.title.contains(normalizedQuery, ignoreCase = true) ||
             feature.summary.contains(normalizedQuery, ignoreCase = true) ||
-            feature.category.contains(normalizedQuery, ignoreCase = true)
+            feature.category.contains(normalizedQuery, ignoreCase = true) ||
+            feature.requiredRole.displayLabel().contains(
+                normalizedQuery,
+                ignoreCase = true,
+            )
         categoryMatches && queryMatches
     }
 }

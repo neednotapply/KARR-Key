@@ -9,12 +9,17 @@ import org.junit.Test
 
 class RecoveredWorkflowCatalogTest {
     @Test
-    fun everyMappedWorkflowTargetsAnExistingFeature() {
+    fun everyCatalogEntryIsBackedByBluetoothConnectionOrDeviceActions() {
         val featureIds = FeatureCatalog.all.map { feature -> feature.id }.toSet()
+        val connectionOnlyFeatureIds = setOf(
+            "dealer.bluetooth",
+            "installer.bluetooth",
+        )
 
         assertTrue(RecoveredWorkflowCatalog.featureIdsWithDeviceActions.isNotEmpty())
-        assertTrue(
-            RecoveredWorkflowCatalog.featureIdsWithDeviceActions.all(featureIds::contains),
+        assertEquals(
+            featureIds,
+            RecoveredWorkflowCatalog.featureIdsWithDeviceActions + connectionOnlyFeatureIds,
         )
     }
 
@@ -66,26 +71,4 @@ class RecoveredWorkflowCatalogTest {
         )
     }
 
-    @Test
-    fun artifactPagesDoNotExposeUnscopedTransferPackets() {
-        val artifactActions = listOf(
-            "dealer.artifacts",
-            "dealer.firmware",
-            "installer.can_transfer",
-            "installer.firmware",
-        ).flatMap(RecoveredWorkflowCatalog::actionsFor)
-        val transferCommands = setOf(
-            QtCommand.START_CAN_FILE_DOWNLOAD,
-            QtCommand.CAN_FILE_CHUNK,
-            QtCommand.CAN_FILE_DOWNLOAD_COMPLETE,
-            QtCommand.BOOTLOAD_ENTER,
-            QtCommand.BOOTLOAD_START,
-            QtCommand.BOOTLOAD_CHUNK,
-            QtCommand.BOOTLOAD_COMPLETE,
-        )
-
-        assertTrue(artifactActions.isNotEmpty())
-        assertTrue(artifactActions.none { action -> action.command in transferCommands })
-        assertTrue(artifactActions.none { action -> action.mutating })
-    }
 }

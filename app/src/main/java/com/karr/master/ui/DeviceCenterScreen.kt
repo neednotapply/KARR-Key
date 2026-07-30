@@ -68,12 +68,10 @@ internal fun DeviceCenterScreen(
 ) {
     val state by controller.state.collectAsState()
     val devices by controller.devices.collectAsState()
-    val candidates = devices.filter { it.classification.isCandidate }
-    val otherDevices = devices.filterNot { it.classification.isCandidate }
-    val confirmedCount = candidates.count {
-        it.classification.tier == KarrCandidateTier.CONFIRMED_FORMAT
-    }
-    val possibleCount = candidates.size - confirmedCount
+    val confirmedDevices = confirmedDevicesForConnection(devices)
+    val otherDevices = otherDevicesForConnection(devices)
+    val confirmedCount = confirmedDevices.size
+    val nearbyCount = confirmedCount + otherDevices.size
     val scope = rememberCoroutineScope()
     var lastNotification by remember { mutableStateOf<String?>(null) }
     var selfTest by remember { mutableStateOf<String?>(null) }
@@ -225,16 +223,24 @@ internal fun DeviceCenterScreen(
         when (section) {
             DeviceSection.CONNECTION -> ConnectionSection(
                 state = state,
-                devices = devices,
-                candidates = candidates,
+                nearbyCount = nearbyCount,
+                confirmedDevices = confirmedDevices,
                 otherDevices = otherDevices,
                 confirmedCount = confirmedCount,
-                possibleCount = possibleCount,
                 showOtherDevices = showOtherDevices,
                 onShowOtherDevicesChanged = { showOtherDevices = it },
                 onScan = startScan,
                 onStopScan = controller::stopScan,
                 onDisconnect = controller::disconnect,
+                onRetryReconnect = {
+                    controller.retryReconnect().onFailure { failure ->
+                        scope.launch {
+                            snackbar.showSnackbar(
+                                failure.message ?: "Automatic reconnect could not be retried.",
+                            )
+                        }
+                    }
+                },
                 onConnect = { device ->
                     controller.connect(device.address).onFailure { failure ->
                         scope.launch {
@@ -346,16 +352,16 @@ internal fun DeviceCenterScreen(
 @Composable
 private fun ConnectionSection(
     state: BleSessionState,
-    devices: List<DiscoveredDevice>,
-    candidates: List<DiscoveredDevice>,
+    nearbyCount: Int,
+    confirmedDevices: List<DiscoveredDevice>,
     otherDevices: List<DiscoveredDevice>,
     confirmedCount: Int,
-    possibleCount: Int,
     showOtherDevices: Boolean,
     onShowOtherDevicesChanged: (Boolean) -> Unit,
     onScan: () -> Unit,
     onStopScan: () -> Unit,
     onDisconnect: () -> Unit,
+    onRetryReconnect: () -> Unit,
     onConnect: (DiscoveredDevice) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -372,7 +378,8 @@ private fun ConnectionSection(
         item {
             SectionHeader(
                 title = "Connection",
-                supportingText = "Manual discovery never auto-connects.",
+                supportingText =
+                    "Unexpected drops reconnect only to the last authenticated unit.",
             )
         }
         item {
@@ -384,15 +391,13 @@ private fun ConnectionSection(
                     Text(
                         text = state.label(
                             confirmedCount,
-                            possibleCount,
-                            devices.size,
+                            nearbyCount,
                         ),
                         modifier = Modifier.semantics {
                             liveRegion = LiveRegionMode.Polite
                             stateDescription = state.label(
                                 confirmedCount,
-                                possibleCount,
-                                devices.size,
+                                nearbyCount,
                             )
                         },
                         style = MaterialTheme.typography.titleMedium,
@@ -403,7 +408,7 @@ private fun ConnectionSection(
                     ) {
                         Button(
                             onClick = onScan,
-                            enabled = state !is BleSessionState.Scanning,
+                            enabled = state.canScan(),
                         ) {
                             Text("Scan")
                         }
@@ -413,11 +418,25 @@ private fun ConnectionSection(
                         ) {
                             Text("Stop")
                         }
+                        if (state is BleSessionState.ReconnectFailed) {
+                            OutlinedButton(onClick = onRetryReconnect) {
+                                Text("Retry reconnect")
+                            }
+                        }
                         OutlinedButton(
                             onClick = onDisconnect,
                             enabled = state.canDisconnect(),
                         ) {
-                            Text("Disconnect")
+                            Text(
+                                if (
+                                    state is BleSessionState.Reconnecting ||
+                                    state is BleSessionState.ReconnectFailed
+                                ) {
+                                    "Cancel reconnect"
+                                } else {
+                                    "Disconnect"
+                                },
+                            )
                         }
                     }
                 }
@@ -427,27 +446,25 @@ private fun ConnectionSection(
             SectionHeader(
                 title = scanCountLabel(
                     confirmedCount,
-                    possibleCount,
-                    devices.size,
+                    nearbyCount,
                 ),
                 supportingText = "Confirmed formats match recovered KARR identifiers. " +
-                    "Weaker evidence is marked Possible.",
+                    "Strongest recently seen signals appear first.",
             )
         }
-        if (candidates.isEmpty()) {
+        if (confirmedDevices.isEmpty()) {
             item {
                 Text(
                     if (state is BleSessionState.Scanning) {
-                        "Scanning for KARR-format signals; all nearby BLE advertisements " +
-                            "are still being counted."
+                        "Scanning for confirmed KARR-format signals."
                     } else {
-                        "No KARR-format signals found."
+                        "No confirmed KARR-format signals found."
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         } else {
-            items(candidates, key = { "candidate:${it.address}" }) { device ->
+            items(confirmedDevices, key = { "confirmed:${it.address}" }) { device ->
                 DiscoveredDeviceCard(
                     device = device,
                     onConnect = if (device.connectionEligible) {
@@ -755,18 +772,15 @@ private fun DiscoveredDeviceCard(
                 style = MaterialTheme.typography.titleMedium,
             )
             CodeSurface("${device.address}  RSSI ${device.rssi}")
+            val isConfirmed =
+                device.classification.tier == KarrCandidateTier.CONFIRMED_FORMAT
             Text(
-                when (device.classification.tier) {
-                    KarrCandidateTier.CONFIRMED_FORMAT ->
-                        "Confirmed KARR format: ${device.classification.evidence}"
-                    KarrCandidateTier.POSSIBLE ->
-                        "Possible KARR: ${device.classification.evidence}"
-                    KarrCandidateTier.OTHER ->
-                        device.classification.evidence
+                if (isConfirmed) {
+                    "Confirmed KARR format: ${device.classification.evidence}"
+                } else {
+                    device.classification.evidence
                 },
-                color = if (
-                    device.classification.tier == KarrCandidateTier.CONFIRMED_FORMAT
-                ) {
+                color = if (isConfirmed) {
                     MaterialTheme.colorScheme.primary
                 } else {
                     MaterialTheme.colorScheme.onSurfaceVariant
@@ -776,12 +790,6 @@ private fun DiscoveredDeviceCard(
             if (device.classification.isCandidate && !device.connectable) {
                 Text(
                     "Broadcast-only advertisement; connection unavailable.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            } else if (device.classification.tier == KarrCandidateTier.POSSIBLE) {
-                Text(
-                    "Possible evidence only; connection disabled.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -800,20 +808,30 @@ private fun DiscoveredDeviceCard(
 
 private fun BleSessionState.canDisconnect(): Boolean =
     this is BleSessionState.Ready ||
+        this is BleSessionState.Reconnecting ||
+        this is BleSessionState.ReconnectFailed ||
         this is BleSessionState.Connecting ||
         this is BleSessionState.DiscoveringUart ||
         this is BleSessionState.UartSubscribed ||
         this is BleSessionState.AuthenticationRequired ||
         this is BleSessionState.Authenticating
 
+private fun BleSessionState.canScan(): Boolean =
+    this is BleSessionState.Idle ||
+        this is BleSessionState.Error ||
+        this is BleSessionState.ReconnectFailed
+
 private fun BleSessionState.label(
     confirmedCount: Int,
-    possibleCount: Int,
     nearbyCount: Int,
 ): String = when (this) {
     BleSessionState.Idle -> "Idle"
     BleSessionState.Scanning ->
-        "Scanning — ${scanCountLabel(confirmedCount, possibleCount, nearbyCount)}"
+        "Scanning — ${scanCountLabel(confirmedCount, nearbyCount)}"
+    is BleSessionState.Reconnecting ->
+        "Reconnecting to $serial (attempt $attempt of $maxAttempts): $step"
+    is BleSessionState.ReconnectFailed ->
+        "Reconnect to $serial stopped after $attempts attempts: $message"
     is BleSessionState.Connecting -> "Connecting to $address"
     is BleSessionState.DiscoveringUart -> "Discovering KARR UART on $address"
     is BleSessionState.UartSubscribed ->
@@ -827,13 +845,27 @@ private fun BleSessionState.label(
     is BleSessionState.Error -> "Error: $message"
 }
 
-private fun scanCountLabel(
+internal fun scanCountLabel(
     confirmedCount: Int,
-    possibleCount: Int,
     nearbyCount: Int,
-): String =
-    "$confirmedCount confirmed KARR / $possibleCount possible / " +
-        "$nearbyCount nearby"
+): String = "$confirmedCount confirmed KARR / $nearbyCount nearby"
+
+internal fun confirmedDevicesForConnection(
+    devices: List<DiscoveredDevice>,
+): List<DiscoveredDevice> = devices
+    .asSequence()
+    .filter { it.classification.tier == KarrCandidateTier.CONFIRMED_FORMAT }
+    .sortedWith(
+        compareByDescending<DiscoveredDevice> { it.rssi }
+            .thenBy { it.name ?: it.address },
+    )
+    .toList()
+
+internal fun otherDevicesForConnection(
+    devices: List<DiscoveredDevice>,
+): List<DiscoveredDevice> = devices.filter {
+    it.classification.tier == KarrCandidateTier.OTHER
+}
 
 private fun DeviceKeyPurpose.displayName(): String = when (this) {
     DeviceKeyPurpose.CUSTOMER -> "Customer"

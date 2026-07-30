@@ -1,23 +1,16 @@
 package com.karr.master.data
 
-import com.karr.master.core.Capability
+import com.karr.master.core.FeatureCatalog
 import com.karr.master.core.Session
-import com.karr.master.core.TechnicianJob
 import com.karr.master.core.UserRole
-import com.karr.master.core.VehicleSummary
 
 /**
- * Local application state only. KARR Master has no backend adapter and does
- * not synthesize account, vehicle, or job records.
+ * Local access state only. KARR Master has no backend or record repository.
  */
 class LocalMasterRepository : MasterRepository {
     override fun localSession(): Session = Session(
-        displayName = "Offline workspace",
+        displayName = "Local access",
         roles = UserRole.entries.toSet(),
-        capabilities = Capability.entries.toSet(),
+        capabilities = FeatureCatalog.capabilitiesFor(UserRole.entries.toSet()),
     )
-
-    override fun vehicles(): List<VehicleSummary> = emptyList()
-
-    override fun jobs(): List<TechnicianJob> = emptyList()
 }

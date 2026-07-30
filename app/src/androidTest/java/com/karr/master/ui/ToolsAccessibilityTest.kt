@@ -6,8 +6,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.accessibility.enableAccessibilityChecks
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.tryPerformAccessibilityChecks
@@ -33,11 +35,10 @@ class ToolsAccessibilityTest {
                 roles = emptySet(),
                 capabilities = emptySet(),
             ),
-            selectedRole = null,
         )
 
-        composeRule.onNodeWithText("Tools are locked").assertIsDisplayed()
-        composeRule.onNodeWithText("Open access keys").assertIsDisplayed()
+        composeRule.onNodeWithText("27 of 27 tools").assertIsDisplayed()
+        composeRule.onNodeWithText("Vehicle identity").assertIsDisplayed()
         composeRule.enableAccessibilityChecks()
         composeRule.onRoot().tryPerformAccessibilityChecks()
     }
@@ -51,39 +52,29 @@ class ToolsAccessibilityTest {
                 roles = roles,
                 capabilities = FeatureCatalog.capabilitiesFor(roles),
             ),
-            selectedRole = UserRole.CUSTOMER,
         )
 
-        composeRule.onNodeWithText("Customer").assertIsDisplayed()
-        composeRule.onNodeWithText("Dealer").assertIsDisplayed()
-        composeRule.onNodeWithText("Installer").assertIsDisplayed()
-        composeRule.onNodeWithText("Local workspace").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Customer").assertCountEquals(2)
+        composeRule.onNodeWithText("Vehicle identity").assertIsDisplayed()
+        composeRule.onNodeWithText("Device scan and connection").assertIsDisplayed()
         composeRule.enableAccessibilityChecks()
         composeRule.onRoot().tryPerformAccessibilityChecks()
     }
 
-    private fun setToolsContent(
-        session: Session,
-        selectedRole: UserRole?,
-    ) {
+    private fun setToolsContent(session: Session) {
         composeRule.setContent {
             KarrMasterTheme(darkTheme = false) {
                 Surface {
                     AdaptiveToolsScreen(
                         session = session,
-                        selectedRole = selectedRole,
                         selectedFeature = null,
-                        vehicles = emptyList(),
-                        jobs = emptyList(),
                         deviceAuthenticated = false,
                         query = "",
                         selectedCategory = null,
                         listState = rememberLazyListState(),
-                        onRoleSelected = {},
                         onQueryChanged = {},
                         onCategorySelected = {},
                         onOpenFeature = {},
-                        onOpenAccessKeys = {},
                         detailContent = { Text(it.title) },
                         modifier = Modifier,
                     )

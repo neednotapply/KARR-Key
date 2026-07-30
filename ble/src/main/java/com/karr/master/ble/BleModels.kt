@@ -19,6 +19,17 @@ data class DiscoveredDevice(
 sealed interface BleSessionState {
     data object Idle : BleSessionState
     data object Scanning : BleSessionState
+    data class Reconnecting(
+        val serial: String,
+        val attempt: Int,
+        val maxAttempts: Int,
+        val step: String,
+    ) : BleSessionState
+    data class ReconnectFailed(
+        val serial: String,
+        val attempts: Int,
+        val message: String,
+    ) : BleSessionState
     data class Connecting(val address: String) : BleSessionState
     data class DiscoveringUart(val address: String) : BleSessionState
     data class UartSubscribed(val address: String, val name: String?) : BleSessionState
@@ -45,6 +56,8 @@ interface BleController {
     fun stopScan()
     fun connect(address: String): Result<Unit>
     fun disconnect()
+    fun setReconnectAllowed(allowed: Boolean)
+    fun retryReconnect(): Result<Unit>
     suspend fun send(packet: ByteArray): Result<Unit>
     fun shutdown()
 }

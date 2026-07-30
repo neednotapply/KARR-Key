@@ -13,6 +13,7 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.content.Context
 import android.os.Build
+import android.os.SystemClock
 import com.karr.master.protocol.AuthenticationAction
 import com.karr.master.protocol.DeviceAuthenticator
 import com.karr.master.protocol.KarrAuthenticationSession
@@ -23,19 +24,22 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 
 @SuppressLint("MissingPermission")
 class AndroidBleController(
@@ -51,7 +55,7 @@ class AndroidBleController(
     private val callbackScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val authentication = KarrAuthenticationSession(authenticator)
     private val notificationEvents = Channel<NotificationEvent>(Channel.UNLIMITED)
-    private val discovered = ConcurrentHashMap<String, DiscoveredDevice>()
+    private val discovered = ConcurrentHashMap<String, TimedDiscoveredDevice>()
     private val _state = MutableStateFlow<BleSessionState>(BleSessionState.Idle)
     private val _devices = MutableStateFlow<List<DiscoveredDevice>>(emptyList())
     private val _notifications = MutableSharedFlow<ByteArray>(
@@ -59,10 +63,33 @@ class AndroidBleController(
         extraBufferCapacity = 32,
     )
 
+    @Volatile
     private var gatt: BluetoothGatt? = null
+    @Volatile
     private var uartCharacteristic: BluetoothGattCharacteristic? = null
     @Volatile
-    private var pendingWrite: CompletableDeferred<Boolean>? = null
+    private var reconnectAllowed = false
+    @Volatile
+    private var reconnectScanResult: CompletableDeferred<DiscoveredDevice?>? = null
+    @Volatile
+    private var reconnectScanFailure: String? = null
+    @Volatile
+    private var reconnectAttemptResult: CompletableDeferred<ReconnectAttemptResult>? = null
+    @Volatile
+    private var pendingWrite: CompletableDeferred<GattWriteResult>? = null
+    @Volatile
+    private var connectionOrigin = ConnectionOrigin.MANUAL
+    @Volatile
+    private var activeConnectionTarget: ReconnectTarget? = null
+    @Volatile
+    private var lastAuthenticatedTarget: ReconnectTarget? = null
+    @Volatile
+    private var reconnectTarget: ReconnectTarget? = null
+    @Volatile
+    private var reconnectAttempt = 0
+    @Volatile
+    private var reconnectJob: Job? = null
+    private var shuttingDown = false
 
     override val state: StateFlow<BleSessionState> = _state.asStateFlow()
     override val devices: StateFlow<List<DiscoveredDevice>> = _devices.asStateFlow()
@@ -72,6 +99,12 @@ class AndroidBleController(
         callbackScope.launch {
             for (event in notificationEvents) {
                 processNotification(event)
+            }
+        }
+        callbackScope.launch {
+            while (isActive) {
+                delay(DiscoveryFreshness.SWEEP_INTERVAL_MILLIS)
+                pruneStaleDevices(SystemClock.elapsedRealtime())
             }
         }
     }
@@ -86,14 +119,20 @@ class AndroidBleController(
         }
 
         override fun onScanFailed(errorCode: Int) {
-            _state.value = BleSessionState.Error("BLE scan failed with code $errorCode.")
+            val recoveryScan = reconnectScanResult
+            if (recoveryScan != null) {
+                reconnectScanFailure = GattStatus.scanFailure(errorCode)
+                recoveryScan.complete(null)
+            } else {
+                _state.value = BleSessionState.Error(GattStatus.scanFailure(errorCode))
+            }
         }
     }
 
     private fun recordScanResult(result: ScanResult) {
         val device = result.device ?: return
         val scanRecord = result.scanRecord
-        val existing = discovered[device.address]
+        val existing = discovered[device.address]?.device
         val name = device.name ?: scanRecord?.deviceName ?: existing?.name
         val advertisedServices = scanRecord
             ?.serviceUuids
@@ -126,18 +165,51 @@ class AndroidBleController(
             ?: existing?.classification?.recoveredName
         val observedConnectable =
             Build.VERSION.SDK_INT < Build.VERSION_CODES.O || result.isConnectable
-        discovered[device.address] = DiscoveredDevice(
+        val discoveredDevice = DiscoveredDevice(
             address = device.address,
             name = displayName,
             rssi = result.rssi,
             connectable = existing?.connectable == true || observedConnectable,
             classification = classification,
         )
-        _devices.value = discovered.values.sortedWith(
-            compareByDescending<DiscoveredDevice> { it.classification.tier.rank }
-                .thenByDescending { it.rssi }
-                .thenBy { it.name ?: it.address },
+        discovered[device.address] = TimedDiscoveredDevice(
+            device = discoveredDevice,
+            lastSeenElapsedRealtimeMillis = SystemClock.elapsedRealtime(),
         )
+        publishDevices()
+        val target = reconnectTarget
+        if (target != null && ReconnectPolicy.matches(target, discoveredDevice)) {
+            reconnectScanResult?.complete(discoveredDevice)
+        }
+    }
+
+    private fun pruneStaleDevices(nowElapsedRealtimeMillis: Long) {
+        var removedAny = false
+        discovered.entries.forEach { (address, observation) ->
+            if (
+                DiscoveryFreshness.isExpired(
+                    lastSeenElapsedRealtimeMillis =
+                        observation.lastSeenElapsedRealtimeMillis,
+                    nowElapsedRealtimeMillis = nowElapsedRealtimeMillis,
+                ) &&
+                discovered.remove(address, observation)
+            ) {
+                removedAny = true
+            }
+        }
+        if (removedAny) {
+            publishDevices()
+        }
+    }
+
+    private fun publishDevices() {
+        _devices.value = discovered.values
+            .map(TimedDiscoveredDevice::device)
+            .sortedWith(
+                compareByDescending<DiscoveredDevice> { it.classification.tier.rank }
+                    .thenByDescending { it.rssi }
+                    .thenBy { it.name ?: it.address },
+            )
     }
 
     private val gattCallback = object : BluetoothGattCallback() {
@@ -146,6 +218,13 @@ class AndroidBleController(
             status: Int,
             newState: Int,
         ) {
+            if (gatt !== callbackGatt) {
+                if (newState == BluetoothProfile.STATE_CONNECTED) {
+                    runCatching { callbackGatt.disconnect() }
+                }
+                closeGatt(callbackGatt)
+                return
+            }
             if (status == BluetoothGatt.GATT_SUCCESS &&
                 newState == BluetoothProfile.STATE_CONNECTED
             ) {
@@ -158,28 +237,56 @@ class AndroidBleController(
 
             if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 val previousState = _state.value
-                pendingWrite?.complete(false)
+                val failure = GattStatus.disconnectMessage(status, previousState)
+                pendingWrite?.complete(GattWriteResult.LinkLost(failure))
                 authentication.reset()
                 closeGatt(callbackGatt)
-                _state.value = if (status == BluetoothGatt.GATT_SUCCESS) {
-                    BleSessionState.Idle
-                } else {
-                    BleSessionState.Error(
-                        GattStatus.disconnectMessage(status, previousState),
-                    )
+                when {
+                    previousState is BleSessionState.Ready -> {
+                        val target = lastAuthenticatedTarget
+                        if (target == null) {
+                            _state.value = BleSessionState.Error(
+                                "$failure Automatic reconnect is unavailable because the " +
+                                    "authenticated unit had no stable DR/QT serial.",
+                            )
+                        } else {
+                            reconnectTarget = target
+                            queueReconnect(target)
+                        }
+                    }
+                    connectionOrigin == ConnectionOrigin.RECONNECT -> {
+                        completeReconnectAttempt(
+                            ReconnectAttemptResult.Retryable(failure),
+                        )
+                    }
+                    status == BluetoothGatt.GATT_SUCCESS -> {
+                        _state.value = BleSessionState.Idle
+                    }
+                    else -> {
+                        _state.value = BleSessionState.Error(failure)
+                    }
                 }
                 return
             }
 
             if (status != BluetoothGatt.GATT_SUCCESS) {
-                pendingWrite?.complete(false)
-                failAndClose("BLE connection failed with GATT status $status.", callbackGatt)
+                failAndClose(
+                    GattStatus.disconnectMessage(status, _state.value),
+                    callbackGatt,
+                )
             }
         }
 
         override fun onServicesDiscovered(callbackGatt: BluetoothGatt, status: Int) {
+            if (gatt !== callbackGatt) {
+                closeGatt(callbackGatt)
+                return
+            }
             if (status != BluetoothGatt.GATT_SUCCESS) {
-                failAndClose("GATT service discovery failed with status $status.", callbackGatt)
+                failAndClose(
+                    GattStatus.operationFailure("KARR service discovery", status),
+                    callbackGatt,
+                )
                 return
             }
             val characteristic = callbackGatt
@@ -234,12 +341,16 @@ class AndroidBleController(
             descriptor: BluetoothGattDescriptor,
             status: Int,
         ) {
+            if (gatt !== callbackGatt) {
+                closeGatt(callbackGatt)
+                return
+            }
             if (descriptor.uuid != KarrGatt.CLIENT_CONFIGURATION) {
                 return
             }
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 failAndClose(
-                    "UART notification setup failed with GATT status $status.",
+                    GattStatus.operationFailure("UART notification setup", status),
                     callbackGatt,
                 )
                 return
@@ -274,7 +385,10 @@ class AndroidBleController(
             characteristic: BluetoothGattCharacteristic,
             status: Int,
         ) {
-            pendingWrite?.complete(status == BluetoothGatt.GATT_SUCCESS)
+            if (gatt !== callbackGatt) {
+                return
+            }
+            pendingWrite?.complete(GattWriteResult.Completed(status))
         }
     }
 
@@ -284,7 +398,8 @@ class AndroidBleController(
         val scanner = requireNotNull(activeAdapter.bluetoothLeScanner) {
             "Bluetooth LE scanning is unavailable."
         }
-        stopScan()
+        cancelReconnect(clearTarget = true, closeReconnectConnection = true)
+        stopScanner()
         discovered.clear()
         _devices.value = emptyList()
         scanner.startScan(scanCallback)
@@ -292,7 +407,7 @@ class AndroidBleController(
     }
 
     override fun stopScan() {
-        runCatching { adapter?.bluetoothLeScanner?.stopScan(scanCallback) }
+        stopScanner()
         if (_state.value == BleSessionState.Scanning) {
             _state.value = BleSessionState.Idle
         }
@@ -301,16 +416,281 @@ class AndroidBleController(
     override fun connect(address: String): Result<Unit> = runCatching {
         val activeAdapter = requireNotNull(adapter) { "Bluetooth is not available." }
         check(activeAdapter.isEnabled) { "Bluetooth is turned off." }
-        val candidate = discovered[address]
-        check(candidate?.classification?.isCandidate == true) {
+        val candidate = checkNotNull(discovered[address]?.device) {
+            "This device is no longer being advertised nearby. Scan again."
+        }
+        check(candidate.classification.isCandidate) {
             "This advertisement has no recovered KARR identifier."
         }
         check(candidate.connectionEligible) {
             "Connect requires a connectable advertisement with a confirmed KARR identifier."
         }
-        stopScan()
+        stopScanner()
         disconnect()
-        _state.value = BleSessionState.Connecting(address)
+        beginDirectConnection(
+            activeAdapter = activeAdapter,
+            address = address,
+            origin = ConnectionOrigin.MANUAL,
+            target = ReconnectPolicy.targetFor(candidate),
+            showConnectingState = true,
+        )
+    }
+
+    override fun disconnect() {
+        cancelReconnect(clearTarget = true, closeReconnectConnection = true)
+        lastAuthenticatedTarget = null
+        disconnectActiveGatt(
+            "The Bluetooth connection was manually disconnected before the KARR unit " +
+                "acknowledged the pending UART write.",
+        )
+        _state.value = BleSessionState.Idle
+    }
+
+    override fun setReconnectAllowed(allowed: Boolean) {
+        reconnectAllowed = allowed
+        if (allowed) {
+            if (!shuttingDown && reconnectTarget != null && _state.value !is BleSessionState.Ready) {
+                startReconnectCycle()
+            }
+            return
+        }
+
+        val target = reconnectTarget ?: return
+        reconnectJob?.cancel()
+        reconnectJob = null
+        reconnectScanResult?.cancel()
+        reconnectScanResult = null
+        reconnectScanFailure = null
+        reconnectAttemptResult?.cancel()
+        reconnectAttemptResult = null
+        stopScanner()
+        if (connectionOrigin == ConnectionOrigin.RECONNECT &&
+            _state.value !is BleSessionState.Ready
+        ) {
+            disconnectActiveGatt(
+                "Automatic reconnect paused because the app entered the background.",
+            )
+        }
+        _state.value = BleSessionState.Reconnecting(
+            serial = target.serial,
+            attempt = reconnectAttempt,
+            maxAttempts = ReconnectPolicy.maxAttempts,
+            step = "Paused while the app is in the background",
+        )
+    }
+
+    override fun retryReconnect(): Result<Unit> = runCatching {
+        check(reconnectAllowed) {
+            "Bring the app to the foreground before retrying the Bluetooth connection."
+        }
+        check(reconnectTarget != null) {
+            "There is no previously authenticated KARR unit to reconnect."
+        }
+        check(reconnectJob?.isActive != true) {
+            "Automatic reconnect is already running."
+        }
+        reconnectAttempt = 0
+        startReconnectCycle()
+    }
+
+    private fun disconnectActiveGatt(reason: String) {
+        authentication.reset()
+        pendingWrite?.complete(GattWriteResult.LinkLost(reason))
+        pendingWrite = null
+        uartCharacteristic = null
+        gatt?.let { activeGatt ->
+            runCatching { activeGatt.disconnect() }
+            closeGatt(activeGatt)
+        }
+        gatt = null
+        activeConnectionTarget = null
+        connectionOrigin = ConnectionOrigin.MANUAL
+    }
+
+    private fun queueReconnect(target: ReconnectTarget) {
+        if (!reconnectAllowed || shuttingDown) {
+            _state.value = BleSessionState.Reconnecting(
+                serial = target.serial,
+                attempt = reconnectAttempt,
+                maxAttempts = ReconnectPolicy.maxAttempts,
+                step = "Paused while the app is in the background",
+            )
+            return
+        }
+        _state.value = BleSessionState.Reconnecting(
+            serial = target.serial,
+            attempt = 1,
+            maxAttempts = ReconnectPolicy.maxAttempts,
+            step = "Connection dropped; preparing a same-unit reconnect",
+        )
+        startReconnectCycle()
+    }
+
+    private fun startReconnectCycle() {
+        val target = reconnectTarget ?: return
+        if (!reconnectAllowed || shuttingDown || reconnectJob?.isActive == true) {
+            return
+        }
+        val job = callbackScope.launch {
+            runReconnectCycle(target)
+        }
+        reconnectJob = job
+        job.invokeOnCompletion {
+            if (reconnectJob === job) {
+                reconnectJob = null
+                if (reconnectAllowed &&
+                    reconnectTarget != null &&
+                    _state.value is BleSessionState.Reconnecting
+                ) {
+                    startReconnectCycle()
+                }
+            }
+        }
+    }
+
+    private suspend fun runReconnectCycle(target: ReconnectTarget) {
+        var lastFailure =
+            "The last authenticated KARR unit was not available for automatic reconnect."
+        for ((index, delayMillis) in ReconnectPolicy.retryDelaysMillis.withIndex()) {
+            reconnectAttempt = index + 1
+            _state.value = BleSessionState.Reconnecting(
+                serial = target.serial,
+                attempt = reconnectAttempt,
+                maxAttempts = ReconnectPolicy.maxAttempts,
+                step = "Retrying in ${formatDelay(delayMillis)}",
+            )
+            delay(delayMillis)
+            if (!reconnectAllowed || reconnectTarget != target) {
+                return
+            }
+
+            val candidate = runCatching {
+                scanForReconnectTarget(target)
+            }.getOrElse { failure ->
+                lastFailure = failure.message ?: "Bluetooth scanning could not be started."
+                null
+            }
+            if (candidate == null) {
+                if (lastFailure.startsWith("The last authenticated")) {
+                    lastFailure =
+                        "${target.serial} was not seen during the automatic reconnect scan."
+                }
+                continue
+            }
+            if (!reconnectAllowed || reconnectTarget != target) {
+                return
+            }
+
+            val completion = CompletableDeferred<ReconnectAttemptResult>()
+            reconnectAttemptResult = completion
+            _state.value = BleSessionState.Reconnecting(
+                serial = target.serial,
+                attempt = reconnectAttempt,
+                maxAttempts = ReconnectPolicy.maxAttempts,
+                step = "Connecting to the matched unit",
+            )
+            val connectionStarted = runCatching {
+                val activeAdapter = requireNotNull(adapter) { "Bluetooth is not available." }
+                check(activeAdapter.isEnabled) { "Bluetooth is turned off." }
+                beginDirectConnection(
+                    activeAdapter = activeAdapter,
+                    address = candidate.address,
+                    origin = ConnectionOrigin.RECONNECT,
+                    target = target,
+                    showConnectingState = false,
+                )
+            }
+            if (connectionStarted.isFailure) {
+                lastFailure = connectionStarted.exceptionOrNull()?.message
+                    ?: "Android could not start the Bluetooth reconnect attempt."
+                if (reconnectAttemptResult === completion) {
+                    reconnectAttemptResult = null
+                }
+                continue
+            }
+
+            val result = withTimeoutOrNull(RECONNECT_CONNECTION_TIMEOUT_MS) {
+                completion.await()
+            }
+            if (reconnectAttemptResult === completion) {
+                reconnectAttemptResult = null
+            }
+            when (result) {
+                ReconnectAttemptResult.Authenticated -> return
+                is ReconnectAttemptResult.Terminal -> {
+                    _state.value = BleSessionState.ReconnectFailed(
+                        serial = target.serial,
+                        attempts = reconnectAttempt,
+                        message = result.reason,
+                    )
+                    return
+                }
+                is ReconnectAttemptResult.Retryable -> {
+                    lastFailure = result.reason
+                }
+                null -> {
+                    lastFailure =
+                        "The Bluetooth connection and fresh authentication did not finish " +
+                            "within ${RECONNECT_CONNECTION_TIMEOUT_MS / 1_000} seconds."
+                    disconnectActiveGatt(lastFailure)
+                }
+            }
+        }
+
+        _state.value = BleSessionState.ReconnectFailed(
+            serial = target.serial,
+            attempts = ReconnectPolicy.maxAttempts,
+            message = lastFailure,
+        )
+    }
+
+    private suspend fun scanForReconnectTarget(
+        target: ReconnectTarget,
+    ): DiscoveredDevice? {
+        val activeAdapter = requireNotNull(adapter) { "Bluetooth is not available." }
+        check(activeAdapter.isEnabled) { "Bluetooth is turned off." }
+        val scanner = requireNotNull(activeAdapter.bluetoothLeScanner) {
+            "Bluetooth LE scanning is unavailable."
+        }
+        discovered.clear()
+        _devices.value = emptyList()
+        val completion = CompletableDeferred<DiscoveredDevice?>()
+        reconnectScanFailure = null
+        reconnectScanResult = completion
+        _state.value = BleSessionState.Reconnecting(
+            serial = target.serial,
+            attempt = reconnectAttempt,
+            maxAttempts = ReconnectPolicy.maxAttempts,
+            step = "Scanning only for this authenticated unit",
+        )
+        try {
+            scanner.startScan(scanCallback)
+            val result = withTimeoutOrNull(RECONNECT_SCAN_TIMEOUT_MS) {
+                completion.await()
+            }
+            reconnectScanFailure?.let(::error)
+            return result
+        } finally {
+            if (reconnectScanResult === completion) {
+                reconnectScanResult = null
+            }
+            reconnectScanFailure = null
+            stopScanner()
+        }
+    }
+
+    private fun beginDirectConnection(
+        activeAdapter: BluetoothAdapter,
+        address: String,
+        origin: ConnectionOrigin,
+        target: ReconnectTarget?,
+        showConnectingState: Boolean,
+    ) {
+        connectionOrigin = origin
+        activeConnectionTarget = target
+        if (showConnectingState) {
+            _state.value = BleSessionState.Connecting(address)
+        }
         gatt = activeAdapter.getRemoteDevice(address).connectGatt(
             appContext,
             false,
@@ -319,19 +699,52 @@ class AndroidBleController(
         )
     }
 
-    override fun disconnect() {
-        authentication.reset()
-        pendingWrite?.cancel()
-        pendingWrite = null
-        uartCharacteristic = null
-        gatt?.let { activeGatt ->
-            runCatching { activeGatt.disconnect() }
-            closeGatt(activeGatt)
+    private fun completeReconnectAttempt(result: ReconnectAttemptResult) {
+        reconnectAttemptResult?.complete(result)
+        val target = reconnectTarget ?: return
+        _state.value = BleSessionState.Reconnecting(
+            serial = target.serial,
+            attempt = reconnectAttempt,
+            maxAttempts = ReconnectPolicy.maxAttempts,
+            step = when (result) {
+                ReconnectAttemptResult.Authenticated -> "Authenticated"
+                is ReconnectAttemptResult.Retryable -> result.reason
+                is ReconnectAttemptResult.Terminal -> result.reason
+            },
+        )
+    }
+
+    private fun cancelReconnect(
+        clearTarget: Boolean,
+        closeReconnectConnection: Boolean,
+    ) {
+        reconnectJob?.cancel()
+        reconnectJob = null
+        reconnectScanResult?.cancel()
+        reconnectScanResult = null
+        reconnectScanFailure = null
+        reconnectAttemptResult?.cancel()
+        reconnectAttemptResult = null
+        stopScanner()
+        if (closeReconnectConnection &&
+            connectionOrigin == ConnectionOrigin.RECONNECT &&
+            _state.value !is BleSessionState.Ready
+        ) {
+            disconnectActiveGatt("Automatic reconnect was canceled.")
         }
-        gatt = null
-        if (_state.value !is BleSessionState.Error) {
-            _state.value = BleSessionState.Idle
+        if (clearTarget) {
+            reconnectTarget = null
+            reconnectAttempt = 0
         }
+    }
+
+    private fun stopScanner() {
+        runCatching { adapter?.bluetoothLeScanner?.stopScan(scanCallback) }
+    }
+
+    private fun formatDelay(delayMillis: Long): String {
+        val seconds = delayMillis / 1_000
+        return "$seconds ${if (seconds == 1L) "second" else "seconds"}"
     }
 
     override suspend fun send(packet: ByteArray): Result<Unit> = runCatching {
@@ -359,7 +772,7 @@ class AndroidBleController(
             } else {
                 BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
             }
-            val completion = CompletableDeferred<Boolean>()
+            val completion = CompletableDeferred<GattWriteResult>()
             pendingWrite = completion
             try {
                 val started = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -373,10 +786,27 @@ class AndroidBleController(
                     @Suppress("DEPRECATION")
                     activeGatt.writeCharacteristic(characteristic)
                 }
-                check(started) { "GATT characteristic write could not be started." }
+                check(started) {
+                    "Android could not start the UART write because the Bluetooth operation " +
+                        "queue was unavailable. Disconnect and scan again."
+                }
                 if (writeType == BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) {
-                    check(withTimeout(WRITE_TIMEOUT_MS) { completion.await() }) {
-                        "GATT characteristic write failed."
+                    val result = withTimeoutOrNull(WRITE_TIMEOUT_MS) {
+                        completion.await()
+                    }
+                    checkNotNull(result) {
+                        "The KARR unit did not acknowledge the UART write within " +
+                            "${WRITE_TIMEOUT_MS / 1_000} seconds. Move closer and scan again."
+                    }
+                    when (result) {
+                        is GattWriteResult.Completed -> {
+                            check(result.status == BluetoothGatt.GATT_SUCCESS) {
+                                GattStatus.operationFailure("UART write", result.status)
+                            }
+                        }
+                        is GattWriteResult.LinkLost -> {
+                            error("The UART write was interrupted. ${result.reason}")
+                        }
                     }
                 }
             } finally {
@@ -388,17 +818,41 @@ class AndroidBleController(
     }
 
     override fun shutdown() {
-        stopScan()
-        disconnect()
+        shuttingDown = true
+        reconnectAllowed = false
+        cancelReconnect(clearTarget = true, closeReconnectConnection = true)
+        lastAuthenticatedTarget = null
+        stopScanner()
+        disconnectActiveGatt("The BLE controller was shut down.")
+        _state.value = BleSessionState.Idle
         notificationEvents.close()
         callbackScope.cancel()
     }
 
-    private fun failAndClose(message: String, callbackGatt: BluetoothGatt) {
+    private fun failAndClose(
+        message: String,
+        callbackGatt: BluetoothGatt,
+        terminalReconnectFailure: Boolean = false,
+    ) {
+        if (gatt !== callbackGatt) {
+            closeGatt(callbackGatt)
+            return
+        }
+        val reconnecting = connectionOrigin == ConnectionOrigin.RECONNECT
         authentication.reset()
-        pendingWrite?.complete(false)
+        pendingWrite?.complete(GattWriteResult.LinkLost(message))
         closeGatt(callbackGatt)
-        _state.value = BleSessionState.Error(message)
+        if (reconnecting) {
+            completeReconnectAttempt(
+                if (terminalReconnectFailure) {
+                    ReconnectAttemptResult.Terminal(message)
+                } else {
+                    ReconnectAttemptResult.Retryable(message)
+                },
+            )
+        } else {
+            _state.value = BleSessionState.Error(message)
+        }
     }
 
     private fun handleNotification(
@@ -477,19 +931,32 @@ class AndroidBleController(
                 }
             }
             AuthenticationAction.Authenticated -> {
+                val target = activeConnectionTarget
+                    ?: ReconnectPolicy.targetFor(discovered[address]?.device)
+                lastAuthenticatedTarget = target
+                if (connectionOrigin == ConnectionOrigin.RECONNECT) {
+                    reconnectTarget = null
+                    reconnectAttemptResult?.complete(ReconnectAttemptResult.Authenticated)
+                }
                 _state.value = BleSessionState.Ready(
                     address = address,
                     name = name,
                 )
             }
             is AuthenticationAction.Failed -> {
-                failAndClose(action.reason, event.gatt)
+                failAndClose(
+                    message = action.reason,
+                    callbackGatt = event.gatt,
+                    terminalReconnectFailure = true,
+                )
             }
         }
     }
 
     private fun connectedName(callbackGatt: BluetoothGatt): String? =
-        discovered[callbackGatt.device.address]?.name ?: callbackGatt.device.name
+        discovered[callbackGatt.device.address]?.device?.name
+            ?: activeConnectionTarget?.serial
+            ?: callbackGatt.device.name
 
     private fun closeGatt(callbackGatt: BluetoothGatt) {
         runCatching { callbackGatt.close() }
@@ -497,6 +964,7 @@ class AndroidBleController(
             authentication.reset()
             gatt = null
             uartCharacteristic = null
+            activeConnectionTarget = null
         }
     }
 
@@ -505,11 +973,34 @@ class AndroidBleController(
         val value: ByteArray,
     )
 
+    private data class TimedDiscoveredDevice(
+        val device: DiscoveredDevice,
+        val lastSeenElapsedRealtimeMillis: Long,
+    )
+
+    private sealed interface GattWriteResult {
+        data class Completed(val status: Int) : GattWriteResult
+        data class LinkLost(val reason: String) : GattWriteResult
+    }
+
+    private sealed interface ReconnectAttemptResult {
+        data object Authenticated : ReconnectAttemptResult
+        data class Retryable(val reason: String) : ReconnectAttemptResult
+        data class Terminal(val reason: String) : ReconnectAttemptResult
+    }
+
+    private enum class ConnectionOrigin {
+        MANUAL,
+        RECONNECT,
+    }
+
     private object BluetoothDeviceTransport {
         const val LE = 2
     }
 
     private companion object {
         const val WRITE_TIMEOUT_MS = 10_000L
+        const val RECONNECT_SCAN_TIMEOUT_MS = 8_000L
+        const val RECONNECT_CONNECTION_TIMEOUT_MS = 30_000L
     }
 }

@@ -27,7 +27,7 @@ object ResearchAccess {
             displayName = if (roles.isEmpty()) {
                 "Provision a research key"
             } else {
-                "Local research workspace"
+                "Local research access"
             },
             roles = base.roles intersect roles,
             capabilities = base.capabilities intersect FeatureCatalog.capabilitiesFor(roles),

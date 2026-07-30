@@ -142,7 +142,6 @@ object RecoveredWorkflowCatalog {
                 QtCommand.READ_VIOLATION_INHIBIT,
             ),
         ),
-        "dealer.status" to commonIdentityReads,
         "dealer.device" to commonIdentityReads + listOf(
             read("read-firmware", "Read firmware version", QtCommand.READ_FIRMWARE_VERSION),
         ),
@@ -160,21 +159,7 @@ object RecoveredWorkflowCatalog {
         "dealer.remotes" to remoteServiceActions(DEALER_SOURCE),
         "dealer.violations" to violationActions(DEALER_SOURCE),
         "dealer.diagnostics" to commonDiagnostics,
-        "dealer.artifacts" to listOf(
-            read("read-firmware", "Read firmware version", QtCommand.READ_FIRMWARE_VERSION),
-        ),
-        "dealer.firmware" to listOf(
-            read("read-firmware", "Read installed firmware version", QtCommand.READ_FIRMWARE_VERSION),
-            read(
-                "read-battery",
-                "Read vehicle battery",
-                QtCommand.READ_VEHICLE_BATTERY_VOLTAGE,
-            ),
-        ),
         "installer.unit" to commonIdentityReads,
-        "installer.can_selection" to listOf(
-            read("read-firmware", "Read firmware version", QtCommand.READ_FIRMWARE_VERSION),
-        ),
         "installer.fitment" to commonIdentityReads + listOf(
             read(
                 "read-battery",
@@ -219,9 +204,7 @@ object RecoveredWorkflowCatalog {
                 source = INSTALLER_SOURCE,
             ),
         ),
-        "installer.completion" to commonIdentityReads,
         "installer.repair" to commonDiagnostics,
-        "installer.replacement" to commonIdentityReads,
         "installer.removal" to listOf(
             read("read-state", "Read unit state", QtCommand.READ_STATE),
             read("read-mode", "Read unit mode", QtCommand.READ_MODE),
@@ -242,17 +225,6 @@ object RecoveredWorkflowCatalog {
                 QtCommand.READ_VIOLATION_INHIBIT,
             ),
         ),
-        "installer.can_transfer" to listOf(
-            read("read-firmware", "Read firmware version", QtCommand.READ_FIRMWARE_VERSION),
-        ),
-        "installer.firmware" to listOf(
-            read("read-firmware", "Read installed firmware version", QtCommand.READ_FIRMWARE_VERSION),
-            read(
-                "read-battery",
-                "Read vehicle battery",
-                QtCommand.READ_VEHICLE_BATTERY_VOLTAGE,
-            ),
-        ),
     )
 
     val featureIdsWithDeviceActions: Set<String>
@@ -266,14 +238,6 @@ object RecoveredWorkflowCatalog {
             "The recovered customer application changes immobilizer state through its " +
                 "authorized server-messaging path. The direct BLE evidence supports state " +
                 "inspection, not a customer immobilizer mutation."
-        "dealer.artifacts",
-        "dealer.firmware",
-        "installer.can_transfer",
-        "installer.firmware",
-        ->
-            "Transfer requires a compatible authorized artifact, integrity metadata, power " +
-                "preconditions, and the unit's chunk acknowledgements. A device key alone " +
-                "does not provide those inputs."
         else -> null
     }
 

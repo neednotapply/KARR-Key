@@ -22,7 +22,4 @@ include(
     ":protocol",
     ":ble",
     ":data",
-    ":feature:customer",
-    ":feature:dealer",
-    ":feature:installer",
 )

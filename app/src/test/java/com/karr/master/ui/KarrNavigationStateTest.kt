@@ -76,24 +76,32 @@ class KarrNavigationStateTest {
     }
 
     @Test
-    fun allFiftySevenCatalogEntriesAreVisibleAndOpenMatchingDetailRoutes() {
-        assertEquals(16, toolsFeaturesFor(UserRole.CUSTOMER).size)
-        assertEquals(18, toolsFeaturesFor(UserRole.DEALER).size)
-        assertEquals(23, toolsFeaturesFor(UserRole.INSTALLER).size)
+    fun unifiedCatalogShowsEveryRoleAndOpensMatchingDetailRoutes() {
+        val tools = toolsFeaturesFor()
+        assertEquals(27, tools.size)
+        assertEquals(FeatureCatalog.all.map { it.id }, tools.map { it.id })
+        assertEquals(UserRole.entries.toSet(), tools.map { it.requiredRole }.toSet())
 
         val navigation = KarrNavigationState()
-        UserRole.entries.forEach { role ->
+        tools.forEach { feature ->
+            navigation.openFeature(feature)
             assertEquals(
-                FeatureCatalog.forRole(role).map { it.id },
-                toolsFeaturesFor(role).map { it.id },
+                AppRoute.FeatureDetail(feature.id, feature.requiredRole),
+                navigation.currentRoute,
             )
-            toolsFeaturesFor(role).forEach { feature ->
-                navigation.openFeature(feature)
-                assertEquals(
-                    AppRoute.FeatureDetail(feature.id, role),
-                    navigation.currentRoute,
-                )
-            }
         }
+    }
+
+    @Test
+    fun unifiedSearchMatchesRoleBadgesAndRetainsCategoryFiltering() {
+        val dealerTools = toolsFeaturesFor(query = "dealer")
+        assertEquals(7, dealerTools.size)
+        assertTrue(dealerTools.all { it.requiredRole == UserRole.DEALER })
+
+        val category = FeatureCatalog.all.first().category
+        assertEquals(
+            FeatureCatalog.all.filter { it.category == category }.map { it.id },
+            toolsFeaturesFor(category = category).map { it.id },
+        )
     }
 }
