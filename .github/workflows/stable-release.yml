@@ -1,0 +1,219 @@
+name: Stable Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stable-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Validate release tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Stable release tags must use vMAJOR.MINOR.PATCH." >&2
+            exit 1
+          fi
+
+          echo "version=${GITHUB_REF_NAME#v}" >> "${GITHUB_OUTPUT}"
+
+      - name: Check out the tagged source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+          lfs: false
+          persist-credentials: false
+
+      - name: Set up Java
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6
+
+      - name: Materialize CI signing key
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.KARR_RELEASE_KEYSTORE_BASE64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${RELEASE_KEYSTORE_BASE64}" ]]; then
+            echo "KARR_RELEASE_KEYSTORE_BASE64 is not configured." >&2
+            exit 1
+          fi
+
+          keystore_path="${RUNNER_TEMP}/karr-key-release.p12"
+          umask 077
+          printf '%s' "${RELEASE_KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"
+          echo "KARR_RELEASE_KEYSTORE=${keystore_path}" >> "${GITHUB_ENV}"
+
+      - name: Test, lint, and assemble signed release
+        env:
+          KARR_RELEASE_STORE_PASSWORD: ${{ secrets.KARR_RELEASE_STORE_PASSWORD }}
+          KARR_RELEASE_KEY_ALIAS: ${{ secrets.KARR_RELEASE_KEY_ALIAS }}
+          KARR_RELEASE_KEY_PASSWORD: ${{ secrets.KARR_RELEASE_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleRelease
+
+      - name: Verify and prepare release assets
+        id: assets
+        env:
+          EXPECTED_VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          source_apk="app/build/outputs/apk/release/KARR-Key.apk"
+          source_metadata="app/build/outputs/apk/release/output-metadata.json"
+          actual_version="$(jq -r '.elements[0].versionName' "${source_metadata}")"
+          actual_code="$(jq -r '.elements[0].versionCode' "${source_metadata}")"
+
+          if [[ "${actual_version}" != "${EXPECTED_VERSION}" ]]; then
+            echo "Tag version ${EXPECTED_VERSION} does not match APK version ${actual_version}." >&2
+            exit 1
+          fi
+
+          build_tools="$(find "${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          apksigner="${build_tools}/apksigner"
+          cert_sha256="$(
+            "${apksigner}" verify --print-certs "${source_apk}" |
+              awk -F': ' '/Signer #1 certificate SHA-256 digest/ { print $2; exit }'
+          )"
+
+          if [[ -z "${cert_sha256}" ]]; then
+            echo "Could not verify the APK signing certificate." >&2
+            exit 1
+          fi
+
+          mkdir -p dist
+          apk_name="KARR-Key-${GITHUB_REF_NAME}.apk"
+          checksum_name="${apk_name}.sha256"
+          certificate_name="${apk_name}.certificate-sha256.txt"
+          metadata_name="${apk_name}.output-metadata.json"
+          provenance_name="${apk_name}.build-provenance.json"
+
+          cp "${source_apk}" "dist/${apk_name}"
+          cp "${source_metadata}" "dist/${metadata_name}"
+          (
+            cd dist
+            sha256sum "${apk_name}" > "${checksum_name}"
+          )
+          apk_sha256="$(sha256sum "dist/${apk_name}" | awk '{ print $1 }')"
+          printf '%s  %s\n' "${cert_sha256}" "${apk_name}" > "dist/${certificate_name}"
+          jq -n \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg ref "${GITHUB_REF}" \
+            --arg commit "${GITHUB_SHA}" \
+            --arg workflow "${GITHUB_WORKFLOW}" \
+            --arg run_url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            --arg version "${actual_version}" \
+            --argjson version_code "${actual_code}" \
+            --arg apk "${apk_name}" \
+            --arg apk_sha256 "${apk_sha256}" \
+            --arg certificate_sha256 "${cert_sha256}" \
+            '{
+              source_repository: $repository,
+              source_ref: $ref,
+              source_commit: $commit,
+              workflow: $workflow,
+              workflow_run: $run_url,
+              android_version_name: $version,
+              android_version_code: $version_code,
+              apk: $apk,
+              apk_sha256: $apk_sha256,
+              signing_certificate_sha256: $certificate_sha256
+            }' > "dist/${provenance_name}"
+
+          {
+            echo "apk_name=${apk_name}"
+            echo "checksum_name=${checksum_name}"
+            echo "certificate_name=${certificate_name}"
+            echo "metadata_name=${metadata_name}"
+            echo "provenance_name=${provenance_name}"
+            echo "version_code=${actual_code}"
+            echo "apk_sha256=${apk_sha256}"
+            echo "cert_sha256=${cert_sha256}"
+          } >> "${GITHUB_OUTPUT}"
+
+          {
+            echo "### Stable release artifact"
+            echo
+            echo "- Tag: \`${GITHUB_REF_NAME}\`"
+            echo "- Source commit: \`${GITHUB_SHA}\`"
+            echo "- Android version: \`${actual_version}\` (code \`${actual_code}\`)"
+            echo "- APK SHA-256: \`${apk_sha256}\`"
+            echo "- Signing certificate SHA-256: \`${cert_sha256}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Preserve workflow artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: KARR-Key-${{ github.ref_name }}-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+      - name: Create GitHub release from workflow outputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          APK_NAME: ${{ steps.assets.outputs.apk_name }}
+          CHECKSUM_NAME: ${{ steps.assets.outputs.checksum_name }}
+          CERTIFICATE_NAME: ${{ steps.assets.outputs.certificate_name }}
+          METADATA_NAME: ${{ steps.assets.outputs.metadata_name }}
+          PROVENANCE_NAME: ${{ steps.assets.outputs.provenance_name }}
+          VERSION_CODE: ${{ steps.assets.outputs.version_code }}
+          APK_SHA256: ${{ steps.assets.outputs.apk_sha256 }}
+          CERT_SHA256: ${{ steps.assets.outputs.cert_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          notes_file="${RUNNER_TEMP}/release-notes.md"
+          cat > "${notes_file}" <<EOF
+          This release was built, signed, and uploaded by GitHub Actions from the exact tagged source.
+
+          - Source commit: \`${GITHUB_SHA}\`
+          - Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          - Android version: \`${RELEASE_VERSION}\` (code \`${VERSION_CODE}\`)
+          - APK SHA-256: \`${APK_SHA256}\`
+          - Signing certificate SHA-256: \`${CERT_SHA256}\`
+
+          No APK was uploaded manually.
+          EOF
+
+          gh release create "${GITHUB_REF_NAME}" \
+            "dist/${APK_NAME}#Workflow-built signed APK" \
+            "dist/${CHECKSUM_NAME}#APK SHA-256 checksum" \
+            "dist/${CERTIFICATE_NAME}#Signing certificate SHA-256" \
+            "dist/${METADATA_NAME}#Android output metadata" \
+            "dist/${PROVENANCE_NAME}#Workflow build provenance" \
+            --verify-tag \
+            --title "KARR Key ${RELEASE_VERSION}" \
+            --notes-file "${notes_file}" \
+            --generate-notes \
+            --latest
+
+      - name: Remove materialized signing key
+        if: always()
+        shell: bash
+        run: rm -f "${KARR_RELEASE_KEYSTORE:-${RUNNER_TEMP}/karr-key-release.p12}"

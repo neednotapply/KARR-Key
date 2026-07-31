@@ -11,9 +11,26 @@ android {
         applicationId = "com.karr.key"
         minSdk = 23
         targetSdk = 36
-        versionCode = 8
-        versionName = "0.3.0"
+        versionCode = 9
+        versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    val releaseKeystorePath = providers.environmentVariable("KARR_RELEASE_KEYSTORE").orNull
+    if (releaseKeystorePath != null) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(releaseKeystorePath)
+                storePassword = providers.environmentVariable("KARR_RELEASE_STORE_PASSWORD").get()
+                keyAlias = providers.environmentVariable("KARR_RELEASE_KEY_ALIAS").get()
+                keyPassword = providers.environmentVariable("KARR_RELEASE_KEY_PASSWORD").get()
+            }
+        }
+        buildTypes {
+            getByName("release") {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
     }
 
     buildFeatures {
