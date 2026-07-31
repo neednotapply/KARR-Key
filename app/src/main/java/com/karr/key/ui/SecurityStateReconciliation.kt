@@ -30,7 +30,7 @@ internal suspend fun BleCommandExchange.reconcileSecurityState(
     )
     val actual = (result as? BleCommandExchangeResult.Acknowledged)
         ?.response
-        ?.let(QtResponseDecoder::decode)
+        ?.let { response -> QtResponseDecoder.decode(response) }
         ?.securityState
         ?: return SecurityStateReconciliation.Unavailable
 

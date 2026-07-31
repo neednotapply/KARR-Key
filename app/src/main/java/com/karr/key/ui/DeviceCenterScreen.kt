@@ -146,7 +146,7 @@ internal fun DeviceCenterScreen(
             text = {
                 Text(
                     "This removes the encrypted ${purpose.displayName()} key from this device. " +
-                        "The corresponding tools will lock again.",
+                        "The corresponding operations will lock again.",
                 )
             },
             confirmButton = {
@@ -549,7 +549,7 @@ private fun AccessKeysSection(
         item {
             KeyProvisioningCard(
                 title = "Customer",
-                supportingText = "Unlocks the Customer tool catalog.",
+                supportingText = "Unlocks Customer device operations.",
                 fieldLabel = "Customer key (16-byte hex)",
                 input = customerInput,
                 provisioned = customerProvisioned,
@@ -562,7 +562,7 @@ private fun AccessKeysSection(
         item {
             KeyProvisioningCard(
                 title = "Dealer / Installer",
-                supportingText = "Unlocks the Dealer and Installer tool catalogs.",
+                supportingText = "Unlocks Dealer and Installer device operations.",
                 fieldLabel = "Dealer key (16-byte hex)",
                 input = dealerInput,
                 provisioned = dealerProvisioned,

@@ -11,14 +11,6 @@ object FeatureCatalog {
             Capability.VEHICLE_READ,
         ),
         feature(
-            "customer.device",
-            "Device scan and connection",
-            "Discover a compatible nearby KARR unit and inspect its connection state.",
-            "Connection",
-            UserRole.CUSTOMER,
-            Capability.DEVICE_CONNECT,
-        ),
-        feature(
             "customer.controls",
             "Lock and arm",
             "Lock the authorized vehicle and arm its security system.",
@@ -101,14 +93,6 @@ object FeatureCatalog {
 
     val dealer = listOf(
         feature(
-            "dealer.bluetooth",
-            "Bluetooth unit scan",
-            "Discover compatible nearby KARR units and inspect connection state.",
-            "Unit service",
-            UserRole.DEALER,
-            Capability.DEVICE_CONNECT,
-        ),
-        feature(
             "dealer.device",
             "Unit state",
             "Read authorized unit identity and operating state.",
@@ -168,14 +152,6 @@ object FeatureCatalog {
             "Unit inspection",
             UserRole.INSTALLER,
             Capability.INSTALLER_FITMENT,
-        ),
-        feature(
-            "installer.bluetooth",
-            "Bluetooth unit connection",
-            "Discover and connect to a compatible nearby KARR unit.",
-            "Connection",
-            UserRole.INSTALLER,
-            Capability.DEVICE_CONNECT,
         ),
         feature(
             "installer.fitment",

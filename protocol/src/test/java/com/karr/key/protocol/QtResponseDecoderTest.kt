@@ -110,6 +110,45 @@ class QtResponseDecoderTest {
     }
 
     @Test
+    fun decodesCapturedDr1SettingsIntoNamedValues() {
+        val decoded = decode(
+            command = QtCommand.READ_ALL_SETTINGS,
+            payload = bytes(
+                0x00, 0x00, 0x01, 0x01, 0x02, 0x01, 0x01, 0x00,
+                0x00, 0x00, 0x01, 0x02, 0x00, 0x00, 0x01, 0x00,
+                0x00, 0x0A, 0x03, 0x00, 0x00, 0x00,
+            ),
+            unitModel = KarrUnitModel.DR1_CAN,
+        )
+
+        assertEquals("Unit settings", decoded.heading)
+        assertTrue(decoded.lines.contains("Auto-lock with ignition: Off"))
+        assertTrue(decoded.lines.contains("Passive arm locks doors: Yes"))
+        assertTrue(decoded.lines.contains("Lock / unlock pulse: Double unlock"))
+        assertTrue(decoded.lines.contains("Short pulse duration: 400 ms"))
+        assertTrue(decoded.lines.contains("Shock sensor sensitivity: Level 10"))
+        assertTrue(decoded.lines.contains("BCA mode duration: 3 days"))
+        assertTrue(decoded.lines.contains("User arming: Active"))
+        assertTrue(decoded.lines.contains("Arm / disarm tones: On"))
+        assertTrue(decoded.lines.contains("Factory-alarm output duration: 3 seconds"))
+        assertTrue(decoded.lines.contains("Alarm output: Horn"))
+        assertTrue(decoded.lines.contains("Alarm color: Green"))
+    }
+
+    @Test
+    fun decodesCapturedViolationInhibitAndPreservesUnmappedFlags() {
+        val decoded = decode(
+            command = QtCommand.READ_VIOLATION_INHIBIT,
+            payload = bytes(0x00, 0x11),
+            unitModel = KarrUnitModel.DR1_CAN,
+        )
+
+        assertEquals("Violation inhibits", decoded.heading)
+        assertTrue(decoded.lines.contains("Inhibited triggers: Tilt sensor"))
+        assertTrue(decoded.lines.contains("Unmapped inhibit flags: 0x1000"))
+    }
+
+    @Test
     fun explainsMalformedKnownResponse() {
         val decoded = decode(
             command = QtCommand.READ_VEHICLE_BATTERY_VOLTAGE,
@@ -126,7 +165,7 @@ class QtResponseDecoderTest {
     fun leavesUnknownResponseForRawProtocolDisplay() {
         val decoded = QtResponseDecoder.decode(
             packet(
-                command = QtCommand.READ_ALL_SETTINGS,
+                command = QtCommand.PIC2_READY,
                 payload = byteArrayOf(0),
             ),
         )
@@ -137,8 +176,12 @@ class QtResponseDecoderTest {
     private fun decode(
         command: QtCommand,
         payload: ByteArray,
+        unitModel: KarrUnitModel? = null,
     ): QtDecodedResponse {
-        val decoded = QtResponseDecoder.decode(packet(command, payload))
+        val decoded = QtResponseDecoder.decode(
+            packet = packet(command, payload),
+            unitModel = unitModel,
+        )
         assertNotNull(decoded)
         return decoded!!
     }

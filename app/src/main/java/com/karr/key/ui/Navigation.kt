@@ -5,21 +5,20 @@ import androidx.annotation.DrawableRes
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.toMutableStateList
-import androidx.compose.runtime.saveable.Saver
 import androidx.navigation3.runtime.NavKey
 import com.karr.key.R
-import com.karr.key.core.FeatureDefinition
-import com.karr.key.core.UserRole
+import com.karr.key.protocol.RecoveredDeviceOperation
 
 internal enum class TopLevelDestination(
     val label: String,
     @param:DrawableRes val iconRes: Int,
 ) {
     HOME("Home", R.drawable.ic_nav_home),
-    TOOLS("Tools", R.drawable.ic_nav_installer),
+    OPERATIONS("Operations", R.drawable.ic_nav_installer),
     DEVICE("Device", R.drawable.ic_nav_bluetooth),
 }
 
@@ -34,14 +33,11 @@ internal sealed interface AppRoute : NavKey {
 
     data object Home : AppRoute
 
-    data class Tools(val role: UserRole? = null) : AppRoute
+    data object Operations : AppRoute
 
     data class Device(val section: DeviceSection = DeviceSection.CONNECTION) : AppRoute
 
-    data class FeatureDetail(
-        val featureId: String,
-        val role: UserRole,
-    ) : AppRoute
+    data class OperationDetail(val operationId: String) : AppRoute
 }
 
 internal class KarrNavigationState private constructor(
@@ -100,17 +96,17 @@ internal class KarrNavigationState private constructor(
         return true
     }
 
-    fun openTools(role: UserRole?) {
-        val stack = stacks.getValue(TopLevelDestination.TOOLS)
+    fun openOperations() {
+        val stack = stacks.getValue(TopLevelDestination.OPERATIONS)
         stack.clear()
-        stack.add(AppRoute.Tools(role))
+        stack.add(AppRoute.Operations)
         switchTopLevel(
-            destination = TopLevelDestination.TOOLS,
+            destination = TopLevelDestination.OPERATIONS,
             forwardWhenUnchanged = true,
         )
     }
 
-    fun openToolsAfterSuccessfulConnection(
+    fun openOperationsAfterSuccessfulConnection(
         wasAuthenticated: Boolean,
         isAuthenticated: Boolean,
     ): Boolean {
@@ -121,35 +117,22 @@ internal class KarrNavigationState private constructor(
         ) {
             return false
         }
-        openTools(role = null)
+        openOperations()
         return true
     }
 
-    fun updateToolsRole(role: UserRole?) {
-        val stack = stacks.getValue(TopLevelDestination.TOOLS)
-        val rootIndex = stack.indexOfFirst { it is AppRoute.Tools }
-        if (rootIndex >= 0) {
-            stack[rootIndex] = AppRoute.Tools(role)
-        } else {
-            stack.add(0, AppRoute.Tools(role))
-        }
-    }
-
-    fun openFeature(feature: FeatureDefinition) {
-        val stack = stacks.getValue(TopLevelDestination.TOOLS)
-        val role = feature.requiredRole
-        if (stack.firstOrNull() !is AppRoute.Tools) {
+    fun openOperation(operation: RecoveredDeviceOperation) {
+        val stack = stacks.getValue(TopLevelDestination.OPERATIONS)
+        if (stack.firstOrNull() != AppRoute.Operations) {
             stack.clear()
-            stack.add(AppRoute.Tools(role))
-        } else {
-            stack[0] = AppRoute.Tools(role)
+            stack.add(AppRoute.Operations)
         }
         while (stack.size > 1) {
             stack.removeAt(stack.lastIndex)
         }
-        stack.add(AppRoute.FeatureDetail(feature.id, role))
+        stack.add(AppRoute.OperationDetail(operation.id))
         switchTopLevel(
-            destination = TopLevelDestination.TOOLS,
+            destination = TopLevelDestination.OPERATIONS,
             forwardWhenUnchanged = true,
         )
     }
@@ -178,23 +161,6 @@ internal class KarrNavigationState private constructor(
         if (stack.size <= 1) return false
         stack.removeAt(stack.lastIndex)
         return true
-    }
-
-    fun normalizeRoles(availableRoles: Set<UserRole>) {
-        val stack = stacks.getValue(TopLevelDestination.TOOLS)
-        val selectedRole = when (val route = stack.lastOrNull()) {
-            is AppRoute.Tools -> route.role
-            is AppRoute.FeatureDetail -> route.role
-            else -> null
-        }
-        if (selectedRole != null && selectedRole !in availableRoles) {
-            stack.clear()
-            stack.add(
-                AppRoute.Tools(
-                    UserRole.entries.firstOrNull(availableRoles::contains),
-                ),
-            )
-        }
     }
 
     internal fun stackFor(destination: TopLevelDestination): List<AppRoute> =
@@ -236,10 +202,26 @@ internal class KarrNavigationState private constructor(
             },
             restore = { bundle ->
                 val selected = bundle.getString(KEY_SELECTED)
-                    ?.let(TopLevelDestination::valueOf)
+                    ?.let { encoded ->
+                        runCatching {
+                            TopLevelDestination.valueOf(
+                                if (encoded == "TOOLS") {
+                                    TopLevelDestination.OPERATIONS.name
+                                } else {
+                                    encoded
+                                },
+                            )
+                        }.getOrNull()
+                    }
                     ?: TopLevelDestination.HOME
                 val restored = TopLevelDestination.entries.associateWith { destination ->
-                    bundle.getStringArrayList(destination.name)
+                    val current = bundle.getStringArrayList(destination.name)
+                    val legacy = if (destination == TopLevelDestination.OPERATIONS) {
+                        bundle.getStringArrayList("TOOLS")
+                    } else {
+                        null
+                    }
+                    (current ?: legacy)
                         .orEmpty()
                         .mapNotNull(AppRoute::decode)
                 }
@@ -253,36 +235,32 @@ internal class KarrNavigationState private constructor(
 
 private fun rootRoute(destination: TopLevelDestination): AppRoute = when (destination) {
     TopLevelDestination.HOME -> AppRoute.Home
-    TopLevelDestination.TOOLS -> AppRoute.Tools()
+    TopLevelDestination.OPERATIONS -> AppRoute.Operations
     TopLevelDestination.DEVICE -> AppRoute.Device()
 }
 
 private fun AppRoute.encode(): String = when (this) {
     AppRoute.Home -> "home"
-    is AppRoute.Tools -> "tools|${role?.name.orEmpty()}"
+    AppRoute.Operations -> "operations"
     is AppRoute.Device -> "device|${section.name}"
-    is AppRoute.FeatureDetail -> "feature|${role.name}|$featureId"
+    is AppRoute.OperationDetail -> "operation|$operationId"
 }
 
 private fun AppRoute.Companion.decode(value: String): AppRoute? {
     val parts = value.split('|', limit = 3)
     return when (parts.firstOrNull()) {
         "home" -> AppRoute.Home
-        "tools" -> AppRoute.Tools(
-            role = parts.getOrNull(1)
-                ?.takeIf(String::isNotBlank)
-                ?.let(UserRole::valueOf),
-        )
+        "operations", "tools" -> AppRoute.Operations
         "device" -> AppRoute.Device(
             section = parts.getOrNull(1)
-                ?.let(DeviceSection::valueOf)
+                ?.let { encoded -> runCatching { DeviceSection.valueOf(encoded) }.getOrNull() }
                 ?: DeviceSection.CONNECTION,
         )
-        "feature" -> {
-            val role = parts.getOrNull(1)?.let(UserRole::valueOf) ?: return null
-            val featureId = parts.getOrNull(2) ?: return null
-            AppRoute.FeatureDetail(featureId, role)
-        }
+        "operation" -> parts.getOrNull(1)
+            ?.takeIf(String::isNotBlank)
+            ?.let(AppRoute::OperationDetail)
+        // Old feature details pointed to an intermediate menu that no longer exists.
+        "feature" -> null
         else -> null
     }
 }

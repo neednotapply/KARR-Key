@@ -1,7 +1,8 @@
 package com.karr.key.ui
 
-import com.karr.key.core.FeatureCatalog
 import com.karr.key.core.UserRole
+import com.karr.key.protocol.QtCommand
+import com.karr.key.protocol.RecoveredWorkflowCatalog
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -9,45 +10,47 @@ import org.junit.Test
 
 class KarrNavigationStateTest {
     @Test
-    fun shellAlwaysExposesThreeStableDestinationsAndStartsAtHome() {
+    fun shellExposesHomeOperationsAndDeviceDestinations() {
         assertEquals(
             listOf(
                 TopLevelDestination.HOME,
-                TopLevelDestination.TOOLS,
+                TopLevelDestination.OPERATIONS,
                 TopLevelDestination.DEVICE,
             ),
             TopLevelDestination.entries,
         )
+        assertEquals("Operations", TopLevelDestination.OPERATIONS.label)
+
         val navigation = KarrNavigationState()
         assertEquals(TopLevelDestination.HOME, navigation.selectedTopLevel)
         assertEquals(AppRoute.Home, navigation.currentRoute)
     }
 
     @Test
-    fun directRoleShortcutSelectsRequestedToolsRoot() {
+    fun operationsDestinationOpensCanonicalCatalogRoot() {
         val navigation = KarrNavigationState()
 
-        navigation.openTools(UserRole.INSTALLER)
+        navigation.openOperations()
 
-        assertEquals(TopLevelDestination.TOOLS, navigation.selectedTopLevel)
-        assertEquals(AppRoute.Tools(UserRole.INSTALLER), navigation.currentRoute)
+        assertEquals(TopLevelDestination.OPERATIONS, navigation.selectedTopLevel)
+        assertEquals(AppRoute.Operations, navigation.currentRoute)
     }
 
     @Test
-    fun successfulConnectionFromDeviceOpensUnifiedToolsRootOnce() {
+    fun successfulConnectionFromDeviceOpensOperationsOnce() {
         val navigation = KarrNavigationState()
         navigation.openDevice(DeviceSection.DIAGNOSTICS)
 
         assertTrue(
-            navigation.openToolsAfterSuccessfulConnection(
+            navigation.openOperationsAfterSuccessfulConnection(
                 wasAuthenticated = false,
                 isAuthenticated = true,
             ),
         )
-        assertEquals(TopLevelDestination.TOOLS, navigation.selectedTopLevel)
-        assertEquals(AppRoute.Tools(null), navigation.currentRoute)
+        assertEquals(TopLevelDestination.OPERATIONS, navigation.selectedTopLevel)
+        assertEquals(AppRoute.Operations, navigation.currentRoute)
         assertFalse(
-            navigation.openToolsAfterSuccessfulConnection(
+            navigation.openOperationsAfterSuccessfulConnection(
                 wasAuthenticated = true,
                 isAuthenticated = true,
             ),
@@ -59,21 +62,21 @@ class KarrNavigationStateTest {
         val navigation = KarrNavigationState()
 
         assertFalse(
-            navigation.openToolsAfterSuccessfulConnection(
+            navigation.openOperationsAfterSuccessfulConnection(
                 wasAuthenticated = false,
                 isAuthenticated = true,
             ),
         )
         assertEquals(AppRoute.Home, navigation.currentRoute)
 
-        navigation.openTools(UserRole.CUSTOMER)
+        navigation.openOperations()
         assertFalse(
-            navigation.openToolsAfterSuccessfulConnection(
+            navigation.openOperationsAfterSuccessfulConnection(
                 wasAuthenticated = false,
                 isAuthenticated = true,
             ),
         )
-        assertEquals(AppRoute.Tools(UserRole.CUSTOMER), navigation.currentRoute)
+        assertEquals(AppRoute.Operations, navigation.currentRoute)
     }
 
     @Test
@@ -82,7 +85,7 @@ class KarrNavigationStateTest {
         navigation.openDevice()
 
         assertFalse(
-            navigation.openToolsAfterSuccessfulConnection(
+            navigation.openOperationsAfterSuccessfulConnection(
                 wasAuthenticated = false,
                 isAuthenticated = false,
             ),
@@ -91,104 +94,93 @@ class KarrNavigationStateTest {
     }
 
     @Test
-    fun adjacentTopLevelMovesFollowHomeToolsDeviceOrderAndStopAtEdges() {
+    fun adjacentTopLevelMovesFollowHomeOperationsDeviceOrder() {
         val navigation = KarrNavigationState()
 
         assertFalse(navigation.moveTopLevelBy(-1))
         assertTrue(navigation.moveTopLevelBy(1))
-        assertEquals(TopLevelDestination.TOOLS, navigation.selectedTopLevel)
+        assertEquals(TopLevelDestination.OPERATIONS, navigation.selectedTopLevel)
         assertTrue(navigation.topLevelTransitionForward)
         assertTrue(navigation.moveTopLevelBy(1))
         assertEquals(TopLevelDestination.DEVICE, navigation.selectedTopLevel)
-        assertTrue(navigation.topLevelTransitionForward)
         assertFalse(navigation.moveTopLevelBy(1))
         assertTrue(navigation.moveTopLevelBy(-1))
-        assertEquals(TopLevelDestination.TOOLS, navigation.selectedTopLevel)
+        assertEquals(TopLevelDestination.OPERATIONS, navigation.selectedTopLevel)
         assertFalse(navigation.topLevelTransitionForward)
     }
 
     @Test
-    fun topLevelMoveDoesNotLeaveAnOpenFeatureDetail() {
+    fun topLevelMoveDoesNotLeaveAnOpenOperationDetail() {
         val navigation = KarrNavigationState()
-        val feature = FeatureCatalog.installer.first()
-        navigation.openFeature(feature)
+        val operation = RecoveredWorkflowCatalog.operations.first()
+        navigation.openOperation(operation)
 
         assertFalse(navigation.moveTopLevelBy(1))
         assertEquals(
-            AppRoute.FeatureDetail(feature.id, UserRole.INSTALLER),
+            AppRoute.OperationDetail(operation.id),
             navigation.currentRoute,
         )
     }
 
     @Test
-    fun topLevelSwitchPreservesFeatureStackAndReselectReturnsToRoot() {
+    fun topLevelSwitchPreservesOperationAndReselectReturnsToCatalog() {
         val navigation = KarrNavigationState()
-        val feature = FeatureCatalog.dealer.first()
-        navigation.openFeature(feature)
+        val operation = RecoveredWorkflowCatalog.operations.first()
+        navigation.openOperation(operation)
 
         navigation.openDevice(DeviceSection.DIAGNOSTICS)
-        navigation.selectTopLevel(TopLevelDestination.TOOLS)
+        navigation.selectTopLevel(TopLevelDestination.OPERATIONS)
 
         assertEquals(
-            AppRoute.FeatureDetail(feature.id, UserRole.DEALER),
+            AppRoute.OperationDetail(operation.id),
             navigation.currentRoute,
         )
 
-        navigation.selectTopLevel(TopLevelDestination.TOOLS)
-
-        assertEquals(AppRoute.Tools(UserRole.DEALER), navigation.currentRoute)
+        navigation.selectTopLevel(TopLevelDestination.OPERATIONS)
+        assertEquals(AppRoute.Operations, navigation.currentRoute)
     }
 
     @Test
-    fun navigateUpReturnsFromFeatureToMatchingRoleCatalog() {
+    fun navigateUpReturnsFromOperationToCatalog() {
         val navigation = KarrNavigationState()
-        val feature = FeatureCatalog.customer.first()
-        navigation.openFeature(feature)
+        val operation = RecoveredWorkflowCatalog.operations.first()
+        navigation.openOperation(operation)
 
         assertTrue(navigation.navigateUp())
-        assertEquals(AppRoute.Tools(UserRole.CUSTOMER), navigation.currentRoute)
+        assertEquals(AppRoute.Operations, navigation.currentRoute)
         assertFalse(navigation.navigateUp())
     }
 
     @Test
-    fun unavailableSelectedRoleFallsBackAndLockedSessionKeepsToolsRoot() {
-        val navigation = KarrNavigationState()
-        navigation.openTools(UserRole.DEALER)
-
-        navigation.normalizeRoles(setOf(UserRole.CUSTOMER))
-        assertEquals(AppRoute.Tools(UserRole.CUSTOMER), navigation.currentRoute)
-
-        navigation.normalizeRoles(emptySet())
-        assertEquals(AppRoute.Tools(null), navigation.currentRoute)
-    }
-
-    @Test
-    fun unifiedCatalogShowsEveryRoleAndOpensMatchingDetailRoutes() {
-        val tools = toolsFeaturesFor()
-        assertEquals(28, tools.size)
-        assertEquals(FeatureCatalog.all.map { it.id }, tools.map { it.id })
-        assertEquals(UserRole.entries.toSet(), tools.map { it.requiredRole }.toSet())
-
-        val navigation = KarrNavigationState()
-        tools.forEach { feature ->
-            navigation.openFeature(feature)
-            assertEquals(
-                AppRoute.FeatureDetail(feature.id, feature.requiredRole),
-                navigation.currentRoute,
-            )
+    fun catalogListsEveryUniquePacketOnce() {
+        val operations = deviceOperationsFor()
+        val packets = operations.map { operation ->
+            operation.command to operation.payload
         }
+
+        assertEquals(21, operations.size)
+        assertEquals(packets.size, packets.distinct().size)
+        assertEquals(
+            UserRole.entries.toSet(),
+            operations.flatMap { operation -> operation.roles }.toSet(),
+        )
     }
 
     @Test
-    fun unifiedSearchMatchesRoleBadgesAndRetainsCategoryFiltering() {
-        val dealerTools = toolsFeaturesFor(query = "dealer")
-        assertEquals(7, dealerTools.size)
-        assertTrue(dealerTools.all { it.requiredRole == UserRole.DEALER })
+    fun searchMatchesRolesCommandsAndCategories() {
+        val dealerOperations = deviceOperationsFor(query = "dealer")
+        assertTrue(dealerOperations.isNotEmpty())
+        assertTrue(
+            dealerOperations.all { operation -> UserRole.DEALER in operation.roles },
+        )
 
-        val category = FeatureCatalog.all.first().category
+        val reads = deviceOperationsFor(category = "Reads")
+        assertTrue(reads.isNotEmpty())
+        assertTrue(reads.all { operation -> !operation.mutating })
+
         assertEquals(
-            FeatureCatalog.all.filter { it.category == category }.map { it.id },
-            toolsFeaturesFor(category = category).map { it.id },
+            listOf(QtCommand.READ_STATE),
+            deviceOperationsFor(query = "READ_STATE").map { operation -> operation.command },
         )
     }
 }

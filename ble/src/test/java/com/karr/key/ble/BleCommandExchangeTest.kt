@@ -5,6 +5,7 @@ import com.karr.key.protocol.QtProtocolCodec
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -41,15 +42,20 @@ class BleCommandExchangeTest {
     }
 
     @Test
-    fun readStatePreflightIgnoresGenericAckAndWaitsForState() = runTest {
+    fun readStateIgnoresUnrelatedNotificationsAndRetainsMatchingRawFrame() = runTest {
+        val matchingFrame = QtProtocolCodec.generateOriginal(
+            QtCommand.READ_STATE,
+            byteArrayOf(0x00),
+        )
         val controller = FakeBleController { _, notifications ->
             notifications.emit(QtProtocolCodec.generateOriginal(QtCommand.ACK_OK))
             notifications.emit(
                 QtProtocolCodec.generateOriginal(
-                    QtCommand.READ_STATE,
-                    byteArrayOf(0x00),
+                    QtCommand.PIC2_READY,
+                    byteArrayOf(0x01),
                 ),
             )
+            notifications.emit(matchingFrame)
             Result.success(Unit)
         }
         val exchange = BleCommandExchange(controller)
@@ -66,6 +72,7 @@ class BleCommandExchangeTest {
             QtCommand.READ_STATE,
             (result as BleCommandExchangeResult.Acknowledged).response.command,
         )
+        assertArrayEquals(matchingFrame, result.rawFrame)
         assertEquals(1, controller.sentPackets.size)
     }
 

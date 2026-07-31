@@ -12,8 +12,16 @@ import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.withTimeoutOrNull
 
 sealed interface BleCommandExchangeResult {
-    data class Acknowledged(val response: QtPacket) : BleCommandExchangeResult
-    data class Rejected(val response: QtPacket) : BleCommandExchangeResult
+    data class Acknowledged(
+        val response: QtPacket,
+        val rawFrame: ByteArray,
+    ) : BleCommandExchangeResult
+
+    data class Rejected(
+        val response: QtPacket,
+        val rawFrame: ByteArray,
+    ) : BleCommandExchangeResult
+
     data object TimedOut : BleCommandExchangeResult
     data class TransportFailure(val message: String) : BleCommandExchangeResult
 }
@@ -40,9 +48,15 @@ class BleCommandExchange(
             withTimeoutOrNull(timeoutMillis) {
                 controller.notifications
                     .mapNotNull { bytes ->
-                        (QtProtocolCodec.parse(bytes) as? PacketParseResult.Success)?.packet
+                        (QtProtocolCodec.parse(bytes) as? PacketParseResult.Success)
+                            ?.let { parsed ->
+                                ReceivedResponse(
+                                    packet = parsed.packet,
+                                    rawFrame = bytes.copyOf(),
+                                )
+                            }
                     }
-                    .first { incoming -> incoming.commandCode in acceptedCodes }
+                    .first { incoming -> incoming.packet.commandCode in acceptedCodes }
             }
         }
 
@@ -59,14 +73,25 @@ class BleCommandExchange(
         onGattAccepted()
         val incoming = response.await()
             ?: return@coroutineScope BleCommandExchangeResult.TimedOut
-        if (incoming.command == QtCommand.ACK_ERROR) {
-            BleCommandExchangeResult.Rejected(incoming)
+        if (incoming.packet.command == QtCommand.ACK_ERROR) {
+            BleCommandExchangeResult.Rejected(
+                response = incoming.packet,
+                rawFrame = incoming.rawFrame,
+            )
         } else {
-            BleCommandExchangeResult.Acknowledged(incoming)
+            BleCommandExchangeResult.Acknowledged(
+                response = incoming.packet,
+                rawFrame = incoming.rawFrame,
+            )
         }
     }
 
     private companion object {
         const val DEFAULT_TIMEOUT_MILLIS = 5_000L
     }
+
+    private data class ReceivedResponse(
+        val packet: QtPacket,
+        val rawFrame: ByteArray,
+    )
 }

@@ -37,11 +37,11 @@ KARR applications.
 - Provisioning Customer material exposes the complete offline Customer
   catalog. Provisioning Dealer material exposes the complete offline Dealer
   and Installer catalogs.
-- Evidence-backed read and mutation actions are available from their feature
-  pages. Enabled mutations run directly, require an authenticated compatible
+- Evidence-backed read and mutation packets are listed directly as deduplicated
+  device operations. Enabled mutations require an authenticated compatible
   unit, and show unit notifications separately from Android GATT delivery.
 - The authentication `READ_MODE` response identifies the connected QT/DR
-  model before tools become ready. Model-restricted commands are labeled and
+  model before operations can run. Model-restricted commands are labeled and
   disabled in the catalog and detail screens instead of being sent to a unit
   known not to support them.
 - The Installer catalog includes a dedicated experimental immobilizer-output

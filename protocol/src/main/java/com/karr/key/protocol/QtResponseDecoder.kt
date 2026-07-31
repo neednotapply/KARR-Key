@@ -15,12 +15,18 @@ enum class QtSecurityState(val displayName: String) {
 }
 
 object QtResponseDecoder {
-    fun decode(packet: QtPacket): QtDecodedResponse? = when (packet.command) {
+    fun decode(
+        packet: QtPacket,
+        unitModel: KarrUnitModel? = null,
+    ): QtDecodedResponse? = when (packet.command) {
+        QtCommand.READ_ALL_SETTINGS -> decodeSettings(packet.payload, unitModel)
         QtCommand.READ_VEHICLE_BATTERY_VOLTAGE -> decodeBattery(packet.payload)
         QtCommand.READ_STATE -> decodeState(packet.payload)
         QtCommand.READ_FIRMWARE_VERSION -> decodeFirmware(packet.payload)
         QtCommand.READ_VIOLATIONS -> decodeViolations(packet.payload)
         QtCommand.READ_MODE -> decodeMode(packet.payload)
+        QtCommand.READ_VIOLATION_INHIBIT ->
+            decodeViolationInhibit(packet.payload, unitModel)
         else -> null
     }
 
@@ -39,6 +45,253 @@ object QtResponseDecoder {
             ),
         )
     }
+
+    /**
+     * Field offsets and values mirror the recovered FullSettings Parse/GetBytes
+     * implementations. Only layouts selected by a known unit model are decoded.
+     */
+    private fun decodeSettings(
+        payload: ByteArray,
+        unitModel: KarrUnitModel?,
+    ): QtDecodedResponse {
+        if (payload.size < SETTINGS_RESPONSE_BYTES) {
+            return malformed(
+                heading = "Unit settings",
+                expectation = "at least $SETTINGS_RESPONSE_BYTES settings bytes",
+                actualBytes = payload.size,
+            )
+        }
+
+        val modelSpecific = when (unitModel) {
+            KarrUnitModel.QT6_CAN -> canOrDrSettings(
+                payload = payload,
+                parkLightLabel = "Parking lights as OEM trigger",
+            )
+            KarrUnitModel.DR1_CAN -> canOrDrSettings(
+                payload = payload,
+                parkLightLabel = "Parking-light OEM trigger",
+            )
+            KarrUnitModel.QT6_BLUE -> blueSettings(payload)
+            KarrUnitModel.QT6_GREEN -> greenSettings(payload)
+            KarrUnitModel.QT6_RED -> redSettings(payload)
+            else -> listOf(
+                "Some model-specific fields are hidden because this settings layout " +
+                    "has not been confirmed for ${unitModel?.displayName ?: "this unit"}.",
+            )
+        }
+
+        return QtDecodedResponse(
+            heading = "Unit settings",
+            lines = commonSettings(payload) + modelSpecific,
+        )
+    }
+
+    private fun commonSettings(payload: ByteArray): List<String> = listOf(
+        setting(payload, 0, "Auto-lock with ignition", ::onOff),
+        setting(payload, 1, "Auto-unlock with ignition", ::onOff),
+        setting(payload, 2, "Passive arm locks doors") {
+            choice(it, "No", "Yes")
+        },
+        setting(payload, 4, "Lock / unlock pulse") {
+            choice(it, "3.5 seconds", "Short pulse", "Double unlock")
+        },
+        setting(payload, 5, "Short pulse duration") {
+            choice(it, "600 ms", "400 ms", "800 ms")
+        },
+        setting(payload, 10, "Confirmation chirp duration") {
+            choice(it, "35 ms", "14 ms", "55 ms")
+        },
+        setting(payload, 17, "Shock sensor sensitivity") { "Level $it" },
+        setting(payload, 18, "BCA mode duration") { "$it days" },
+        setting(payload, 20, "Dealer arming") {
+            choice(it, "Passive after doors", "Passive after timer")
+        },
+        setting(payload, 21, "Auto-lock on Bluetooth disconnect", ::onOff),
+    )
+
+    private fun canOrDrSettings(
+        payload: ByteArray,
+        parkLightLabel: String,
+    ): List<String> = listOf(
+        setting(payload, 3, "User arming", ::userArming),
+        setting(payload, 6, "Arm / disarm tones", ::onOff),
+        setting(payload, 7, parkLightLabel, ::onOff),
+        setting(payload, 11, "Factory-alarm output duration", ::factoryOutputDuration),
+        setting(payload, 12, "Arm / disarm trigger polarity") {
+            choice(it, "Active low", "Active high")
+        },
+        setting(payload, 13, "User factory-alarm inhibit", ::onOff),
+        setting(payload, 14, "Alarm output", ::alarmOutput),
+        setting(payload, 16, "Unlock in user mode", ::onOff),
+        setting(payload, 19, "Alarm color") {
+            choice(it, "Green", "Blue", "Red")
+        },
+    )
+
+    private fun blueSettings(payload: ByteArray): List<String> = buildList {
+        add(setting(payload, 3, "User arming", ::userArming))
+        add(setting(payload, 6, "Arm / disarm tones", ::onOff))
+        add(setting(payload, 7, "Active-low trunk input", ::onOff))
+        add(
+            setting(payload, 8, "Trunk shunt trigger") {
+                choice(it, "Positive", "Negative")
+            },
+        )
+        add(setting(payload, 9, "Active-low door inputs", ::onOff))
+        add(
+            setting(payload, 11, "Arm / disarm sensitivity") {
+                choice(it, "1.5", "3", "4.5", "6")
+            },
+        )
+        add(
+            setting(payload, 12, "Arm / disarm trigger polarity") {
+                choice(it, "Active low", "Active high")
+            },
+        )
+        add(
+            setting(payload, 13, "Inhibit input mode") {
+                choice(it, "Automatic", "Active ground")
+            },
+        )
+        add(setting(payload, 14, "Alarm output", ::alarmOutput))
+        add(
+            setting(payload, 15, "Dome-light fade") {
+                choice(it, "Off", "5 seconds", "Learn")
+            },
+        )
+        add(setting(payload, 16, "Unlock in user mode", ::onOff))
+        add(setting(payload, 19, "OEM trigger duration", ::oemTriggerDuration))
+        if (payload.size > 22) {
+            add(setting(payload, 22, "Parking lights as OEM trigger", ::onOff))
+        }
+    }
+
+    private fun greenSettings(payload: ByteArray): List<String> = listOf(
+        setting(payload, 9, "Active-low door inputs", ::onOff),
+        setting(payload, 11, "Factory-alarm output duration", ::factoryOutputDuration),
+    )
+
+    private fun redSettings(payload: ByteArray): List<String> = listOf(
+        setting(payload, 3, "User arming", ::userArming),
+        setting(payload, 6, "Arm / disarm tones", ::onOff),
+        setting(payload, 7, "Active-low trunk input", ::onOff),
+        setting(payload, 8, "Step unlock", ::onOff),
+        setting(payload, 9, "Active-low door inputs", ::onOff),
+        setting(payload, 14, "Alarm output", ::alarmOutput),
+        setting(payload, 15, "Dome-light fade") {
+            choice(it, "Off", "5 seconds", "Learn")
+        },
+    )
+
+    /**
+     * Bit positions mirror the recovered ViolationViewModel.UpdateInhibit.
+     * Unmapped flags remain visible instead of being assigned guessed meanings.
+     */
+    private fun decodeViolationInhibit(
+        payload: ByteArray,
+        unitModel: KarrUnitModel?,
+    ): QtDecodedResponse {
+        val mask = payload.u16LittleEndian()
+            ?: return malformed(
+                heading = "Violation inhibits",
+                expectation = "a two-byte inhibit mask",
+                actualBytes = payload.size,
+            )
+        val doorFlag = if (unitModel == KarrUnitModel.QT6_CAN) {
+            InhibitFlag(bit = 4, label = "Driver door")
+        } else {
+            InhibitFlag(bit = 1, label = "Door input")
+        }
+        val flags = listOf(
+            InhibitFlag(bit = 0, label = "Shock sensor"),
+            doorFlag,
+            InhibitFlag(bit = 2, label = "Hood"),
+            InhibitFlag(bit = 3, label = "Trunk"),
+            InhibitFlag(bit = 5, label = "Front passenger door"),
+            InhibitFlag(bit = 6, label = "Rear driver door"),
+            InhibitFlag(bit = 7, label = "Rear passenger door"),
+            InhibitFlag(bit = 8, label = "Tilt sensor"),
+        )
+        val inhibited = flags
+            .filter { flag -> mask and (1 shl flag.bit) != 0 }
+            .map(InhibitFlag::label)
+        val knownMask = flags.fold(0) { value, flag -> value or (1 shl flag.bit) }
+        val unmappedMask = mask and knownMask.inv() and 0xffff
+
+        return QtDecodedResponse(
+            heading = "Violation inhibits",
+            lines = buildList {
+                add(
+                    "Inhibited triggers: " +
+                        if (inhibited.isEmpty()) {
+                            "None"
+                        } else {
+                            inhibited.joinToString()
+                        },
+                )
+                if (unmappedMask != 0) {
+                    add(
+                        "Unmapped inhibit flags: 0x${
+                            unmappedMask
+                                .toString(16)
+                                .padStart(4, '0')
+                                .uppercase(Locale.US)
+                        }",
+                    )
+                }
+                if (payload.size > VIOLATION_INHIBIT_BYTES) {
+                    add(
+                        "${payload.size - VIOLATION_INHIBIT_BYTES} additional payload " +
+                            "bytes were not mapped.",
+                    )
+                }
+            },
+        )
+    }
+
+    private fun setting(
+        payload: ByteArray,
+        offset: Int,
+        label: String,
+        display: (Int) -> String,
+    ): String = "$label: ${display(payload[offset].unsigned())}"
+
+    private fun onOff(value: Int): String = choice(value, "Off", "On")
+
+    private fun userArming(value: Int): String = choice(
+        value,
+        "Passive after doors",
+        "Active",
+        "Passive after timer",
+    )
+
+    private fun factoryOutputDuration(value: Int): String = choice(
+        value,
+        "2 seconds",
+        "1 second",
+        "3 seconds",
+        "Not available",
+    )
+
+    private fun alarmOutput(value: Int): String = choice(value, "Siren", "Horn")
+
+    private fun oemTriggerDuration(value: Int): String = choice(
+        value,
+        "1 second",
+        "2 seconds",
+        "3 seconds",
+        "Not available",
+    )
+
+    private fun choice(
+        value: Int,
+        vararg labels: String,
+    ): String = labels.getOrNull(value) ?: "Unknown value $value"
+
+    private data class InhibitFlag(
+        val bit: Int,
+        val label: String,
+    )
 
     private fun decodeState(payload: ByteArray): QtDecodedResponse {
         if (payload.isEmpty()) {
@@ -311,6 +564,8 @@ object QtResponseDecoder {
     private const val NO_VIOLATION_SOURCE = 0xff
     private const val MODE_RESPONSE_BYTES = 3
     private const val MODE_ARMED_MASK = 0x08
+    private const val SETTINGS_RESPONSE_BYTES = 22
+    private const val VIOLATION_INHIBIT_BYTES = 2
     private const val COORDINATE_SCALE = 1_000_000.0
     private const val LATITUDE_OFFSET = 90.0
     private const val LONGITUDE_OFFSET = 180.0

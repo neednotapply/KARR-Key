@@ -1,5 +1,10 @@
 package com.karr.key.protocol
 
+import com.karr.key.core.FeatureCatalog
+import com.karr.key.core.FeatureDefinition
+import com.karr.key.core.UserRole
+import java.util.Locale
+
 data class RecoveredDeviceAction(
     val id: String,
     val label: String,
@@ -29,6 +34,42 @@ data class RecoveredDeviceAction(
         command = command,
         payload = ByteArray(payload.size) { index -> payload[index].toByte() },
     )
+}
+
+data class RecoveredOperationBinding(
+    val feature: FeatureDefinition,
+    val action: RecoveredDeviceAction,
+    val limitation: String?,
+)
+
+data class RecoveredDeviceOperation(
+    val id: String,
+    val label: String,
+    val description: String,
+    val category: String,
+    val bindings: List<RecoveredOperationBinding>,
+) {
+    init {
+        require(id.isNotBlank())
+        require(label.isNotBlank())
+        require(bindings.isNotEmpty())
+        require(bindings.map { it.action.command }.distinct().size == 1)
+        require(bindings.map { it.action.payload }.distinct().size == 1)
+    }
+
+    val roles: Set<UserRole>
+        get() = bindings.mapTo(linkedSetOf()) { binding ->
+            binding.feature.requiredRole
+        }
+
+    val command: QtCommand
+        get() = bindings.first().action.command
+
+    val payload: List<Int>
+        get() = bindings.first().action.payload
+
+    val mutating: Boolean
+        get() = bindings.first().action.mutating
 }
 
 object RecoveredWorkflowCatalog {
@@ -74,7 +115,6 @@ object RecoveredWorkflowCatalog {
 
     private val actions = mapOf(
         "customer.vehicles" to commonIdentityReads,
-        "customer.device" to commonIdentityReads,
         "customer.controls" to listOf(
             mutate(
                 id = "lock-arm",
@@ -288,6 +328,43 @@ object RecoveredWorkflowCatalog {
     val featureIdsWithDeviceActions: Set<String>
         get() = actions.keys
 
+    /**
+     * User-facing operations are keyed by the packet they send. Role-specific
+     * tools remain bindings so authorization and model checks are preserved
+     * without listing the same device operation more than once.
+     */
+    val operations: List<RecoveredDeviceOperation> by lazy {
+        FeatureCatalog.all
+            .flatMap { feature ->
+                actionsFor(feature.id).map { action ->
+                    RecoveredOperationBinding(
+                        feature = feature,
+                        action = action,
+                        limitation = limitationFor(feature.id),
+                    )
+                }
+            }
+            .groupBy { binding -> binding.action.operationId() }
+            .map { (id, bindings) ->
+                val first = bindings.first().action
+                RecoveredDeviceOperation(
+                    id = id,
+                    label = canonicalLabel(first),
+                    description = canonicalDescription(first),
+                    category = when {
+                        bindings.any { binding -> binding.action.experimental } ->
+                            "Experimental"
+                        first.mutating -> "Commands"
+                        else -> "Reads"
+                    },
+                    bindings = bindings,
+                )
+            }
+    }
+
+    fun operationById(operationId: String): RecoveredDeviceOperation? =
+        operations.firstOrNull { operation -> operation.id == operationId }
+
     fun actionsFor(featureId: String): List<RecoveredDeviceAction> =
         actions[featureId].orEmpty()
 
@@ -384,5 +461,47 @@ object RecoveredWorkflowCatalog {
         singleShot = singleShot,
         experimental = experimental,
     )
+
+    private fun RecoveredDeviceAction.operationId(): String = buildString {
+        append(command.name.lowercase(Locale.US).replace('_', '-'))
+        payload.forEach { value ->
+            append('-')
+            append(value.toString(16).padStart(2, '0'))
+        }
+    }
+
+    private fun canonicalLabel(action: RecoveredDeviceAction): String = when {
+        action.command == QtCommand.READ_STATE -> "Read unit state"
+        action.command == QtCommand.LOCK_DOORS && action.payload == listOf(0) ->
+            "Lock and arm"
+        action.command == QtCommand.UNLOCK_DOORS && action.payload == listOf(0) ->
+            "Unlock and disarm"
+        action.command == QtCommand.VEHICLE_CONTROL && action.payload == listOf(10) ->
+            "Activate trunk output"
+        else -> action.label
+    }
+
+    private fun canonicalDescription(action: RecoveredDeviceAction): String = when {
+        action.command == QtCommand.READ_STATE ->
+            "Reads the connected unit's operating, security, ignition, door, movement, " +
+                "and immobilizer-related state."
+        action.command == QtCommand.READ_MODE ->
+            "Reads the connected unit's model, operating mode, and security state."
+        action.command == QtCommand.READ_VEHICLE_BATTERY_VOLTAGE ->
+            "Reads the vehicle battery voltage reported by the connected unit."
+        action.command == QtCommand.READ_FIRMWARE_VERSION ->
+            "Reads the connected unit's firmware and hardware version information."
+        action.command == QtCommand.READ_VIOLATIONS ->
+            "Reads locally stored alarm and violation history from the connected unit."
+        action.command == QtCommand.READ_ALL_SETTINGS ->
+            "Reads the connected unit's configurable security and control settings."
+        action.command == QtCommand.READ_VIOLATION_INHIBIT ->
+            "Reads which alarm and violation inputs are currently inhibited."
+        action.command == QtCommand.READ_REMOTES ->
+            "Reads the learned remote-control records stored by the connected unit."
+        action.command == QtCommand.VEHICLE_CONTROL && action.payload == listOf(10) ->
+            "Activates the recovered trunk-release output for an authorized validation."
+        else -> action.description
+    }
 
 }

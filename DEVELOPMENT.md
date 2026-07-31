@@ -5,7 +5,7 @@
 KARR Key keeps UI, local data, protocol, and BLE lifetimes separate:
 
 ```text
-Compose tool
+Compose operation
   -> local role/capability policy
   -> recovered device workflow
   -> authenticated BLE session
@@ -19,7 +19,7 @@ Compose tool
 | `protocol` | Packet framing, parsing, commands, authentication interface |
 | `ble` | Serialized scan/connect/discover/subscribe/write session |
 
-Tool screens do not own long-lived BLE callbacks or secret material.
+Operation screens do not own long-lived BLE callbacks or secret material.
 Transport state is the source of device readiness. Provisioned Customer
 material exposes the Customer catalog; provisioned Dealer material exposes
 Dealer and Installer catalogs. Catalog access never substitutes for a live
@@ -51,10 +51,10 @@ foreground notification can no longer be maintained.
 - Safety-sensitive actions require an authenticated BLE session, local role
   authorization, and a compatible identified unit model.
 - Recovered universal credentials are never compiled into the application.
-- Every visible tool either opens the BLE connection flow or exposes recovered
-  device actions. Inventory, jobs, accounts, imported records, external
-  artifacts, support links, maps, remote history, transactions, and submissions
-  stay excluded.
+- Every visible operation sends one distinct recovered device packet. Scanning, connection,
+  access keys, and transport diagnostics stay in the Device center. Inventory,
+  jobs, accounts, imported records, external artifacts, support links, maps,
+  remote history, transactions, and submissions stay excluded.
 - The application manifest must not request `INTERNET` or
   `ACCESS_NETWORK_STATE`; `preBuild` enforces this contract.
 
@@ -71,10 +71,17 @@ authorized captures, and physical fixtures. Authentication must negotiate the
 supported unit mode without silent downgrade.
 
 `RecoveredWorkflowCatalog` contains only packets backed by recovered managed
-callers. Feature pages distinguish GATT write acceptance from a matching unit
-notification, execute enabled mutating packets directly, and retain command
+callers. The user-facing catalog groups identical command/payload pairs into one
+operation while retaining every role, model, and preflight binding. Operation
+pages distinguish GATT write acceptance from a matching unit notification,
+execute enabled mutating packets directly, and retain command
 metadata in the encrypted local operation journal without recording payload
-contents.
+contents. Read results display only the packet correlated with the active
+command; later unsolicited notifications do not replace it. Settings and
+violation-inhibit reads use recovered model-specific layouts, while unmapped
+flags remain explicitly labeled instead of receiving guessed meanings. The
+single expandable Technical details section is always the final box and includes
+raw protocol evidence after a response.
 
 The `READ_MODE` response received during authentication is also the model
 discovery source. `Ready` retains the recovered QT6, DR1, DR2, QT7, CIU, or VW
@@ -113,9 +120,9 @@ layout; violation history uses a four-byte unit clock plus twelve five-byte
 timestamp/source slots. The raw protocol frame remains available under an
 expandable technical section so decoded labels never replace capture evidence.
 
-The Installer immobilizer-output tool is explicitly experimental. Its hidden
+The Installer immobilizer-output operation is explicitly experimental. Its hidden
 installer handler supplies the candidate `VEHICLE_CONTROL` output selector
-`2`, producing the Original frame `AA 00 02 18 02 E4`. The tool first requires
+`2`, producing the Original frame `AA 00 02 18 02 E4`. The operation first requires
 a QT-family model plus a `READ_STATE` response with ignition off, sends the
 candidate exactly once, and displays TX/RX evidence. DR1 and DR2 models are
 blocked before review. GATT acceptance, protocol acknowledgement, and physical

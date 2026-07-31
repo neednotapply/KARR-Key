@@ -31,16 +31,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.karr.key.R
-import com.karr.key.core.FeatureCatalog
-import com.karr.key.core.FeatureDefinition
-import com.karr.key.core.Session
 import com.karr.key.core.UserRole
+import com.karr.key.core.displayName
 import com.karr.key.protocol.KarrUnitModel
+import com.karr.key.protocol.RecoveredDeviceOperation
+import com.karr.key.protocol.RecoveredWorkflowCatalog
 
 @Composable
-internal fun AdaptiveToolsScreen(
-    session: Session,
-    selectedFeature: FeatureDefinition?,
+internal fun AdaptiveOperationsScreen(
+    selectedOperation: RecoveredDeviceOperation?,
     deviceAuthenticated: Boolean,
     unitModel: KarrUnitModel?,
     query: String,
@@ -48,16 +47,15 @@ internal fun AdaptiveToolsScreen(
     listState: LazyListState,
     onQueryChanged: (String) -> Unit,
     onCategorySelected: (String?) -> Unit,
-    onOpenFeature: (FeatureDefinition) -> Unit,
-    detailContent: @Composable (FeatureDefinition) -> Unit,
+    onOpenOperation: (RecoveredDeviceOperation) -> Unit,
+    detailContent: @Composable (RecoveredDeviceOperation) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     BoxWithConstraints(modifier.fillMaxSize()) {
         val expanded = maxWidth >= 960.dp
-        if (expanded && selectedFeature != null) {
+        if (expanded && selectedOperation != null) {
             Row(Modifier.fillMaxSize()) {
-                ToolsCatalogPane(
-                    session = session,
+                OperationsCatalogPane(
                     deviceAuthenticated = deviceAuthenticated,
                     unitModel = unitModel,
                     query = query,
@@ -65,7 +63,7 @@ internal fun AdaptiveToolsScreen(
                     listState = listState,
                     onQueryChanged = onQueryChanged,
                     onCategorySelected = onCategorySelected,
-                    onOpenFeature = onOpenFeature,
+                    onOpenOperation = onOpenOperation,
                     modifier = Modifier
                         .weight(0.43f)
                         .fillMaxSize(),
@@ -76,14 +74,13 @@ internal fun AdaptiveToolsScreen(
                         .weight(0.57f)
                         .fillMaxSize(),
                 ) {
-                    detailContent(selectedFeature)
+                    detailContent(selectedOperation)
                 }
             }
-        } else if (selectedFeature != null) {
-            detailContent(selectedFeature)
+        } else if (selectedOperation != null) {
+            detailContent(selectedOperation)
         } else {
-            ToolsCatalogPane(
-                session = session,
+            OperationsCatalogPane(
                 deviceAuthenticated = deviceAuthenticated,
                 unitModel = unitModel,
                 query = query,
@@ -91,7 +88,7 @@ internal fun AdaptiveToolsScreen(
                 listState = listState,
                 onQueryChanged = onQueryChanged,
                 onCategorySelected = onCategorySelected,
-                onOpenFeature = onOpenFeature,
+                onOpenOperation = onOpenOperation,
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -99,8 +96,7 @@ internal fun AdaptiveToolsScreen(
 }
 
 @Composable
-private fun ToolsCatalogPane(
-    session: Session,
+private fun OperationsCatalogPane(
     deviceAuthenticated: Boolean,
     unitModel: KarrUnitModel?,
     query: String,
@@ -108,12 +104,12 @@ private fun ToolsCatalogPane(
     listState: LazyListState = rememberLazyListState(),
     onQueryChanged: (String) -> Unit,
     onCategorySelected: (String?) -> Unit,
-    onOpenFeature: (FeatureDefinition) -> Unit,
+    onOpenOperation: (RecoveredDeviceOperation) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val features = FeatureCatalog.all
-    val categories = features.map(FeatureDefinition::category).distinct()
-    val filtered = toolsFeaturesFor(query, selectedCategory)
+    val operations = RecoveredWorkflowCatalog.operations
+    val categories = operations.map(RecoveredDeviceOperation::category).distinct()
+    val filtered = deviceOperationsFor(query, selectedCategory)
 
     LaunchedEffect(categories) {
         if (selectedCategory != null && selectedCategory !in categories) {
@@ -155,9 +151,9 @@ private fun ToolsCatalogPane(
                         )
                         Text(
                             if (unitModel?.isRecognized == true) {
-                                "Model-restricted commands are checked before they can run."
+                                "Model-restricted operations are checked before they can run."
                             } else {
-                                "Model-restricted commands stay disabled until the unit " +
+                                "Model-restricted operations stay disabled until the unit " +
                                     "reports a recognized model."
                             },
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -171,7 +167,7 @@ private fun ToolsCatalogPane(
             OutlinedTextField(
                 value = query,
                 onValueChange = onQueryChanged,
-                label = { Text("Search tools") },
+                label = { Text("Search operations") },
                 leadingIcon = {
                     Icon(
                         painter = painterResource(R.drawable.ic_search),
@@ -179,7 +175,7 @@ private fun ToolsCatalogPane(
                     )
                 },
                 supportingText = {
-                    Text("${filtered.size} of ${features.size} tools")
+                    Text("${filtered.size} of ${operations.size} operations")
                 },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
@@ -220,7 +216,7 @@ private fun ToolsCatalogPane(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
-                        "No matching tools",
+                        "No matching operations",
                         style = MaterialTheme.typography.titleMedium,
                     )
                     Text(
@@ -231,8 +227,8 @@ private fun ToolsCatalogPane(
             }
         } else {
             filtered
-                .groupBy(FeatureDefinition::category)
-                .forEach { (category, categoryFeatures) ->
+                .groupBy(RecoveredDeviceOperation::category)
+                .forEach { (category, categoryOperations) ->
                     item(key = "heading:$category") {
                         Text(
                             text = category,
@@ -245,15 +241,12 @@ private fun ToolsCatalogPane(
                         )
                     }
                     items(
-                        items = categoryFeatures,
-                        key = FeatureDefinition::id,
-                    ) { feature ->
-                        FeatureListRow(
-                            session = session,
-                            feature = feature,
-                            deviceAuthenticated = deviceAuthenticated,
-                            unitModel = unitModel,
-                            onOpen = { onOpenFeature(feature) },
+                        items = categoryOperations,
+                        key = RecoveredDeviceOperation::id,
+                    ) { operation ->
+                        OperationListRow(
+                            operation = operation,
+                            onOpen = { onOpenOperation(operation) },
                         )
                     }
                 }
@@ -262,19 +255,10 @@ private fun ToolsCatalogPane(
 }
 
 @Composable
-private fun FeatureListRow(
-    session: Session,
-    feature: FeatureDefinition,
-    deviceAuthenticated: Boolean,
-    unitModel: KarrUnitModel?,
+private fun OperationListRow(
+    operation: RecoveredDeviceOperation,
     onOpen: () -> Unit,
 ) {
-    val availability = featureAvailability(
-        session = session,
-        feature = feature,
-        deviceAuthenticated = deviceAuthenticated,
-        unitModel = unitModel,
-    )
     OutlinedCard(
         onClick = onOpen,
         modifier = Modifier.fillMaxWidth(),
@@ -289,7 +273,7 @@ private fun FeatureListRow(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = feature.title,
+                    text = operation.label,
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
@@ -302,7 +286,7 @@ private fun FeatureListRow(
                 )
             }
             Text(
-                text = feature.summary,
+                text = operation.description,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -310,8 +294,9 @@ private fun FeatureListRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                RoleTag(feature.requiredRole)
-                StatusPill(availability)
+                operation.roles.forEach { role ->
+                    RoleTag(role)
+                }
             }
         }
     }
@@ -325,7 +310,7 @@ private fun RoleTag(role: UserRole) {
         shape = MaterialTheme.shapes.small,
     ) {
         Text(
-            text = role.displayLabel(),
+            text = role.displayName(),
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.SemiBold,
@@ -333,27 +318,25 @@ private fun RoleTag(role: UserRole) {
     }
 }
 
-private fun UserRole.displayLabel(): String = when (this) {
-    UserRole.CUSTOMER -> "Customer"
-    UserRole.DEALER -> "Dealer"
-    UserRole.INSTALLER -> "Installer"
-}
-
-internal fun toolsFeaturesFor(
+internal fun deviceOperationsFor(
     query: String = "",
     category: String? = null,
-): List<FeatureDefinition> {
+): List<RecoveredDeviceOperation> {
     val normalizedQuery = query.trim()
-    return FeatureCatalog.all.filter { feature ->
-        val categoryMatches = category == null || feature.category == category
+    return RecoveredWorkflowCatalog.operations.filter { operation ->
+        val categoryMatches = category == null || operation.category == category
         val queryMatches = normalizedQuery.isEmpty() ||
-            feature.title.contains(normalizedQuery, ignoreCase = true) ||
-            feature.summary.contains(normalizedQuery, ignoreCase = true) ||
-            feature.category.contains(normalizedQuery, ignoreCase = true) ||
-            feature.requiredRole.displayLabel().contains(
-                normalizedQuery,
-                ignoreCase = true,
-            )
+            operation.label.contains(normalizedQuery, ignoreCase = true) ||
+            operation.description.contains(normalizedQuery, ignoreCase = true) ||
+            operation.category.contains(normalizedQuery, ignoreCase = true) ||
+            operation.command.name.contains(normalizedQuery, ignoreCase = true) ||
+            operation.roles.any { role ->
+                role.displayName().contains(normalizedQuery, ignoreCase = true)
+            } ||
+            operation.bindings.any { binding ->
+                binding.feature.title.contains(normalizedQuery, ignoreCase = true) ||
+                    binding.feature.category.contains(normalizedQuery, ignoreCase = true)
+            }
         categoryMatches && queryMatches
     }
 }

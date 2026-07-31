@@ -62,8 +62,6 @@ import androidx.navigation3.ui.NavDisplay
 import com.karr.key.R
 import com.karr.key.ble.BleController
 import com.karr.key.ble.BleSessionState
-import com.karr.key.core.FeatureCatalog
-import com.karr.key.core.FeatureDefinition
 import com.karr.key.core.ResearchAccess
 import com.karr.key.core.Session
 import com.karr.key.data.LocalOperationStore
@@ -71,6 +69,8 @@ import com.karr.key.data.KeyRepository
 import com.karr.key.protocol.DeviceKeyPurpose
 import com.karr.key.protocol.DeviceKeyProvisioning
 import com.karr.key.protocol.KarrUnitModel
+import com.karr.key.protocol.RecoveredDeviceOperation
+import com.karr.key.protocol.RecoveredWorkflowCatalog
 import kotlinx.coroutines.launch
 
 @Composable
@@ -99,16 +99,12 @@ fun KarrKeyApp(
     var wasDeviceAuthenticated by remember(bleController) {
         mutableStateOf(deviceAuthenticated)
     }
-    var toolsQuery by rememberSaveable { mutableStateOf("") }
-    var toolsCategory by rememberSaveable { mutableStateOf<String?>(null) }
-    val toolsListState = rememberLazyListState()
-
-    LaunchedEffect(session.roles) {
-        navigation.normalizeRoles(session.roles)
-    }
+    var operationsQuery by rememberSaveable { mutableStateOf("") }
+    var operationsCategory by rememberSaveable { mutableStateOf<String?>(null) }
+    val operationsListState = rememberLazyListState()
 
     LaunchedEffect(deviceAuthenticated) {
-        navigation.openToolsAfterSuccessfulConnection(
+        navigation.openOperationsAfterSuccessfulConnection(
             wasAuthenticated = wasDeviceAuthenticated,
             isAuthenticated = deviceAuthenticated,
         )
@@ -127,11 +123,11 @@ fun KarrKeyApp(
         onProvisioningChanged = { provisioningRevision++ },
         requestBlePermissions = requestBlePermissions,
         snackbar = snackbar,
-        toolsQuery = toolsQuery,
-        toolsCategory = toolsCategory,
-        onToolsQueryChanged = { toolsQuery = it },
-        onToolsCategoryChanged = { toolsCategory = it },
-        toolsListState = toolsListState,
+        operationsQuery = operationsQuery,
+        operationsCategory = operationsCategory,
+        onOperationsQueryChanged = { operationsQuery = it },
+        onOperationsCategoryChanged = { operationsCategory = it },
+        operationsListState = operationsListState,
     )
 }
 
@@ -149,23 +145,23 @@ private fun KeyShell(
     onProvisioningChanged: () -> Unit,
     requestBlePermissions: (((Boolean) -> Unit) -> Unit),
     snackbar: SnackbarHostState,
-    toolsQuery: String,
-    toolsCategory: String?,
-    onToolsQueryChanged: (String) -> Unit,
-    onToolsCategoryChanged: (String?) -> Unit,
-    toolsListState: androidx.compose.foundation.lazy.LazyListState,
+    operationsQuery: String,
+    operationsCategory: String?,
+    onOperationsQueryChanged: (String) -> Unit,
+    onOperationsCategoryChanged: (String?) -> Unit,
+    operationsListState: androidx.compose.foundation.lazy.LazyListState,
 ) {
     val scope = rememberCoroutineScope()
-    val currentFeature = (navigation.currentRoute as? AppRoute.FeatureDetail)
-        ?.featureId
-        ?.let { FeatureCatalog.all.findById(it) }
+    val currentOperation = (navigation.currentRoute as? AppRoute.OperationDetail)
+        ?.operationId
+        ?.let(RecoveredWorkflowCatalog::operationById)
     val topBarTitle = when (navigation.currentRoute) {
         AppRoute.Home -> "KARR Key"
-        is AppRoute.Tools -> "Tools"
+        AppRoute.Operations -> "Device operations"
         is AppRoute.Device -> "Device"
-        is AppRoute.FeatureDetail -> currentFeature?.title ?: "Tool"
+        is AppRoute.OperationDetail -> currentOperation?.label ?: "Operation"
     }
-    val topLevelSwipeEnabled = navigation.currentRoute !is AppRoute.FeatureDetail
+    val topLevelSwipeEnabled = navigation.currentRoute !is AppRoute.OperationDetail
 
     BoxWithConstraints {
         val navigationLayout = if (maxWidth < 600.dp) {
@@ -201,7 +197,7 @@ private fun KeyShell(
                         )
                     },
                     navigationIcon = {
-                        if (navigation.currentRoute is AppRoute.FeatureDetail) {
+                        if (navigation.currentRoute is AppRoute.OperationDetail) {
                             IconButton(onClick = { navigation.navigateUp() }) {
                                 Icon(
                                     painter = painterResource(R.drawable.ic_arrow_back),
@@ -292,9 +288,9 @@ private fun KeyShell(
                                 },
                             )
                         }
-                        entry<AppRoute.Tools> {
-                            ToolsRouteContent(
-                                selectedFeature = null,
+                        entry<AppRoute.Operations> {
+                            OperationsRouteContent(
+                                selectedOperation = null,
                                 session = session,
                                 deviceAuthenticated = deviceAuthenticated,
                                 unitModel = unitModel,
@@ -302,11 +298,11 @@ private fun KeyShell(
                                 operationStore = operationStore,
                                 snackbar = snackbar,
                                 navigation = navigation,
-                                query = toolsQuery,
-                                category = toolsCategory,
-                                onQueryChanged = onToolsQueryChanged,
-                                onCategoryChanged = onToolsCategoryChanged,
-                                listState = toolsListState,
+                                query = operationsQuery,
+                                category = operationsCategory,
+                                onQueryChanged = onOperationsQueryChanged,
+                                onCategoryChanged = onOperationsCategoryChanged,
+                                listState = operationsListState,
                             )
                         }
                         entry<AppRoute.Device> { route ->
@@ -321,13 +317,14 @@ private fun KeyShell(
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
-                        entry<AppRoute.FeatureDetail> { route ->
-                            val feature = FeatureCatalog.all.findById(route.featureId)
-                            if (feature == null) {
-                                MissingFeatureState(onBack = { navigation.navigateUp() })
+                        entry<AppRoute.OperationDetail> { route ->
+                            val operation =
+                                RecoveredWorkflowCatalog.operationById(route.operationId)
+                            if (operation == null) {
+                                MissingOperationState(onBack = { navigation.navigateUp() })
                             } else {
-                                ToolsRouteContent(
-                                    selectedFeature = feature,
+                                OperationsRouteContent(
+                                    selectedOperation = operation,
                                     session = session,
                                     deviceAuthenticated = deviceAuthenticated,
                                     unitModel = unitModel,
@@ -335,11 +332,11 @@ private fun KeyShell(
                                     operationStore = operationStore,
                                     snackbar = snackbar,
                                     navigation = navigation,
-                                    query = toolsQuery,
-                                    category = toolsCategory,
-                                    onQueryChanged = onToolsQueryChanged,
-                                    onCategoryChanged = onToolsCategoryChanged,
-                                    listState = toolsListState,
+                                    query = operationsQuery,
+                                    category = operationsCategory,
+                                    onQueryChanged = onOperationsQueryChanged,
+                                    onCategoryChanged = onOperationsCategoryChanged,
+                                    listState = operationsListState,
                                 )
                             }
                         }
@@ -352,8 +349,8 @@ private fun KeyShell(
 }
 
 @Composable
-private fun ToolsRouteContent(
-    selectedFeature: FeatureDefinition?,
+private fun OperationsRouteContent(
+    selectedOperation: RecoveredDeviceOperation?,
     session: Session,
     deviceAuthenticated: Boolean,
     unitModel: KarrUnitModel?,
@@ -367,9 +364,8 @@ private fun ToolsRouteContent(
     onCategoryChanged: (String?) -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState,
 ) {
-    AdaptiveToolsScreen(
-        session = session,
-        selectedFeature = selectedFeature,
+    AdaptiveOperationsScreen(
+        selectedOperation = selectedOperation,
         deviceAuthenticated = deviceAuthenticated,
         unitModel = unitModel,
         query = query,
@@ -377,19 +373,16 @@ private fun ToolsRouteContent(
         listState = listState,
         onQueryChanged = onQueryChanged,
         onCategorySelected = onCategoryChanged,
-        onOpenFeature = navigation::openFeature,
-        detailContent = { feature ->
-            FeatureWorkflowScreen(
+        onOpenOperation = navigation::openOperation,
+        detailContent = { operation ->
+            DeviceOperationScreen(
                 session = session,
-                feature = feature,
+                operation = operation,
                 deviceAuthenticated = deviceAuthenticated,
                 unitModel = unitModel,
                 controller = controller,
                 operationStore = operationStore,
                 snackbar = snackbar,
-                onOpenDevice = {
-                    navigation.openDevice(DeviceSection.CONNECTION)
-                },
             )
         },
     )
@@ -503,25 +496,22 @@ private fun DashboardScreen(
 }
 
 @Composable
-private fun MissingFeatureState(onBack: () -> Unit) {
+private fun MissingOperationState(onBack: () -> Unit) {
     ResponsiveContent(Modifier.fillMaxSize()) { contentModifier ->
         Column(
             modifier = contentModifier.padding(top = 32.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             SectionHeader(
-                title = "Tool unavailable",
-                supportingText = "This feature is no longer in the local catalog.",
+                title = "Operation unavailable",
+                supportingText = "This operation is no longer in the local catalog.",
             )
             Button(onClick = onBack) {
-                Text("Back to tools")
+                Text("Back to operations")
             }
         }
     }
 }
-
-private fun List<FeatureDefinition>.findById(id: String): FeatureDefinition? =
-    firstOrNull { it.id == id }
 
 private fun BleSessionState.homeStatus(): String = when (this) {
     BleSessionState.Idle -> "Ready to scan for a compatible KARR unit."

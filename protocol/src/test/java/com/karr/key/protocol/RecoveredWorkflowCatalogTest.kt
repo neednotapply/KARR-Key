@@ -9,17 +9,62 @@ import org.junit.Test
 
 class RecoveredWorkflowCatalogTest {
     @Test
-    fun everyCatalogEntryIsBackedByBluetoothConnectionOrDeviceActions() {
+    fun everyCatalogEntryIsBackedByDeviceActions() {
         val featureIds = FeatureCatalog.all.map { feature -> feature.id }.toSet()
-        val connectionOnlyFeatureIds = setOf(
-            "dealer.bluetooth",
-            "installer.bluetooth",
-        )
 
         assertTrue(RecoveredWorkflowCatalog.featureIdsWithDeviceActions.isNotEmpty())
         assertEquals(
             featureIds,
-            RecoveredWorkflowCatalog.featureIdsWithDeviceActions + connectionOnlyFeatureIds,
+            RecoveredWorkflowCatalog.featureIdsWithDeviceActions,
+        )
+    }
+
+    @Test
+    fun canonicalOperationsDeduplicateIdenticalPacketsAndRetainBindings() {
+        val operations = RecoveredWorkflowCatalog.operations
+        val operationPackets = operations.map { operation ->
+            operation.command to operation.payload
+        }
+
+        assertEquals(21, operations.size)
+        assertEquals(operationPackets.size, operationPackets.distinct().size)
+
+        val readState = operations.single { operation ->
+            operation.command == QtCommand.READ_STATE
+        }
+        assertEquals("Read unit state", readState.label)
+        assertEquals(
+            FeatureCatalog.all.map { feature -> feature.requiredRole }.toSet(),
+            readState.roles,
+        )
+        assertTrue(readState.bindings.size > 3)
+
+        val trunk = operations.single { operation ->
+            operation.command == QtCommand.VEHICLE_CONTROL &&
+                operation.payload == listOf(10)
+        }
+        assertEquals("Activate trunk output", trunk.label)
+        assertEquals(2, trunk.bindings.size)
+        assertEquals(
+            setOf("customer.trunk", "installer.tests"),
+            trunk.bindings.map { binding -> binding.feature.id }.toSet(),
+        )
+    }
+
+    @Test
+    fun operationIdsAreStableAndResolveBackToCanonicalOperations() {
+        RecoveredWorkflowCatalog.operations.forEach { operation ->
+            assertEquals(
+                operation,
+                RecoveredWorkflowCatalog.operationById(operation.id),
+            )
+        }
+        assertEquals(
+            "vehicle-control-0a",
+            RecoveredWorkflowCatalog.operations.single { operation ->
+                operation.command == QtCommand.VEHICLE_CONTROL &&
+                    operation.payload == listOf(10)
+            }.id,
         )
     }
 
@@ -157,5 +202,4 @@ class RecoveredWorkflowCatalogTest {
                 .all { value -> value in 0..0xff },
         )
     }
-
 }

@@ -59,9 +59,9 @@ class FeatureCatalogTest {
 
     @Test
     fun exposesBluetoothCapableCatalogForEachRole() {
-        assertEquals(11, FeatureCatalog.customer.size)
-        assertEquals(7, FeatureCatalog.dealer.size)
-        assertEquals(10, FeatureCatalog.installer.size)
+        assertEquals(10, FeatureCatalog.customer.size)
+        assertEquals(6, FeatureCatalog.dealer.size)
+        assertEquals(9, FeatureCatalog.installer.size)
 
         UserRole.entries.forEach { role ->
             val features = FeatureCatalog.forRole(role)
@@ -83,7 +83,6 @@ class FeatureCatalogTest {
                 Capability.INSTALLER_FITMENT,
                 Capability.INSTALLER_REPAIR,
                 Capability.INSTALLER_REMOVAL,
-                Capability.DEVICE_CONNECT,
                 Capability.DEVICE_SETTINGS,
                 Capability.DEVICE_DIAGNOSTICS,
             ),

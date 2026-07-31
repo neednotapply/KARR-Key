@@ -15,9 +15,6 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.tryPerformAccessibilityChecks
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.filters.SdkSuppress
-import com.karr.key.core.FeatureCatalog
-import com.karr.key.core.Session
-import com.karr.key.core.UserRole
 import org.junit.Rule
 import org.junit.Test
 
@@ -28,46 +25,34 @@ class ToolsAccessibilityTest {
     val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     @Test
-    fun noKeySessionShowsAccessibleSetupState() {
-        setToolsContent(
-            session = Session(
-                displayName = "Local",
-                roles = emptySet(),
-                capabilities = emptySet(),
-            ),
-        )
+    fun operationCatalogIsDirectAndDeduplicated() {
+        setOperationsContent()
 
-        composeRule.onNodeWithText("27 of 27 tools").assertIsDisplayed()
-        composeRule.onNodeWithText("Vehicle identity").assertIsDisplayed()
+        composeRule.onNodeWithText("21 of 21 operations").assertIsDisplayed()
+        composeRule.onNodeWithText("Read unit state").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Connection").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Research access").assertCountEquals(0)
         composeRule.enableAccessibilityChecks()
         composeRule.onRoot().tryPerformAccessibilityChecks()
     }
 
     @Test
-    fun allRoleSessionShowsAccessibleSharedCatalog() {
-        val roles = UserRole.entries.toSet()
-        setToolsContent(
-            session = Session(
-                displayName = "Local",
-                roles = roles,
-                capabilities = FeatureCatalog.capabilitiesFor(roles),
-            ),
-        )
+    fun sharedOperationShowsRoleBindingsWithoutReadyBadge() {
+        setOperationsContent()
 
-        composeRule.onAllNodesWithText("Customer").assertCountEquals(2)
-        composeRule.onNodeWithText("Vehicle identity").assertIsDisplayed()
-        composeRule.onNodeWithText("Device scan and connection").assertIsDisplayed()
+        composeRule.onNodeWithText("Read unit state").assertIsDisplayed()
+        composeRule.onNodeWithText("Customer").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Ready").assertCountEquals(0)
         composeRule.enableAccessibilityChecks()
         composeRule.onRoot().tryPerformAccessibilityChecks()
     }
 
-    private fun setToolsContent(session: Session) {
+    private fun setOperationsContent() {
         composeRule.setContent {
             KarrKeyTheme(darkTheme = false) {
                 Surface {
-                    AdaptiveToolsScreen(
-                        session = session,
-                        selectedFeature = null,
+                    AdaptiveOperationsScreen(
+                        selectedOperation = null,
                         deviceAuthenticated = false,
                         unitModel = null,
                         query = "",
@@ -75,8 +60,8 @@ class ToolsAccessibilityTest {
                         listState = rememberLazyListState(),
                         onQueryChanged = {},
                         onCategorySelected = {},
-                        onOpenFeature = {},
-                        detailContent = { Text(it.title) },
+                        onOpenOperation = {},
+                        detailContent = { Text(it.label) },
                         modifier = Modifier,
                     )
                 }
