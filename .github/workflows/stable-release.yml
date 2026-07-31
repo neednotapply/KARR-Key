@@ -75,7 +75,7 @@ jobs:
           KARR_RELEASE_KEY_PASSWORD: ${{ secrets.KARR_RELEASE_KEY_PASSWORD }}
         run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleRelease
 
-      - name: Verify and prepare release assets
+      - name: Verify and prepare signed APK
         id: assets
         env:
           EXPECTED_VERSION: ${{ steps.version.outputs.version }}
@@ -116,49 +116,12 @@ jobs:
 
           mkdir -p dist
           apk_name="KARR-Key-${GITHUB_REF_NAME}.apk"
-          checksum_name="${apk_name}.sha256"
-          certificate_name="${apk_name}.certificate-sha256.txt"
-          metadata_name="${apk_name}.output-metadata.json"
-          provenance_name="${apk_name}.build-provenance.json"
 
           cp "${source_apk}" "dist/${apk_name}"
-          cp "${source_metadata}" "dist/${metadata_name}"
-          (
-            cd dist
-            sha256sum "${apk_name}" > "${checksum_name}"
-          )
           apk_sha256="$(sha256sum "dist/${apk_name}" | awk '{ print $1 }')"
-          printf '%s  %s\n' "${cert_sha256}" "${apk_name}" > "dist/${certificate_name}"
-          jq -n \
-            --arg repository "${GITHUB_REPOSITORY}" \
-            --arg ref "${GITHUB_REF}" \
-            --arg commit "${GITHUB_SHA}" \
-            --arg workflow "${GITHUB_WORKFLOW}" \
-            --arg run_url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
-            --arg version "${actual_version}" \
-            --argjson version_code "${actual_code}" \
-            --arg apk "${apk_name}" \
-            --arg apk_sha256 "${apk_sha256}" \
-            --arg certificate_sha256 "${cert_sha256}" \
-            '{
-              source_repository: $repository,
-              source_ref: $ref,
-              source_commit: $commit,
-              workflow: $workflow,
-              workflow_run: $run_url,
-              android_version_name: $version,
-              android_version_code: $version_code,
-              apk: $apk,
-              apk_sha256: $apk_sha256,
-              signing_certificate_sha256: $certificate_sha256
-            }' > "dist/${provenance_name}"
 
           {
             echo "apk_name=${apk_name}"
-            echo "checksum_name=${checksum_name}"
-            echo "certificate_name=${certificate_name}"
-            echo "metadata_name=${metadata_name}"
-            echo "provenance_name=${provenance_name}"
             echo "version_code=${actual_code}"
             echo "apk_sha256=${apk_sha256}"
             echo "cert_sha256=${cert_sha256}"
@@ -188,10 +151,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
           APK_NAME: ${{ steps.assets.outputs.apk_name }}
-          CHECKSUM_NAME: ${{ steps.assets.outputs.checksum_name }}
-          CERTIFICATE_NAME: ${{ steps.assets.outputs.certificate_name }}
-          METADATA_NAME: ${{ steps.assets.outputs.metadata_name }}
-          PROVENANCE_NAME: ${{ steps.assets.outputs.provenance_name }}
           VERSION_CODE: ${{ steps.assets.outputs.version_code }}
           APK_SHA256: ${{ steps.assets.outputs.apk_sha256 }}
           CERT_SHA256: ${{ steps.assets.outputs.cert_sha256 }}
@@ -213,11 +172,7 @@ jobs:
           EOF
 
           gh release create "${GITHUB_REF_NAME}" \
-            "dist/${APK_NAME}#Workflow-built signed APK" \
-            "dist/${CHECKSUM_NAME}#APK SHA-256 checksum" \
-            "dist/${CERTIFICATE_NAME}#Signing certificate SHA-256" \
-            "dist/${METADATA_NAME}#Android output metadata" \
-            "dist/${PROVENANCE_NAME}#Workflow build provenance" \
+            "dist/${APK_NAME}#Signed APK" \
             --verify-tag \
             --title "KARR Key ${RELEASE_VERSION}" \
             --notes-file "${notes_file}" \

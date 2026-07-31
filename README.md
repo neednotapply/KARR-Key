@@ -113,10 +113,11 @@ release.
 Stable releases are also produced entirely by GitHub Actions. Pushing a tag in
 the form `vMAJOR.MINOR.PATCH` runs the tests and lint against that exact tagged
 commit, builds and verifies a CI-signed release APK, and creates the GitHub
-release with the APK, its SHA-256 checksum, the signing-certificate fingerprint,
-Android output metadata, and workflow-build provenance. The workflow rejects a
-tag whose version does not match the app's `versionName`; release APKs are never
-uploaded manually.
+release with that APK as its only uploaded asset. GitHub displays the APK's
+SHA-256 digest directly on the release page, while the release notes retain the
+source commit, workflow run, version, and signing-certificate fingerprint. The
+workflow rejects a tag whose version does not match the app's `versionName`;
+release APKs are never uploaded manually.
 
 For implementation details and exact safety rules, see
 [DEVELOPMENT.md](DEVELOPMENT.md). For the preserved research evidence, see
