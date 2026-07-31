@@ -69,6 +69,7 @@ class ToolsAccessibilityTest {
                         session = session,
                         selectedFeature = null,
                         deviceAuthenticated = false,
+                        unitModel = null,
                         query = "",
                         selectedCategory = null,
                         listState = rememberLazyListState(),

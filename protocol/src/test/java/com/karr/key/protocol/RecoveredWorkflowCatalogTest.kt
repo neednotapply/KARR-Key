@@ -26,16 +26,27 @@ class RecoveredWorkflowCatalogTest {
     @Test
     fun customerVehicleControlsMatchRecoveredPayloads() {
         val lock = RecoveredWorkflowCatalog.actionsFor("customer.controls").single()
+        val unlock = RecoveredWorkflowCatalog.actionsFor("customer.unlock").single()
         val trunk = RecoveredWorkflowCatalog.actionsFor("customer.trunk").single()
         val valet = RecoveredWorkflowCatalog.actionsFor("customer.valet")
 
         assertEquals(QtCommand.LOCK_DOORS, lock.command)
         assertEquals(listOf(0), lock.payload)
+        assertEquals(QtSecurityState.ARMED, lock.expectedSecurityState)
+        assertEquals(QtSecurityState.DISARMED, unlock.expectedSecurityState)
         assertEquals(QtCommand.VEHICLE_CONTROL, trunk.command)
         assertEquals(listOf(10), trunk.payload)
         assertEquals(
             RecoveredActionPreflight.QT6_RED_TRUNK_RELEASE,
             trunk.preflight,
+        )
+        assertTrue(
+            trunk.compatibilityWith(KarrUnitModel.DR1_CAN) is
+                RecoveredModelCompatibility.Unsupported,
+        )
+        assertEquals(
+            RecoveredModelCompatibility.Supported,
+            trunk.compatibilityWith(KarrUnitModel.QT6_RED),
         )
         assertEquals(
             listOf(KarrDeviceMode.VALET.code, KarrDeviceMode.USER.code),
@@ -72,6 +83,16 @@ class RecoveredWorkflowCatalogTest {
                 action.preflight == RecoveredActionPreflight.SILENT_CONTROL_SETTINGS
             },
         )
+        assertEquals(
+            listOf(QtSecurityState.ARMED, QtSecurityState.DISARMED),
+            actions.map(RecoveredDeviceAction::expectedSecurityState),
+        )
+        assertTrue(
+            actions.all { action ->
+                action.compatibilityWith(KarrUnitModel.QT6_GREEN) is
+                    RecoveredModelCompatibility.Unsupported
+            },
+        )
     }
 
     @Test
@@ -84,6 +105,19 @@ class RecoveredWorkflowCatalogTest {
         assertTrue(action.mutating)
         assertTrue(action.singleShot)
         assertTrue(action.experimental)
+        assertEquals(null, action.expectedSecurityState)
+        assertEquals(
+            RecoveredModelCompatibility.Supported,
+            action.compatibilityWith(KarrUnitModel.QT6_CAN),
+        )
+        assertTrue(
+            action.compatibilityWith(KarrUnitModel.DR1_CAN) is
+                RecoveredModelCompatibility.Unsupported,
+        )
+        assertTrue(
+            action.compatibilityWith(KarrUnitModel.DR2_ESP) is
+                RecoveredModelCompatibility.Unsupported,
+        )
         assertArrayEquals(
             byteArrayOf(
                 0xAA.toByte(),

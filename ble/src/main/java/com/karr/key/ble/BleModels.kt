@@ -1,5 +1,6 @@
 package com.karr.key.ble
 
+import com.karr.key.protocol.KarrUnitModel
 import java.util.UUID
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -43,7 +44,11 @@ sealed interface BleSessionState {
         val name: String?,
         val step: String,
     ) : BleSessionState
-    data class Ready(val address: String, val name: String?) : BleSessionState
+    data class Ready(
+        val address: String,
+        val name: String?,
+        val unitModel: KarrUnitModel? = null,
+    ) : BleSessionState
     data class Error(val message: String) : BleSessionState
 }
 

@@ -88,12 +88,12 @@ private fun evaluateQt6RedTrunkRelease(response: QtPacket?): RecoveredPreflightD
     }
 
     val mode = KarrDeviceMode.fromStatusByte(response.payload[0])
-    val unitType = response.payload[1].toInt() and UNIT_TYPE_MASK
-    if (unitType != QT6_RED_UNIT_TYPE) {
+    val unitModel = KarrUnitModel.fromTypeByte(response.payload[1])
+    if (unitModel != KarrUnitModel.QT6_RED) {
         return RecoveredPreflightDecision.Denied(
             "Trunk release is unavailable: the recovered customer apps expose this output " +
                 "only for QT6 RED systems, but the connected unit reports " +
-                "${unitTypeName(unitType)}.",
+                "${unitModel.displayName}.",
         )
     }
     if (mode != KarrDeviceMode.USER && mode != KarrDeviceMode.VALET) {
@@ -128,16 +128,16 @@ private fun evaluateSilentControl(
         )
     }
 
-    val unitType = modeResponse.payload[1].toInt() and UNIT_TYPE_MASK
-    if (unitType == QT6_GREEN_UNIT_TYPE) {
+    val unitModel = KarrUnitModel.fromTypeByte(modeResponse.payload[1])
+    if (unitModel == KarrUnitModel.QT6_GREEN) {
         return RecoveredPreflightDecision.Denied(
             "Silent controls are unavailable: the recovered customer apps hide them for " +
                 "QT6 GREEN systems.",
         )
     }
-    if (unitType !in SILENT_CONTROL_UNIT_TYPES) {
+    if (unitModel !in SILENT_CONTROL_UNIT_MODELS) {
         return RecoveredPreflightDecision.Denied(
-            "Silent controls are unavailable for ${unitTypeName(unitType)}.",
+            "Silent controls are unavailable for ${unitModel.displayName}.",
         )
     }
 
@@ -168,7 +168,7 @@ private fun evaluateSilentControl(
         )
     }
 
-    if (unitType == QT6_CAN_UNIT_TYPE || unitType == DR1_CAN_UNIT_TYPE) {
+    if (unitModel == KarrUnitModel.QT6_CAN || unitModel == KarrUnitModel.DR1_CAN) {
         if (settings.size <= ALARM_COLOR_INDEX) {
             return RecoveredPreflightDecision.Denied(
                 "Silent-control compatibility check could not read the CAN system color.",
@@ -189,29 +189,13 @@ private fun evaluateSilentControl(
     )
 }
 
-private fun unitTypeName(unitType: Int): String = when (unitType) {
-    QT6_CAN_UNIT_TYPE -> "QT6 CAN"
-    QT6_BLUE_UNIT_TYPE -> "QT6 BLUE"
-    QT6_GREEN_UNIT_TYPE -> "QT6 GREEN"
-    QT6_RED_UNIT_TYPE -> "QT6 RED"
-    DR1_CAN_UNIT_TYPE -> "DR1 CAN"
-    5 -> "VW programmer"
-    else -> "unit type 0x${unitType.toString(16).uppercase()}"
-}
-
 private const val IGNITION_ON_MASK = 0x40
 private const val READ_MODE_MINIMUM_PAYLOAD_BYTES = 2
-private const val UNIT_TYPE_MASK = 0x0f
-private const val QT6_CAN_UNIT_TYPE = 0
-private const val QT6_BLUE_UNIT_TYPE = 1
-private const val QT6_GREEN_UNIT_TYPE = 2
-private const val QT6_RED_UNIT_TYPE = 3
-private const val DR1_CAN_UNIT_TYPE = 4
-private val SILENT_CONTROL_UNIT_TYPES = setOf(
-    QT6_CAN_UNIT_TYPE,
-    QT6_BLUE_UNIT_TYPE,
-    QT6_RED_UNIT_TYPE,
-    DR1_CAN_UNIT_TYPE,
+private val SILENT_CONTROL_UNIT_MODELS = setOf(
+    KarrUnitModel.QT6_CAN,
+    KarrUnitModel.QT6_BLUE,
+    KarrUnitModel.QT6_RED,
+    KarrUnitModel.DR1_CAN,
 )
 private const val ARM_DISARM_TONES_INDEX = 6
 private const val ALARM_COLOR_INDEX = 19

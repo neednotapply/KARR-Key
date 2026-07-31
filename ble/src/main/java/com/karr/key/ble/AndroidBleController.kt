@@ -930,7 +930,7 @@ class AndroidBleController(
                     }
                 }
             }
-            AuthenticationAction.Authenticated -> {
+            is AuthenticationAction.Authenticated -> {
                 val target = activeConnectionTarget
                     ?: ReconnectPolicy.targetFor(discovered[address]?.device)
                 lastAuthenticatedTarget = target
@@ -941,6 +941,7 @@ class AndroidBleController(
                 _state.value = BleSessionState.Ready(
                     address = address,
                     name = name,
+                    unitModel = action.unitModel,
                 )
             }
             is AuthenticationAction.Failed -> {

@@ -97,11 +97,14 @@ class KarrNavigationStateTest {
         assertFalse(navigation.moveTopLevelBy(-1))
         assertTrue(navigation.moveTopLevelBy(1))
         assertEquals(TopLevelDestination.TOOLS, navigation.selectedTopLevel)
+        assertTrue(navigation.topLevelTransitionForward)
         assertTrue(navigation.moveTopLevelBy(1))
         assertEquals(TopLevelDestination.DEVICE, navigation.selectedTopLevel)
+        assertTrue(navigation.topLevelTransitionForward)
         assertFalse(navigation.moveTopLevelBy(1))
         assertTrue(navigation.moveTopLevelBy(-1))
         assertEquals(TopLevelDestination.TOOLS, navigation.selectedTopLevel)
+        assertFalse(navigation.topLevelTransitionForward)
     }
 
     @Test

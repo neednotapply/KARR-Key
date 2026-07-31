@@ -5,7 +5,14 @@ import java.util.Locale
 data class QtDecodedResponse(
     val heading: String,
     val lines: List<String>,
+    val securityState: QtSecurityState? = null,
+    val unitModel: KarrUnitModel? = null,
 )
+
+enum class QtSecurityState(val displayName: String) {
+    ARMED("Armed"),
+    DISARMED("Disarmed"),
+}
 
 object QtResponseDecoder {
     fun decode(packet: QtPacket): QtDecodedResponse? = when (packet.command) {
@@ -44,16 +51,10 @@ object QtResponseDecoder {
 
         val primary = payload[0].unsigned()
         val secondary = payload.getOrNull(1)?.unsigned()
+        val securityState = secondary?.toSecurityState(ARMED_MASK)
         val lines = buildList {
             add("Ignition: ${openClosed(primary, IGNITION_MASK, "On", "Off")}")
-            add(
-                "Security: " +
-                    if (secondary == null) {
-                        "Not returned"
-                    } else {
-                        openClosed(secondary, ARMED_MASK, "Armed", "Disarmed")
-                    },
-            )
+            add("Security: ${securityState?.displayName ?: "Not returned"}")
             add(
                 "Front driver / wired doors: " +
                     openClosed(primary, FRONT_DRIVER_MASK),
@@ -97,6 +98,7 @@ object QtResponseDecoder {
         return QtDecodedResponse(
             heading = "Vehicle state",
             lines = lines,
+            securityState = securityState,
         )
     }
 
@@ -184,7 +186,8 @@ object QtResponseDecoder {
             )
         }
         val status = payload[0].unsigned()
-        val unitType = payload[1].unsigned() and UNIT_TYPE_MASK
+        val unitModel = KarrUnitModel.fromTypeByte(payload[1])
+        val securityState = status.toSecurityState(MODE_ARMED_MASK)
         return QtDecodedResponse(
             heading = "Unit identity",
             lines = listOf(
@@ -196,10 +199,12 @@ object QtResponseDecoder {
                         .replaceFirstChar(Char::uppercase)
                         .replace('_', ' ')
                 }",
-                "Security: ${if (status and MODE_ARMED_MASK != 0) "Armed" else "Disarmed"}",
-                "Unit type: ${unitTypeName(unitType)}",
+                "Security: ${securityState.displayName}",
+                "Unit type: ${unitModel.displayName}",
                 "Unit version: ${payload[2].unsigned()}",
             ),
+            securityState = securityState,
+            unitModel = unitModel,
         )
     }
 
@@ -232,6 +237,13 @@ object QtResponseDecoder {
     }
 
     private fun Byte.unsigned(): Int = toInt() and 0xff
+
+    private fun Int.toSecurityState(armedMask: Int): QtSecurityState =
+        if (this and armedMask != 0) {
+            QtSecurityState.ARMED
+        } else {
+            QtSecurityState.DISARMED
+        }
 
     private fun Byte.hex(): String =
         unsigned().toString(16).padStart(2, '0').uppercase(Locale.US)
@@ -277,16 +289,6 @@ object QtResponseDecoder {
         }
     }
 
-    private fun unitTypeName(unitType: Int): String = when (unitType) {
-        0 -> "QT6 CAN"
-        1 -> "QT6 BLUE"
-        2 -> "QT6 GREEN"
-        3 -> "QT6 RED"
-        4 -> "DR1 CAN"
-        5 -> "VW programmer"
-        else -> "Unknown type 0x${unitType.toString(16).uppercase(Locale.US)}"
-    }
-
     private const val FRONT_DRIVER_MASK = 0x01
     private const val FRONT_PASSENGER_MASK = 0x02
     private const val REAR_DRIVER_MASK = 0x04
@@ -309,7 +311,6 @@ object QtResponseDecoder {
     private const val NO_VIOLATION_SOURCE = 0xff
     private const val MODE_RESPONSE_BYTES = 3
     private const val MODE_ARMED_MASK = 0x08
-    private const val UNIT_TYPE_MASK = 0x0f
     private const val COORDINATE_SCALE = 1_000_000.0
     private const val LATITUDE_OFFSET = 90.0
     private const val LONGITUDE_OFFSET = 180.0

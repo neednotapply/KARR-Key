@@ -37,6 +37,7 @@ import com.karr.key.core.AuthorizationDecision
 import com.karr.key.core.FeatureDefinition
 import com.karr.key.core.RolePolicy
 import com.karr.key.core.Session
+import com.karr.key.protocol.KarrUnitModel
 
 internal sealed interface FeatureAvailability {
     val label: String
@@ -58,15 +59,45 @@ internal sealed interface FeatureAvailability {
         override val label = "Locked"
         override val iconRes = R.drawable.ic_status_lock
     }
+
+    data class ModelLimited(override val description: String) : FeatureAvailability {
+        override val label = "Limited"
+        override val iconRes = R.drawable.ic_status_lock
+    }
+
+    data class ModelUnsupported(override val description: String) : FeatureAvailability {
+        override val label = "Not supported"
+        override val iconRes = R.drawable.ic_status_lock
+    }
+
+    data class ModelUnknown(override val description: String) : FeatureAvailability {
+        override val label = "Model unknown"
+        override val iconRes = R.drawable.ic_nav_bluetooth
+    }
 }
 
 internal fun featureAvailability(
     session: Session,
     feature: FeatureDefinition,
     deviceAuthenticated: Boolean,
+    unitModel: KarrUnitModel? = null,
 ): FeatureAvailability {
     return when (val decision = RolePolicy().authorize(session, feature, deviceAuthenticated)) {
-        AuthorizationDecision.Allowed -> FeatureAvailability.Available
+        AuthorizationDecision.Allowed -> {
+            if (!deviceAuthenticated) {
+                FeatureAvailability.Available
+            } else {
+                when (val compatibility = featureModelCompatibility(feature, unitModel)) {
+                    FeatureModelCompatibility.Supported -> FeatureAvailability.Available
+                    is FeatureModelCompatibility.Limited ->
+                        FeatureAvailability.ModelLimited(compatibility.description)
+                    is FeatureModelCompatibility.Unsupported ->
+                        FeatureAvailability.ModelUnsupported(compatibility.description)
+                    is FeatureModelCompatibility.Unknown ->
+                        FeatureAvailability.ModelUnknown(compatibility.description)
+                }
+            }
+        }
         is AuthorizationDecision.Denied -> {
             if (feature.requiredRole in session.roles &&
                 feature.safetySensitive &&
@@ -148,6 +179,16 @@ internal fun StatusPill(
         is FeatureAvailability.Locked -> {
             container = MaterialTheme.colorScheme.surfaceVariant
             content = MaterialTheme.colorScheme.onSurfaceVariant
+        }
+        is FeatureAvailability.ModelLimited,
+        is FeatureAvailability.ModelUnknown,
+        -> {
+            container = MaterialTheme.colorScheme.tertiaryContainer
+            content = MaterialTheme.colorScheme.onTertiaryContainer
+        }
+        is FeatureAvailability.ModelUnsupported -> {
+            container = MaterialTheme.colorScheme.errorContainer
+            content = MaterialTheme.colorScheme.onErrorContainer
         }
     }
     Surface(

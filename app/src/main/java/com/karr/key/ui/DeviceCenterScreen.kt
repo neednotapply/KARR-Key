@@ -841,7 +841,9 @@ private fun BleSessionState.label(
             "($challengeBytes-byte challenge). Bluetooth link is healthy."
     is BleSessionState.Authenticating ->
         "Authenticating ${name ?: address}: $step"
-    is BleSessionState.Ready -> "Authenticated and ready: ${name ?: address}"
+    is BleSessionState.Ready ->
+        "Authenticated and ready: ${name ?: address}; " +
+            (unitModel?.displayName ?: "model not identified")
     is BleSessionState.Error -> "Error: $message"
 }
 

@@ -33,15 +33,16 @@ unit's KARR application authentication.
 - UART subscription confirms transport, not authenticated readiness.
 - An 8-byte `REQUEST_AUTH` challenge triggers `READ_MODE`, selects the
   matching locally provisioned Customer or Dealer/Installer material, sends
-  `PROVIDE_AUTH`, and still waits for the unit's `AUTH_SUCCESS`.
+  `PROVIDE_AUTH`, retains the returned unit model, and still waits for the
+  unit's `AUTH_SUCCESS`.
 - `Ready` requires a valid authentication-success notification for the current
   connection generation.
 - Disconnect invalidates authentication, counters, and outstanding responses.
 - Writes remain serialized and correlated with expected responses/timeouts.
 - A provisioned key grants only its recovered local role surface. Device
   mutations still require the current connection to reach `Ready`.
-- Safety-sensitive actions require an authenticated BLE session and explicit
-  confirmation.
+- Safety-sensitive actions require an authenticated BLE session, local role
+  authorization, and a compatible identified unit model.
 - Recovered universal credentials are never compiled into the application.
 - Every visible tool either opens the BLE connection flow or exposes recovered
   device actions. Inventory, jobs, accounts, imported records, external
@@ -64,9 +65,16 @@ supported unit mode without silent downgrade.
 
 `RecoveredWorkflowCatalog` contains only packets backed by recovered managed
 callers. Feature pages distinguish GATT write acceptance from a matching unit
-notification, require confirmation for mutating packets, and retain command
+notification, execute enabled mutating packets directly, and retain command
 metadata in the encrypted local operation journal without recording payload
 contents.
+
+The `READ_MODE` response received during authentication is also the model
+discovery source. `Ready` retains the recovered QT6, DR1, DR2, QT7, CIU, or VW
+programmer identity without sending a second request. Action metadata is
+evaluated against that model before a command can be reviewed or sent. An
+unrecognized or missing model leaves restricted commands unconfirmed and
+disabled; it is not treated as evidence of support.
 
 The customer trunk action retains the recovered `VEHICLE_CONTROL` selector
 `10`, but it is not a universal KARR output. Both recovered customer callers
@@ -84,6 +92,13 @@ then either sends the dedicated `SILENT_LOCK`/`SILENT_UNLOCK` frame, routes to
 `LOCK_DOORS`/`UNLOCK_DOORS` when tones are off, or blocks an unsupported
 configuration with a local explanation.
 
+Customer Lock/Unlock actions are state-reconciled when the unit does not return
+a matching command response. The app does not resend the mutating command. It
+instead performs a fresh `READ_MODE` and treats the operation as satisfied only
+when the returned Armed/Disarmed state matches the requested action. A
+contradictory or unavailable state remains a failure, and the UI continues to
+state that the physical door position is not confirmed.
+
 Successful diagnostic reads are decoded locally before display. Battery and
 state voltage fields are little-endian millivolts; vehicle state uses the
 recovered door, ignition, armed, inhibit, and optional extended-position
@@ -94,10 +109,11 @@ expandable technical section so decoded labels never replace capture evidence.
 The Installer immobilizer-output tool is explicitly experimental. Its hidden
 installer handler supplies the candidate `VEHICLE_CONTROL` output selector
 `2`, producing the Original frame `AA 00 02 18 02 E4`. The tool first requires
-a `READ_STATE` response with ignition off, sends the candidate exactly once,
-and displays TX/RX evidence. GATT acceptance, protocol acknowledgement, and
-physical immobilizer behavior are separate observations; only the first two
-can be reported by the app without an authorized vehicle fixture.
+a QT-family model plus a `READ_STATE` response with ignition off, sends the
+candidate exactly once, and displays TX/RX evidence. DR1 and DR2 models are
+blocked before review. GATT acceptance, protocol acknowledgement, and physical
+immobilizer behavior are separate observations; only the first two can be
+reported by the app without an authorized vehicle fixture.
 
 The implemented legacy challenge transform is source-faithful for the
 recovered 8-byte flow. Customer/Valet mode incorporates the recovered unit

@@ -31,6 +31,7 @@ class QtResponseDecoderTest {
         )
 
         assertEquals("Vehicle state", decoded.heading)
+        assertEquals(QtSecurityState.DISARMED, decoded.securityState)
         assertTrue(decoded.lines.contains("Ignition: Off"))
         assertTrue(decoded.lines.contains("Security: Disarmed"))
         assertTrue(decoded.lines.contains("Front driver / wired doors: Open"))
@@ -100,6 +101,8 @@ class QtResponseDecoderTest {
             ),
         )
 
+        assertEquals(QtSecurityState.ARMED, decoded.securityState)
+        assertEquals(KarrUnitModel.DR1_CAN, decoded.unitModel)
         assertTrue(decoded.lines.contains("Mode: User"))
         assertTrue(decoded.lines.contains("Security: Armed"))
         assertTrue(decoded.lines.contains("Unit type: DR1 CAN"))
@@ -115,6 +118,8 @@ class QtResponseDecoderTest {
 
         assertTrue(decoded.lines.single().contains("expected two voltage bytes"))
         assertTrue(decoded.lines.single().contains("received 1"))
+        assertNull(decoded.securityState)
+        assertNull(decoded.unitModel)
     }
 
     @Test

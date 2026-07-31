@@ -8,7 +8,9 @@ sealed interface AuthenticationAction {
         val payload: ByteArray = byteArrayOf(),
     ) : AuthenticationAction
 
-    data object Authenticated : AuthenticationAction
+    data class Authenticated(
+        val unitModel: KarrUnitModel?,
+    ) : AuthenticationAction
 
     data class Failed(val reason: String) : AuthenticationAction
 }
@@ -18,6 +20,7 @@ class KarrAuthenticationSession(
 ) {
     private var challenge: ByteArray? = null
     private var awaitingResult = false
+    private var unitModel: KarrUnitModel? = null
 
     suspend fun onPacket(
         unitSerial: String,
@@ -34,6 +37,7 @@ class KarrAuthenticationSession(
         challenge?.fill(0)
         challenge = null
         awaitingResult = false
+        unitModel = null
     }
 
     private fun begin(payload: ByteArray): AuthenticationAction {
@@ -61,6 +65,7 @@ class KarrAuthenticationSession(
         }
 
         val mode = KarrDeviceMode.fromStatusByte(payload[0])
+        unitModel = payload.getOrNull(1)?.let(KarrUnitModel::fromTypeByte)
         val response = authenticator.answerChallenge(
             unitSerial = unitSerial,
             challenge = activeChallenge,
@@ -84,8 +89,9 @@ class KarrAuthenticationSession(
         if (!awaitingResult) {
             return AuthenticationAction.None
         }
+        val authenticatedUnitModel = unitModel
         reset()
-        return AuthenticationAction.Authenticated
+        return AuthenticationAction.Authenticated(authenticatedUnitModel)
     }
 
     private fun reject(): AuthenticationAction {

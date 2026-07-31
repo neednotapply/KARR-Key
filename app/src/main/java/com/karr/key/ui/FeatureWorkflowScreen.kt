@@ -8,14 +8,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,9 +39,11 @@ import com.karr.key.core.Session
 import com.karr.key.core.displayName
 import com.karr.key.data.LocalOperationState
 import com.karr.key.data.LocalOperationStore
+import com.karr.key.protocol.KarrUnitModel
 import com.karr.key.protocol.PacketParseResult
 import com.karr.key.protocol.RecoveredActionPreflight
 import com.karr.key.protocol.RecoveredDeviceAction
+import com.karr.key.protocol.RecoveredModelCompatibility
 import com.karr.key.protocol.RecoveredPreflightDecision
 import com.karr.key.protocol.RecoveredWorkflowCatalog
 import com.karr.key.protocol.QtCommand
@@ -52,6 +52,7 @@ import com.karr.key.protocol.QtErrorCode
 import com.karr.key.protocol.QtPacket
 import com.karr.key.protocol.QtProtocolCodec
 import com.karr.key.protocol.QtResponseDecoder
+import com.karr.key.protocol.compatibilityWith
 import com.karr.key.protocol.evaluate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -62,6 +63,7 @@ fun FeatureWorkflowScreen(
     session: Session,
     feature: FeatureDefinition,
     deviceAuthenticated: Boolean,
+    unitModel: KarrUnitModel?,
     controller: BleController,
     operationStore: LocalOperationStore,
     snackbar: SnackbarHostState,
@@ -76,9 +78,6 @@ fun FeatureWorkflowScreen(
     }
     val exchange = remember(controller) { BleCommandExchange(controller) }
     val scope = rememberCoroutineScope()
-    var pendingAction by remember(feature.id) {
-        mutableStateOf<RecoveredDeviceAction?>(null)
-    }
     var commandStatus by remember(feature.id) { mutableStateOf<String?>(null) }
     var decodedResponse by remember(feature.id) {
         mutableStateOf<QtDecodedResponse?>(null)
@@ -204,6 +203,13 @@ fun FeatureWorkflowScreen(
     }
 
     fun execute(action: RecoveredDeviceAction) {
+        action.compatibilityWith(unitModel).blockingReason()?.let { reason ->
+            commandStatus = reason
+            scope.launch {
+                snackbar.showSnackbar(reason)
+            }
+            return
+        }
         sending = true
         scope.launch {
             try {
@@ -218,8 +224,7 @@ fun FeatureWorkflowScreen(
                         return@launch
                     }
                 }
-                val routingExplanation =
-                    (preflightDecision as RecoveredPreflightDecision.Allowed).explanation
+                val routingExplanation = preflightDecision.explanation
 
                 commandStatus = buildString {
                     routingExplanation?.let {
@@ -312,7 +317,7 @@ fun FeatureWorkflowScreen(
                         snackbar.showSnackbar(error)
                     }
                     BleCommandExchangeResult.TimedOut -> {
-                        val error =
+                        val baseError =
                             "GATT accepted ${executableAction.command.name}, but no matching unit " +
                                 "response was observed within 5 seconds." +
                                 if (executableAction.singleShot) {
@@ -320,17 +325,90 @@ fun FeatureWorkflowScreen(
                                 } else {
                                     ""
                                 }
-                        updateOperation(
-                            operationId = operation?.id,
-                            state = if (executableAction.singleShot) {
-                                LocalOperationState.FAILED_PERMANENT
-                            } else {
-                                LocalOperationState.FAILED_RETRYABLE
-                            },
-                            lastError = error,
-                        )
-                        commandStatus = error
-                        snackbar.showSnackbar(error)
+                        val expectedSecurityState = executableAction.expectedSecurityState
+                        val reconciliation = expectedSecurityState?.let { expected ->
+                            exchange.reconcileSecurityState(
+                                expected = expected,
+                                onGattAccepted = {
+                                    commandStatus =
+                                        "${executableAction.command.name} did not return a " +
+                                            "matching response. Checking the unit's current " +
+                                            "security state before treating it as failed."
+                                },
+                            )
+                        }
+                        when (reconciliation) {
+                            is SecurityStateReconciliation.Confirmed -> {
+                                updateOperation(
+                                    operationId = operation?.id,
+                                    state = LocalOperationState.SUCCEEDED,
+                                )
+                                commandStatus = buildString {
+                                    routingExplanation?.let {
+                                        append(it)
+                                        append("\n")
+                                    }
+                                    append(
+                                        "${executableAction.command.name} did not return a " +
+                                            "separate response, but a fresh unit state check " +
+                                            "reports Security: " +
+                                            "${reconciliation.state.displayName}. This matches " +
+                                            "the requested state, so the command was not " +
+                                            "repeated. Physical door position is not confirmed.",
+                                    )
+                                }
+                                snackbar.showSnackbar(
+                                    "Unit reports ${reconciliation.state.displayName.lowercase()}; " +
+                                        "no retry needed.",
+                                )
+                            }
+                            is SecurityStateReconciliation.Different -> {
+                                val error =
+                                    "$baseError A fresh unit state check reports Security: " +
+                                        "${reconciliation.state.displayName}, so the requested " +
+                                        "${expectedSecurityState.displayName} state was not confirmed."
+                                updateOperation(
+                                    operationId = operation?.id,
+                                    state = if (executableAction.singleShot) {
+                                        LocalOperationState.FAILED_PERMANENT
+                                    } else {
+                                        LocalOperationState.FAILED_RETRYABLE
+                                    },
+                                    lastError = error,
+                                )
+                                commandStatus = error
+                                snackbar.showSnackbar(error)
+                            }
+                            SecurityStateReconciliation.Unavailable -> {
+                                val error =
+                                    "$baseError A follow-up unit state check could not confirm " +
+                                        "Security: ${expectedSecurityState.displayName}."
+                                updateOperation(
+                                    operationId = operation?.id,
+                                    state = if (executableAction.singleShot) {
+                                        LocalOperationState.FAILED_PERMANENT
+                                    } else {
+                                        LocalOperationState.FAILED_RETRYABLE
+                                    },
+                                    lastError = error,
+                                )
+                                commandStatus = error
+                                snackbar.showSnackbar(error)
+                            }
+                            null -> {
+                                updateOperation(
+                                    operationId = operation?.id,
+                                    state = if (executableAction.singleShot) {
+                                        LocalOperationState.FAILED_PERMANENT
+                                    } else {
+                                        LocalOperationState.FAILED_RETRYABLE
+                                    },
+                                    lastError = baseError,
+                                )
+                                commandStatus = baseError
+                                snackbar.showSnackbar(baseError)
+                            }
+                        }
                     }
                     is BleCommandExchangeResult.TransportFailure -> {
                         val error = result.message +
@@ -356,50 +434,6 @@ fun FeatureWorkflowScreen(
                 sending = false
             }
         }
-    }
-
-    pendingAction?.let { action ->
-        AlertDialog(
-            onDismissRequest = { pendingAction = null },
-            title = { Text("Confirm ${action.label}") },
-            text = {
-                val preflightText = when (action.preflight) {
-                    RecoveredActionPreflight.IGNITION_OFF ->
-                        "The app will read unit state and refuse to send unless " +
-                            "ignition is confirmed off. This single-shot test is not " +
-                            "automatically retried.\n\n"
-                    RecoveredActionPreflight.QT6_RED_TRUNK_RELEASE ->
-                        "The app will read unit type and mode first. It sends this command " +
-                            "only to a QT6 RED unit in User or Valet mode.\n\n"
-                    RecoveredActionPreflight.SILENT_CONTROL_SETTINGS ->
-                        "The app will read unit type, mode, and arm/disarm tone settings " +
-                            "first. When tones are already off, it uses the ordinary door " +
-                            "command, matching the recovered app's silent behavior.\n\n"
-                    null -> ""
-                }
-                Text(
-                    "${action.description}\n\n" +
-                        preflightText +
-                        "Use only on the authorized stationary research vehicle. " +
-                        "The app reports GATT delivery separately from the unit response.",
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        pendingAction = null
-                        execute(action)
-                    },
-                ) {
-                    Text(if (action.experimental) "Run once" else "Send command")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingAction = null }) {
-                    Text("Cancel")
-                }
-            },
-        )
     }
 
     ResponsiveContent(
@@ -444,16 +478,30 @@ fun FeatureWorkflowScreen(
                                 session = session,
                                 feature = feature,
                                 deviceAuthenticated = deviceAuthenticated,
+                                unitModel = unitModel,
                             ),
                         )
                         Text(
                             when (decision) {
                                 AuthorizationDecision.Allowed -> {
-                                    if (feature.safetySensitive) {
-                                        "Local role material and the current authenticated " +
-                                            "device session authorize this workflow."
-                                    } else {
-                                        "Local role material authorizes this workflow."
+                                    when (
+                                        val compatibility =
+                                            featureModelCompatibility(feature, unitModel)
+                                    ) {
+                                        is FeatureModelCompatibility.Limited ->
+                                            compatibility.description
+                                        is FeatureModelCompatibility.Unsupported ->
+                                            compatibility.description
+                                        is FeatureModelCompatibility.Unknown ->
+                                            compatibility.description
+                                        FeatureModelCompatibility.Supported ->
+                                            if (feature.safetySensitive) {
+                                                "Local role material and the current " +
+                                                    "authenticated device session authorize " +
+                                                    "this workflow."
+                                            } else {
+                                                "Local role material authorizes this workflow."
+                                            }
                                     }
                                 }
                                 is AuthorizationDecision.Denied -> decision.reason
@@ -464,6 +512,30 @@ fun FeatureWorkflowScreen(
                                 MaterialTheme.colorScheme.error
                             },
                         )
+                    }
+                }
+            }
+            if (deviceAuthenticated) {
+                item {
+                    OutlinedCard(Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.padding(18.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text(
+                                "Connected model",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Text(
+                                unitModel?.displayName ?: "Model not identified",
+                                style = MaterialTheme.typography.titleLarge,
+                                color = if (unitModel?.isRecognized == true) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.error
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -479,13 +551,15 @@ fun FeatureWorkflowScreen(
                     SectionHeader(
                         title = "Device operations",
                         supportingText = if (deviceAuthenticated) {
-                            "Commands use the authenticated Bluetooth session."
+                            "${unitModel?.displayName ?: "Unknown model"} connected. " +
+                                "Unsupported commands are disabled."
                         } else {
                             "Connect and complete unit authentication before sending commands."
                         },
                     )
                 }
                 items(actions, key = RecoveredDeviceAction::id) { action ->
+                    val modelCompatibility = action.compatibilityWith(unitModel)
                     OutlinedCard(Modifier.fillMaxWidth()) {
                         Column(
                             modifier = Modifier.padding(16.dp),
@@ -499,6 +573,33 @@ fun FeatureWorkflowScreen(
                                 action.description,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            when (modelCompatibility) {
+                                RecoveredModelCompatibility.Supported -> Unit
+                                is RecoveredModelCompatibility.Unsupported -> {
+                                    Text(
+                                        "NOT SUPPORTED ON " +
+                                            (unitModel?.displayName?.uppercase()
+                                                ?: "CONNECTED MODEL"),
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                    Text(
+                                        modelCompatibility.reason,
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                }
+                                is RecoveredModelCompatibility.Unknown -> {
+                                    Text(
+                                        "MODEL SUPPORT UNCONFIRMED",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.tertiary,
+                                    )
+                                    Text(
+                                        modelCompatibility.reason,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
                             if (action.experimental) {
                                 Text(
                                     "EXPERIMENTAL CANDIDATE",
@@ -517,17 +618,19 @@ fun FeatureWorkflowScreen(
                             ) {
                                 if (action.mutating) {
                                     Button(
-                                        onClick = { pendingAction = action },
+                                        onClick = { execute(action) },
                                         enabled =
                                             decision == AuthorizationDecision.Allowed &&
                                                 deviceAuthenticated &&
+                                                modelCompatibility ==
+                                                RecoveredModelCompatibility.Supported &&
                                                 !sending,
                                     ) {
                                         Text(
                                             if (action.experimental) {
-                                                "Review test"
+                                                "Run once"
                                             } else {
-                                                "Review and send"
+                                                "Send command"
                                             },
                                         )
                                     }
@@ -537,6 +640,8 @@ fun FeatureWorkflowScreen(
                                         enabled =
                                             decision == AuthorizationDecision.Allowed &&
                                                 deviceAuthenticated &&
+                                                modelCompatibility ==
+                                                RecoveredModelCompatibility.Supported &&
                                                 !sending,
                                     ) {
                                         Text("Run read")
@@ -678,4 +783,10 @@ private fun QtPacket.ackErrorMessage(
         else ->
             "$prefix with an empty or malformed ACK_ERROR payload."
     }
+}
+
+private fun RecoveredModelCompatibility.blockingReason(): String? = when (this) {
+    RecoveredModelCompatibility.Supported -> null
+    is RecoveredModelCompatibility.Unsupported -> reason
+    is RecoveredModelCompatibility.Unknown -> reason
 }

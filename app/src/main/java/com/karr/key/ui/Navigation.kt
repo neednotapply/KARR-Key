@@ -53,6 +53,9 @@ internal class KarrNavigationState private constructor(
     var selectedTopLevel by mutableStateOf(selected)
         private set
 
+    var topLevelTransitionForward by mutableStateOf(true)
+        private set
+
     init {
         TopLevelDestination.entries.forEach { destination ->
             val restored = restoredStacks[destination].orEmpty()
@@ -81,7 +84,7 @@ internal class KarrNavigationState private constructor(
         if (selectedTopLevel == destination) {
             popToRoot(destination)
         } else {
-            selectedTopLevel = destination
+            switchTopLevel(destination)
         }
     }
 
@@ -93,7 +96,7 @@ internal class KarrNavigationState private constructor(
         val destination = TopLevelDestination.entries
             .getOrNull(selectedTopLevel.ordinal + offset)
             ?: return false
-        selectedTopLevel = destination
+        switchTopLevel(destination)
         return true
     }
 
@@ -101,7 +104,10 @@ internal class KarrNavigationState private constructor(
         val stack = stacks.getValue(TopLevelDestination.TOOLS)
         stack.clear()
         stack.add(AppRoute.Tools(role))
-        selectedTopLevel = TopLevelDestination.TOOLS
+        switchTopLevel(
+            destination = TopLevelDestination.TOOLS,
+            forwardWhenUnchanged = true,
+        )
     }
 
     fun openToolsAfterSuccessfulConnection(
@@ -142,14 +148,20 @@ internal class KarrNavigationState private constructor(
             stack.removeAt(stack.lastIndex)
         }
         stack.add(AppRoute.FeatureDetail(feature.id, role))
-        selectedTopLevel = TopLevelDestination.TOOLS
+        switchTopLevel(
+            destination = TopLevelDestination.TOOLS,
+            forwardWhenUnchanged = true,
+        )
     }
 
     fun openDevice(section: DeviceSection = DeviceSection.CONNECTION) {
         val stack = stacks.getValue(TopLevelDestination.DEVICE)
         stack.clear()
         stack.add(AppRoute.Device(section))
-        selectedTopLevel = TopLevelDestination.DEVICE
+        switchTopLevel(
+            destination = TopLevelDestination.DEVICE,
+            forwardWhenUnchanged = true,
+        )
     }
 
     fun updateDeviceSection(section: DeviceSection) {
@@ -187,6 +199,20 @@ internal class KarrNavigationState private constructor(
 
     internal fun stackFor(destination: TopLevelDestination): List<AppRoute> =
         stacks.getValue(destination).toList()
+
+    private fun switchTopLevel(
+        destination: TopLevelDestination,
+        forwardWhenUnchanged: Boolean = false,
+    ) {
+        val destinationOffset = destination.ordinal - selectedTopLevel.ordinal
+        topLevelTransitionForward = when {
+            destinationOffset > 0 -> true
+            destinationOffset < 0 -> false
+            forwardWhenUnchanged -> true
+            else -> topLevelTransitionForward
+        }
+        selectedTopLevel = destination
+    }
 
     private fun popToRoot(destination: TopLevelDestination) {
         val stack = stacks.getValue(destination)

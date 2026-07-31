@@ -35,12 +35,14 @@ import com.karr.key.core.FeatureCatalog
 import com.karr.key.core.FeatureDefinition
 import com.karr.key.core.Session
 import com.karr.key.core.UserRole
+import com.karr.key.protocol.KarrUnitModel
 
 @Composable
 internal fun AdaptiveToolsScreen(
     session: Session,
     selectedFeature: FeatureDefinition?,
     deviceAuthenticated: Boolean,
+    unitModel: KarrUnitModel?,
     query: String,
     selectedCategory: String?,
     listState: LazyListState,
@@ -57,6 +59,7 @@ internal fun AdaptiveToolsScreen(
                 ToolsCatalogPane(
                     session = session,
                     deviceAuthenticated = deviceAuthenticated,
+                    unitModel = unitModel,
                     query = query,
                     selectedCategory = selectedCategory,
                     listState = listState,
@@ -82,6 +85,7 @@ internal fun AdaptiveToolsScreen(
             ToolsCatalogPane(
                 session = session,
                 deviceAuthenticated = deviceAuthenticated,
+                unitModel = unitModel,
                 query = query,
                 selectedCategory = selectedCategory,
                 listState = listState,
@@ -98,6 +102,7 @@ internal fun AdaptiveToolsScreen(
 private fun ToolsCatalogPane(
     session: Session,
     deviceAuthenticated: Boolean,
+    unitModel: KarrUnitModel?,
     query: String,
     selectedCategory: String?,
     listState: LazyListState = rememberLazyListState(),
@@ -127,6 +132,41 @@ private fun ToolsCatalogPane(
             bottom = 32.dp,
         ),
     ) {
+        if (deviceAuthenticated) {
+            item(key = "connected-model") {
+                OutlinedCard(Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(
+                            "Connected unit",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            unitModel?.displayName ?: "Model not identified",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = if (unitModel?.isRecognized == true) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.error
+                            },
+                        )
+                        Text(
+                            if (unitModel?.isRecognized == true) {
+                                "Model-restricted commands are checked before they can run."
+                            } else {
+                                "Model-restricted commands stay disabled until the unit " +
+                                    "reports a recognized model."
+                            },
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+
         item(key = "search") {
             OutlinedTextField(
                 value = query,
@@ -212,6 +252,7 @@ private fun ToolsCatalogPane(
                             session = session,
                             feature = feature,
                             deviceAuthenticated = deviceAuthenticated,
+                            unitModel = unitModel,
                             onOpen = { onOpenFeature(feature) },
                         )
                     }
@@ -225,12 +266,14 @@ private fun FeatureListRow(
     session: Session,
     feature: FeatureDefinition,
     deviceAuthenticated: Boolean,
+    unitModel: KarrUnitModel?,
     onOpen: () -> Unit,
 ) {
     val availability = featureAvailability(
         session = session,
         feature = feature,
         deviceAuthenticated = deviceAuthenticated,
+        unitModel = unitModel,
     )
     OutlinedCard(
         onClick = onOpen,

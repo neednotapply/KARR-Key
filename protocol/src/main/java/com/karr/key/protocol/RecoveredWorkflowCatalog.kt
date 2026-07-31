@@ -9,6 +9,8 @@ data class RecoveredDeviceAction(
     val mutating: Boolean = false,
     val source: String,
     val preflight: RecoveredActionPreflight? = null,
+    val modelRequirement: RecoveredModelRequirement? = null,
+    val expectedSecurityState: QtSecurityState? = null,
     val singleShot: Boolean = false,
     val experimental: Boolean = false,
 ) {
@@ -17,6 +19,9 @@ data class RecoveredDeviceAction(
         require(label.isNotBlank())
         require(payload.all { value -> value in 0..0xff })
         require(!mutating || description.isNotBlank())
+        require(expectedSecurityState == null || mutating) {
+            "Only mutating actions can declare an expected security state."
+        }
         require(!singleShot || mutating) { "Only mutating actions can be single-shot." }
     }
 
@@ -30,6 +35,26 @@ object RecoveredWorkflowCatalog {
     private const val CUSTOMER_SOURCE = "KARR BT 2.15 managed caller"
     private const val DEALER_SOURCE = "KARR BT Dealer 3.131 managed caller"
     private const val INSTALLER_SOURCE = "KARR Installer 1.39 managed caller"
+
+    private val QT6_RED_ONLY = RecoveredModelRequirement(
+        supportedModels = setOf(KarrUnitModel.QT6_RED),
+        supportedDescription = "QT6 RED",
+    )
+
+    private val SILENT_CONTROL_MODELS = RecoveredModelRequirement(
+        supportedModels = setOf(
+            KarrUnitModel.QT6_CAN,
+            KarrUnitModel.QT6_BLUE,
+            KarrUnitModel.QT6_RED,
+            KarrUnitModel.DR1_CAN,
+        ),
+        supportedDescription = "QT6 CAN, QT6 BLUE, QT6 RED, or DR1 CAN",
+    )
+
+    private val QT_FAMILY_ONLY = RecoveredModelRequirement(
+        supportedFamilies = setOf(KarrUnitFamily.QT),
+        supportedDescription = "QT models",
+    )
 
     private val commonIdentityReads = listOf(
         read("read-state", "Read unit state", QtCommand.READ_STATE),
@@ -58,6 +83,7 @@ object RecoveredWorkflowCatalog {
                 command = QtCommand.LOCK_DOORS,
                 payload = listOf(0),
                 source = CUSTOMER_SOURCE,
+                expectedSecurityState = QtSecurityState.ARMED,
             ),
         ),
         "customer.unlock" to listOf(
@@ -68,6 +94,7 @@ object RecoveredWorkflowCatalog {
                 command = QtCommand.UNLOCK_DOORS,
                 payload = listOf(0),
                 source = CUSTOMER_SOURCE,
+                expectedSecurityState = QtSecurityState.DISARMED,
             ),
         ),
         "customer.silent_controls" to listOf(
@@ -80,6 +107,8 @@ object RecoveredWorkflowCatalog {
                 payload = listOf(0),
                 source = CUSTOMER_SOURCE,
                 preflight = RecoveredActionPreflight.SILENT_CONTROL_SETTINGS,
+                modelRequirement = SILENT_CONTROL_MODELS,
+                expectedSecurityState = QtSecurityState.ARMED,
             ),
             mutate(
                 id = "silent-unlock",
@@ -90,6 +119,8 @@ object RecoveredWorkflowCatalog {
                 payload = listOf(0),
                 source = CUSTOMER_SOURCE,
                 preflight = RecoveredActionPreflight.SILENT_CONTROL_SETTINGS,
+                modelRequirement = SILENT_CONTROL_MODELS,
+                expectedSecurityState = QtSecurityState.DISARMED,
             ),
         ),
         "customer.trunk" to listOf(
@@ -102,6 +133,7 @@ object RecoveredWorkflowCatalog {
                 payload = listOf(10),
                 source = CUSTOMER_SOURCE,
                 preflight = RecoveredActionPreflight.QT6_RED_TRUNK_RELEASE,
+                modelRequirement = QT6_RED_ONLY,
             ),
         ),
         "customer.valet" to listOf(
@@ -225,6 +257,7 @@ object RecoveredWorkflowCatalog {
                 payload = listOf(2),
                 source = INSTALLER_SOURCE,
                 preflight = RecoveredActionPreflight.IGNITION_OFF,
+                modelRequirement = QT_FAMILY_ONLY,
                 singleShot = true,
                 experimental = true,
             ),
@@ -333,6 +366,8 @@ object RecoveredWorkflowCatalog {
         payload: List<Int> = emptyList(),
         source: String,
         preflight: RecoveredActionPreflight? = null,
+        modelRequirement: RecoveredModelRequirement? = null,
+        expectedSecurityState: QtSecurityState? = null,
         singleShot: Boolean = false,
         experimental: Boolean = false,
     ) = RecoveredDeviceAction(
@@ -344,7 +379,10 @@ object RecoveredWorkflowCatalog {
         mutating = true,
         source = source,
         preflight = preflight,
+        modelRequirement = modelRequirement,
+        expectedSecurityState = expectedSecurityState,
         singleShot = singleShot,
         experimental = experimental,
     )
+
 }

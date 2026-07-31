@@ -34,9 +34,12 @@ KARR applications.
   catalog. Provisioning Dealer material exposes the complete offline Dealer
   and Installer catalogs.
 - Evidence-backed read and mutation actions are available from their feature
-  pages. Mutations require an authenticated unit plus a per-command
-  confirmation, and unit notifications are shown separately from Android
-  GATT delivery.
+  pages. Enabled mutations run directly, require an authenticated compatible
+  unit, and show unit notifications separately from Android GATT delivery.
+- The authentication `READ_MODE` response identifies the connected QT/DR
+  model before tools become ready. Model-restricted commands are labeled and
+  disabled in the catalog and detail screens instead of being sent to a unit
+  known not to support them.
 - The Installer catalog includes a dedicated experimental immobilizer-output
   test. It shows the exact candidate frame, confirms ignition is off, sends
   once without automatic retry, and reports the raw unit notification without

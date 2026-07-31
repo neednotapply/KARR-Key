@@ -1,5 +1,10 @@
 package com.karr.key.ui
 
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -65,6 +70,7 @@ import com.karr.key.data.LocalOperationStore
 import com.karr.key.data.KeyRepository
 import com.karr.key.protocol.DeviceKeyPurpose
 import com.karr.key.protocol.DeviceKeyProvisioning
+import com.karr.key.protocol.KarrUnitModel
 import kotlinx.coroutines.launch
 
 @Composable
@@ -85,6 +91,7 @@ fun KarrKeyApp(
     }
     val bleState by bleController.state.collectAsState()
     val deviceAuthenticated = bleState is BleSessionState.Ready
+    val unitModel = (bleState as? BleSessionState.Ready)?.unitModel
     val snackbar = remember { SnackbarHostState() }
     val navigation = rememberSaveable(saver = KarrNavigationState.Saver) {
         KarrNavigationState()
@@ -111,6 +118,7 @@ fun KarrKeyApp(
     KeyShell(
         session = session,
         deviceAuthenticated = deviceAuthenticated,
+        unitModel = unitModel,
         bleState = bleState,
         navigation = navigation,
         bleController = bleController,
@@ -132,6 +140,7 @@ fun KarrKeyApp(
 private fun KeyShell(
     session: Session,
     deviceAuthenticated: Boolean,
+    unitModel: KarrUnitModel?,
     bleState: BleSessionState,
     navigation: KarrNavigationState,
     bleController: BleController,
@@ -233,6 +242,17 @@ private fun KeyShell(
                 NavDisplay(
                     backStack = navigation.currentBackStack,
                     onBack = { navigation.navigateUp() },
+                    transitionSpec = {
+                        horizontalPageSlide(
+                            forward = navigation.topLevelTransitionForward,
+                        )
+                    },
+                    popTransitionSpec = {
+                        horizontalPageSlide(forward = false)
+                    },
+                    predictivePopTransitionSpec = {
+                        horizontalPageSlide(forward = false)
+                    },
                     entryProvider = entryProvider {
                         entry<AppRoute.Home> {
                             DashboardScreen(
@@ -277,6 +297,7 @@ private fun KeyShell(
                                 selectedFeature = null,
                                 session = session,
                                 deviceAuthenticated = deviceAuthenticated,
+                                unitModel = unitModel,
                                 controller = bleController,
                                 operationStore = operationStore,
                                 snackbar = snackbar,
@@ -309,6 +330,7 @@ private fun KeyShell(
                                     selectedFeature = feature,
                                     session = session,
                                     deviceAuthenticated = deviceAuthenticated,
+                                    unitModel = unitModel,
                                     controller = bleController,
                                     operationStore = operationStore,
                                     snackbar = snackbar,
@@ -334,6 +356,7 @@ private fun ToolsRouteContent(
     selectedFeature: FeatureDefinition?,
     session: Session,
     deviceAuthenticated: Boolean,
+    unitModel: KarrUnitModel?,
     controller: BleController,
     operationStore: LocalOperationStore,
     snackbar: SnackbarHostState,
@@ -348,6 +371,7 @@ private fun ToolsRouteContent(
         session = session,
         selectedFeature = selectedFeature,
         deviceAuthenticated = deviceAuthenticated,
+        unitModel = unitModel,
         query = query,
         selectedCategory = category,
         listState = listState,
@@ -359,6 +383,7 @@ private fun ToolsRouteContent(
                 session = session,
                 feature = feature,
                 deviceAuthenticated = deviceAuthenticated,
+                unitModel = unitModel,
                 controller = controller,
                 operationStore = operationStore,
                 snackbar = snackbar,
@@ -510,7 +535,10 @@ private fun BleSessionState.homeStatus(): String = when (this) {
     is BleSessionState.UartSubscribed -> "Bluetooth connected; waiting for unit authentication."
     is BleSessionState.AuthenticationRequired -> "The unit requested application authentication."
     is BleSessionState.Authenticating -> "Authenticating the connected unit."
-    is BleSessionState.Ready -> "Device authenticated and ready."
+    is BleSessionState.Ready ->
+        unitModel?.let { model ->
+            "Device authenticated and ready: ${model.displayName}."
+        } ?: "Device authenticated and ready; model not identified."
     is BleSessionState.Error -> "Device error: $message"
 }
 
@@ -519,4 +547,16 @@ internal fun BleSessionState.shouldStartHomeScan(): Boolean =
         this is BleSessionState.Error ||
         this is BleSessionState.ReconnectFailed
 
+private fun horizontalPageSlide(forward: Boolean): ContentTransform {
+    val direction = if (forward) 1 else -1
+    return slideInHorizontally(
+        animationSpec = tween(PAGE_SLIDE_DURATION_MILLIS),
+        initialOffsetX = { fullWidth -> direction * fullWidth },
+    ) togetherWith slideOutHorizontally(
+        animationSpec = tween(PAGE_SLIDE_DURATION_MILLIS),
+        targetOffsetX = { fullWidth -> -direction * fullWidth },
+    )
+}
+
 private val TOP_LEVEL_SWIPE_THRESHOLD = 72.dp
+private const val PAGE_SLIDE_DURATION_MILLIS = 300

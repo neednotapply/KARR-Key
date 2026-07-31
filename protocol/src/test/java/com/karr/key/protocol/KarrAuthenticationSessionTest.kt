@@ -25,7 +25,14 @@ class KarrAuthenticationSessionTest {
 
         val provideAuth = session.onPacket(
             unitSerial = SERIAL,
-            packet = packet(QtCommand.READ_MODE, byteArrayOf(KarrDeviceMode.USER.code.toByte())),
+            packet = packet(
+                QtCommand.READ_MODE,
+                byteArrayOf(
+                    KarrDeviceMode.USER.code.toByte(),
+                    KarrUnitModel.DR1_CAN.code.toByte(),
+                    0x2A,
+                ),
+            ),
         )
         assertTrue(provideAuth is AuthenticationAction.Send)
         provideAuth as AuthenticationAction.Send
@@ -36,7 +43,7 @@ class KarrAuthenticationSessionTest {
         assertArrayEquals(challenge, authenticator.challenge)
 
         assertEquals(
-            AuthenticationAction.Authenticated,
+            AuthenticationAction.Authenticated(KarrUnitModel.DR1_CAN),
             session.onPacket(SERIAL, packet(QtCommand.AUTH_SUCCESS)),
         )
         assertEquals(
