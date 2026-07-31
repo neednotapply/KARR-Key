@@ -1,6 +1,7 @@
 package com.karr.key.ui
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -40,6 +41,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
@@ -143,6 +145,7 @@ private fun KeyShell(
         is AppRoute.Device -> "Device"
         is AppRoute.FeatureDetail -> currentFeature?.title ?: "Tool"
     }
+    val topLevelSwipeEnabled = navigation.currentRoute !is AppRoute.FeatureDetail
 
     BoxWithConstraints {
         val navigationLayout = if (maxWidth < 600.dp) {
@@ -195,7 +198,26 @@ private fun KeyShell(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
-                    .consumeWindowInsets(innerPadding),
+                    .consumeWindowInsets(innerPadding)
+                    .pointerInput(topLevelSwipeEnabled) {
+                        if (!topLevelSwipeEnabled) return@pointerInput
+                        var totalHorizontalDrag = 0f
+                        detectHorizontalDragGestures(
+                            onDragStart = { totalHorizontalDrag = 0f },
+                            onHorizontalDrag = { _, dragAmount ->
+                                totalHorizontalDrag += dragAmount
+                            },
+                            onDragEnd = {
+                                when {
+                                    totalHorizontalDrag <= -TOP_LEVEL_SWIPE_THRESHOLD.toPx() ->
+                                        navigation.moveTopLevelBy(1)
+                                    totalHorizontalDrag >= TOP_LEVEL_SWIPE_THRESHOLD.toPx() ->
+                                        navigation.moveTopLevelBy(-1)
+                                }
+                            },
+                            onDragCancel = { totalHorizontalDrag = 0f },
+                        )
+                    },
             ) {
                 NavDisplay(
                     backStack = navigation.currentBackStack,
@@ -485,3 +507,5 @@ internal fun BleSessionState.shouldStartHomeScan(): Boolean =
     this is BleSessionState.Idle ||
         this is BleSessionState.Error ||
         this is BleSessionState.ReconnectFailed
+
+private val TOP_LEVEL_SWIPE_THRESHOLD = 72.dp

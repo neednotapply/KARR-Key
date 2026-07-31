@@ -61,7 +61,7 @@ class FeatureCatalogTest {
     fun exposesBluetoothCapableCatalogForEachRole() {
         assertEquals(11, FeatureCatalog.customer.size)
         assertEquals(7, FeatureCatalog.dealer.size)
-        assertEquals(9, FeatureCatalog.installer.size)
+        assertEquals(10, FeatureCatalog.installer.size)
 
         UserRole.entries.forEach { role ->
             val features = FeatureCatalog.forRole(role)

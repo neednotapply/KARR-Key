@@ -19,7 +19,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -29,7 +28,10 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import com.karr.key.ble.BleCommandExchange
+import com.karr.key.ble.BleCommandExchangeResult
 import com.karr.key.ble.BleController
 import com.karr.key.ble.BleSessionState
 import com.karr.key.core.AuthorizationDecision
@@ -40,12 +42,14 @@ import com.karr.key.core.displayName
 import com.karr.key.data.LocalOperationState
 import com.karr.key.data.LocalOperationStore
 import com.karr.key.protocol.PacketParseResult
+import com.karr.key.protocol.RecoveredActionPreflight
 import com.karr.key.protocol.RecoveredDeviceAction
+import com.karr.key.protocol.RecoveredPreflightDecision
 import com.karr.key.protocol.RecoveredWorkflowCatalog
 import com.karr.key.protocol.QtCommand
 import com.karr.key.protocol.QtProtocolCodec
+import com.karr.key.protocol.evaluate
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -66,6 +70,7 @@ fun FeatureWorkflowScreen(
     val limitation = remember(feature.id) {
         RecoveredWorkflowCatalog.limitationFor(feature.id)
     }
+    val exchange = remember(controller) { BleCommandExchange(controller) }
     val scope = rememberCoroutineScope()
     var pendingAction by remember(feature.id) {
         mutableStateOf<RecoveredDeviceAction?>(null)
@@ -73,17 +78,25 @@ fun FeatureWorkflowScreen(
     var commandStatus by remember(feature.id) { mutableStateOf<String?>(null) }
     var lastResponse by remember(feature.id) { mutableStateOf<String?>(null) }
     var sending by remember(feature.id) { mutableStateOf(false) }
-    var awaitingOperationId by remember(feature.id) { mutableStateOf<String?>(null) }
-    var awaitingCommandCode by remember(feature.id) { mutableStateOf<Int?>(null) }
-    var commandGeneration by remember(feature.id) { mutableIntStateOf(0) }
     val opensDeviceCenter = feature.id in DEVICE_CENTER_FEATURES
 
     LaunchedEffect(controller, feature.id) {
         controller.notifications.collect { bytes ->
             val parsed = QtProtocolCodec.parse(bytes)
+            val framePreview = bytes
+                .take(MAX_RESPONSE_PREVIEW_BYTES)
+                .toByteArray()
+                .toHex()
             lastResponse = when (parsed) {
                 is PacketParseResult.Failure ->
-                    "Unparsed notification: ${bytes.size} bytes"
+                    buildString {
+                        append("Unparsed notification: ${bytes.size} bytes")
+                        append("\nRX frame: ")
+                        append(framePreview)
+                        if (bytes.size > MAX_RESPONSE_PREVIEW_BYTES) {
+                            append("...")
+                        }
+                    }
                 is PacketParseResult.Success -> {
                     val command = parsed.packet.command?.name
                         ?: "0x${parsed.packet.commandCode.toString(16).uppercase()}"
@@ -105,40 +118,10 @@ fun FeatureWorkflowScreen(
                                 append("...")
                             }
                         }
-                    }
-                }
-            }
-            val expectedCommandCode = awaitingCommandCode
-            if (parsed is PacketParseResult.Success &&
-                expectedCommandCode != null &&
-                parsed.packet.commandCode in setOf(
-                    expectedCommandCode,
-                    QtCommand.ACK_OK.code,
-                    QtCommand.ACK_ERROR.code,
-                )
-            ) {
-                val failed = parsed.packet.command == QtCommand.ACK_ERROR
-                val operationId = awaitingOperationId
-                awaitingOperationId = null
-                awaitingCommandCode = null
-                commandStatus = if (failed) {
-                    "The unit rejected the command with ACK_ERROR."
-                } else {
-                    "The unit returned the expected protocol notification."
-                }
-                operationId?.let {
-                    withContext(Dispatchers.IO) {
-                        runCatching {
-                            operationStore.updateState(
-                                id = it,
-                                state = if (failed) {
-                                    LocalOperationState.FAILED_PERMANENT
-                                } else {
-                                    LocalOperationState.SUCCEEDED
-                                },
-                                attempts = 1,
-                                lastError = if (failed) "The unit returned ACK_ERROR." else null,
-                            )
+                        append("\nRX frame: ")
+                        append(framePreview)
+                        if (bytes.size > MAX_RESPONSE_PREVIEW_BYTES) {
+                            append("...")
                         }
                     }
                 }
@@ -146,11 +129,68 @@ fun FeatureWorkflowScreen(
         }
     }
 
+    suspend fun updateOperation(
+        operationId: String?,
+        state: LocalOperationState,
+        lastError: String? = null,
+    ) {
+        operationId ?: return
+        withContext(Dispatchers.IO) {
+            runCatching {
+                operationStore.updateState(
+                    id = operationId,
+                    state = state,
+                    attempts = 1,
+                    lastError = lastError,
+                )
+            }
+        }
+    }
+
+    suspend fun runPreflight(action: RecoveredDeviceAction): String? {
+        val preflight = action.preflight ?: return null
+        commandStatus = "Checking ignition state before ${action.command.name}..."
+        return when (
+            val result = exchange.sendAndAwait(
+                packet = QtProtocolCodec.generateOriginal(QtCommand.READ_STATE),
+                expectedCommand = QtCommand.READ_STATE,
+                acceptGenericAck = false,
+                onGattAccepted = {
+                    commandStatus =
+                        "READ_STATE was accepted by Android GATT; waiting for unit state."
+                },
+            )
+        ) {
+            is BleCommandExchangeResult.Acknowledged -> {
+                when (val decision = preflight.evaluate(result.response)) {
+                    RecoveredPreflightDecision.Allowed -> {
+                        commandStatus = "Ignition-off preflight passed."
+                        null
+                    }
+                    is RecoveredPreflightDecision.Denied -> decision.reason
+                }
+            }
+            is BleCommandExchangeResult.Rejected ->
+                "Command blocked because the unit rejected the ignition preflight."
+            BleCommandExchangeResult.TimedOut ->
+                "Command blocked because ignition state could not be confirmed."
+            is BleCommandExchangeResult.TransportFailure ->
+                "Command blocked because ignition preflight failed: ${result.message}"
+        }
+    }
+
     fun execute(action: RecoveredDeviceAction) {
         sending = true
-        commandStatus = "Sending ${action.command.name}..."
         scope.launch {
             try {
+                val preflightFailure = runPreflight(action)
+                if (preflightFailure != null) {
+                    commandStatus = preflightFailure
+                    snackbar.showSnackbar(preflightFailure)
+                    return@launch
+                }
+
+                commandStatus = "Sending ${action.command.name}..."
                 val connectedScope = when (val state = controller.state.value) {
                     is BleSessionState.Ready -> state.name ?: state.address
                     else -> "no-ready-device"
@@ -171,69 +211,82 @@ fun FeatureWorkflowScreen(
                         }
                     }.getOrNull()
                 }
-                commandGeneration++
-                val expectedGeneration = commandGeneration
-                val expectedCode = action.command.code
-                awaitingOperationId = operation?.id
-                awaitingCommandCode = expectedCode
-                controller.send(action.packet())
-                    .onSuccess {
-                        val responseStillPending =
-                            commandGeneration == expectedGeneration &&
-                                awaitingCommandCode == expectedCode
-                        if (responseStillPending) {
-                            operation?.let { recorded ->
-                                withContext(Dispatchers.IO) {
-                                    runCatching {
-                                        operationStore.updateState(
-                                            id = recorded.id,
-                                            state = LocalOperationState.DELIVERED_TO_GATT,
-                                            attempts = 1,
-                                        )
-                                    }
-                                }
-                            }
+                when (
+                    val result = exchange.sendAndAwait(
+                        packet = action.packet(),
+                        expectedCommand = action.command,
+                        onGattAccepted = {
+                            updateOperation(
+                                operationId = operation?.id,
+                                state = LocalOperationState.DELIVERED_TO_GATT,
+                            )
                             commandStatus =
                                 "${action.command.name} was accepted by Android GATT; " +
                                     "waiting for the unit notification."
-                        }
-                        snackbar.showSnackbar("${action.label} sent.")
-                        scope.launch {
-                            delay(RESPONSE_TIMEOUT_MS)
-                            if (commandGeneration == expectedGeneration &&
-                                awaitingCommandCode == expectedCode
-                            ) {
-                                awaitingOperationId = null
-                                awaitingCommandCode = null
-                                commandStatus =
-                                    "GATT accepted ${action.command.name}, but no matching " +
-                                        "unit response was observed within 5 seconds."
-                            }
-                        }
+                        },
+                    )
+                ) {
+                    is BleCommandExchangeResult.Acknowledged -> {
+                        updateOperation(
+                            operationId = operation?.id,
+                            state = LocalOperationState.SUCCEEDED,
+                        )
+                        commandStatus =
+                            "The unit returned a protocol acknowledgement for " +
+                                "${action.command.name}. Physical output is not confirmed."
+                        snackbar.showSnackbar("${action.label} acknowledged.")
                     }
-                    .onFailure { failure ->
-                        val responseStillPending =
-                            commandGeneration == expectedGeneration &&
-                                awaitingCommandCode == expectedCode
-                        if (responseStillPending) {
-                            awaitingOperationId = null
-                            awaitingCommandCode = null
-                            operation?.let { recorded ->
-                                withContext(Dispatchers.IO) {
-                                    runCatching {
-                                        operationStore.updateState(
-                                            id = recorded.id,
-                                            state = LocalOperationState.FAILED_RETRYABLE,
-                                            attempts = 1,
-                                            lastError = failure.message,
-                                        )
-                                    }
+                    is BleCommandExchangeResult.Rejected -> {
+                        val error = "The unit rejected the command with ACK_ERROR."
+                        updateOperation(
+                            operationId = operation?.id,
+                            state = LocalOperationState.FAILED_PERMANENT,
+                            lastError = error,
+                        )
+                        commandStatus = error
+                        snackbar.showSnackbar(error)
+                    }
+                    BleCommandExchangeResult.TimedOut -> {
+                        val error =
+                            "GATT accepted ${action.command.name}, but no matching unit " +
+                                "response was observed within 5 seconds." +
+                                if (action.singleShot) {
+                                    " The single-shot command was not retried."
+                                } else {
+                                    ""
                                 }
-                            }
-                            commandStatus = failure.message ?: "The BLE command failed."
-                            snackbar.showSnackbar(commandStatus!!)
-                        }
+                        updateOperation(
+                            operationId = operation?.id,
+                            state = if (action.singleShot) {
+                                LocalOperationState.FAILED_PERMANENT
+                            } else {
+                                LocalOperationState.FAILED_RETRYABLE
+                            },
+                            lastError = error,
+                        )
+                        commandStatus = error
+                        snackbar.showSnackbar(error)
                     }
+                    is BleCommandExchangeResult.TransportFailure -> {
+                        val error = result.message +
+                            if (action.singleShot) {
+                                " The single-shot command was not retried."
+                            } else {
+                                ""
+                            }
+                        updateOperation(
+                            operationId = operation?.id,
+                            state = if (action.singleShot) {
+                                LocalOperationState.FAILED_PERMANENT
+                            } else {
+                                LocalOperationState.FAILED_RETRYABLE
+                            },
+                            lastError = error,
+                        )
+                        commandStatus = error
+                        snackbar.showSnackbar(error)
+                    }
+                }
             } finally {
                 sending = false
             }
@@ -245,8 +298,17 @@ fun FeatureWorkflowScreen(
             onDismissRequest = { pendingAction = null },
             title = { Text("Confirm ${action.label}") },
             text = {
+                val preflightText =
+                    if (action.preflight == RecoveredActionPreflight.IGNITION_OFF) {
+                        "The app will read unit state and refuse to send unless " +
+                            "ignition is confirmed off. This single-shot test is not " +
+                            "automatically retried.\n\n"
+                    } else {
+                        ""
+                    }
                 Text(
                     "${action.description}\n\n" +
+                        preflightText +
                         "Use only on the authorized stationary research vehicle. " +
                         "The app reports GATT delivery separately from the unit response.",
                 )
@@ -258,7 +320,7 @@ fun FeatureWorkflowScreen(
                         execute(action)
                     },
                 ) {
-                    Text("Send command")
+                    Text(if (action.experimental) "Run once" else "Send command")
                 }
             },
             dismissButton = {
@@ -366,6 +428,18 @@ fun FeatureWorkflowScreen(
                                 action.description,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            if (action.experimental) {
+                                Text(
+                                    "EXPERIMENTAL CANDIDATE",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.tertiary,
+                                )
+                                Text(
+                                    "TX frame: ${action.packet().toHex()}",
+                                    fontFamily = FontFamily.Monospace,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                             FlowRow(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -376,10 +450,15 @@ fun FeatureWorkflowScreen(
                                         enabled =
                                             decision == AuthorizationDecision.Allowed &&
                                                 deviceAuthenticated &&
-                                                !sending &&
-                                                awaitingCommandCode == null,
+                                                !sending,
                                     ) {
-                                        Text("Review and send")
+                                        Text(
+                                            if (action.experimental) {
+                                                "Review test"
+                                            } else {
+                                                "Review and send"
+                                            },
+                                        )
                                     }
                                 } else {
                                     OutlinedButton(
@@ -387,8 +466,7 @@ fun FeatureWorkflowScreen(
                                         enabled =
                                             decision == AuthorizationDecision.Allowed &&
                                                 deviceAuthenticated &&
-                                                !sending &&
-                                                awaitingCommandCode == null,
+                                                !sending,
                                     ) {
                                         Text("Run read")
                                     }
@@ -443,7 +521,8 @@ fun FeatureWorkflowScreen(
                         )
                         actions.forEach { action ->
                             CodeSurface(
-                                "${action.label}: ${action.command.name} (${action.source})",
+                                "${action.label}: ${action.command.name} " +
+                                    "[${action.packet().toHex()}] (${action.source})",
                             )
                         }
                     }
@@ -489,4 +568,6 @@ private val DEVICE_CENTER_FEATURES = setOf(
 )
 
 private const val MAX_RESPONSE_PREVIEW_BYTES = 48
-private const val RESPONSE_TIMEOUT_MS = 5_000L
+
+private fun ByteArray.toHex(): String =
+    joinToString(" ") { byte -> "%02X".format(byte.toInt() and 0xff) }

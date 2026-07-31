@@ -16,7 +16,7 @@ KARR applications.
 
 - Kotlin and Jetpack Compose UI with role-aware Customer, Dealer, and Installer
   surfaces.
-- Horizontal page gestures across the five primary sections, Android back
+- Horizontal swipe gestures across the three primary sections, Android back
   navigation from feature details, and bundled navigation icons.
 - Red-black application theming and a monochrome car adaptive launcher icon
   with a dedicated layer for Android themed icons.
@@ -37,6 +37,10 @@ KARR applications.
   pages. Mutations require an authenticated unit plus a per-command
   confirmation, and unit notifications are shown separately from Android
   GATT delivery.
+- The Installer catalog includes a dedicated experimental immobilizer-output
+  test. It shows the exact candidate frame, confirms ignition is off, sends
+  once without automatic retry, and reports the raw unit notification without
+  treating protocol acknowledgement as proof of physical immobilization.
 - Original (`0xAA`), counter (`0xBB`), and encrypted (`0x55`) packet codecs.
 - Android Keystore-backed local-value encryption and an encrypted local
   operation journal.

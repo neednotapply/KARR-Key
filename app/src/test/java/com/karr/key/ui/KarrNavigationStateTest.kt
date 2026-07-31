@@ -34,6 +34,33 @@ class KarrNavigationStateTest {
     }
 
     @Test
+    fun adjacentTopLevelMovesFollowHomeToolsDeviceOrderAndStopAtEdges() {
+        val navigation = KarrNavigationState()
+
+        assertFalse(navigation.moveTopLevelBy(-1))
+        assertTrue(navigation.moveTopLevelBy(1))
+        assertEquals(TopLevelDestination.TOOLS, navigation.selectedTopLevel)
+        assertTrue(navigation.moveTopLevelBy(1))
+        assertEquals(TopLevelDestination.DEVICE, navigation.selectedTopLevel)
+        assertFalse(navigation.moveTopLevelBy(1))
+        assertTrue(navigation.moveTopLevelBy(-1))
+        assertEquals(TopLevelDestination.TOOLS, navigation.selectedTopLevel)
+    }
+
+    @Test
+    fun topLevelMoveDoesNotLeaveAnOpenFeatureDetail() {
+        val navigation = KarrNavigationState()
+        val feature = FeatureCatalog.installer.first()
+        navigation.openFeature(feature)
+
+        assertFalse(navigation.moveTopLevelBy(1))
+        assertEquals(
+            AppRoute.FeatureDetail(feature.id, UserRole.INSTALLER),
+            navigation.currentRoute,
+        )
+    }
+
+    @Test
     fun topLevelSwitchPreservesFeatureStackAndReselectReturnsToRoot() {
         val navigation = KarrNavigationState()
         val feature = FeatureCatalog.dealer.first()
@@ -78,7 +105,7 @@ class KarrNavigationStateTest {
     @Test
     fun unifiedCatalogShowsEveryRoleAndOpensMatchingDetailRoutes() {
         val tools = toolsFeaturesFor()
-        assertEquals(27, tools.size)
+        assertEquals(28, tools.size)
         assertEquals(FeatureCatalog.all.map { it.id }, tools.map { it.id })
         assertEquals(UserRole.entries.toSet(), tools.map { it.requiredRole }.toSet())
 

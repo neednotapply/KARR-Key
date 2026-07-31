@@ -8,12 +8,16 @@ data class RecoveredDeviceAction(
     val payload: List<Int> = emptyList(),
     val mutating: Boolean = false,
     val source: String,
+    val preflight: RecoveredActionPreflight? = null,
+    val singleShot: Boolean = false,
+    val experimental: Boolean = false,
 ) {
     init {
         require(id.isNotBlank())
         require(label.isNotBlank())
         require(payload.all { value -> value in 0..0xff })
         require(!mutating || description.isNotBlank())
+        require(!singleShot || mutating) { "Only mutating actions can be single-shot." }
     }
 
     fun packet(): ByteArray = QtProtocolCodec.generateOriginal(
@@ -204,6 +208,21 @@ object RecoveredWorkflowCatalog {
                 source = INSTALLER_SOURCE,
             ),
         ),
+        "installer.immobilizer_test" to listOf(
+            mutate(
+                id = "test-immobilizer-output",
+                label = "Run experimental immobilizer-output test",
+                description =
+                    "Sends the hidden installer test candidate once and records the response. " +
+                        "A protocol acknowledgement does not prove physical immobilization.",
+                command = QtCommand.VEHICLE_CONTROL,
+                payload = listOf(2),
+                source = INSTALLER_SOURCE,
+                preflight = RecoveredActionPreflight.IGNITION_OFF,
+                singleShot = true,
+                experimental = true,
+            ),
+        ),
         "installer.repair" to commonDiagnostics,
         "installer.removal" to listOf(
             read("read-state", "Read unit state", QtCommand.READ_STATE),
@@ -238,6 +257,10 @@ object RecoveredWorkflowCatalog {
             "The recovered customer application changes immobilizer state through its " +
                 "authorized server-messaging path. The direct BLE evidence supports state " +
                 "inspection, not a customer immobilizer mutation."
+        "installer.immobilizer_test" ->
+            "This is a candidate recovered from a hidden experimental installer handler: " +
+                "VEHICLE_CONTROL with output selector 2. Unit acknowledgement and physical " +
+                "immobilizer behavior are intentionally reported as separate observations."
         else -> null
     }
 
@@ -303,6 +326,9 @@ object RecoveredWorkflowCatalog {
         command: QtCommand,
         payload: List<Int> = emptyList(),
         source: String,
+        preflight: RecoveredActionPreflight? = null,
+        singleShot: Boolean = false,
+        experimental: Boolean = false,
     ) = RecoveredDeviceAction(
         id = id,
         label = label,
@@ -311,5 +337,8 @@ object RecoveredWorkflowCatalog {
         payload = payload,
         mutating = true,
         source = source,
+        preflight = preflight,
+        singleShot = singleShot,
+        experimental = experimental,
     )
 }

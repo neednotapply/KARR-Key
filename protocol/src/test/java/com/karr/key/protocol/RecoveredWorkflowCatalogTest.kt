@@ -55,11 +55,44 @@ class RecoveredWorkflowCatalogTest {
     }
 
     @Test
+    fun installerImmobilizerTestMatchesRecoveredExperimentalOutputSelector() {
+        val action = RecoveredWorkflowCatalog.actionsFor("installer.immobilizer_test").single()
+
+        assertEquals(QtCommand.VEHICLE_CONTROL, action.command)
+        assertEquals(listOf(2), action.payload)
+        assertEquals(RecoveredActionPreflight.IGNITION_OFF, action.preflight)
+        assertTrue(action.mutating)
+        assertTrue(action.singleShot)
+        assertTrue(action.experimental)
+        assertArrayEquals(
+            byteArrayOf(
+                0xAA.toByte(),
+                0x00,
+                0x02,
+                0x18,
+                0x02,
+                0xE4.toByte(),
+            ),
+            action.packet(),
+        )
+    }
+
+    @Test
+    fun customerImmobilizerRemainsReadOnly() {
+        val actions = RecoveredWorkflowCatalog.actionsFor("customer.immobilizer")
+
+        assertEquals(1, actions.size)
+        assertEquals(QtCommand.READ_STATE, actions.single().command)
+        assertFalse(actions.single().mutating)
+    }
+
+    @Test
     fun destructiveServiceActionsRequireConfirmationMetadata() {
         val destructiveActions = listOf(
             "dealer.remotes",
             "dealer.violations",
             "installer.tests",
+            "installer.immobilizer_test",
         ).flatMap(RecoveredWorkflowCatalog::actionsFor).filter { action -> action.mutating }
 
         assertFalse(destructiveActions.isEmpty())

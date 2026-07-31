@@ -68,6 +68,14 @@ notification, require confirmation for mutating packets, and retain command
 metadata in the encrypted local operation journal without recording payload
 contents.
 
+The Installer immobilizer-output tool is explicitly experimental. Its hidden
+installer handler supplies the candidate `VEHICLE_CONTROL` output selector
+`2`, producing the Original frame `AA 00 02 18 02 E4`. The tool first requires
+a `READ_STATE` response with ignition off, sends the candidate exactly once,
+and displays TX/RX evidence. GATT acceptance, protocol acknowledgement, and
+physical immobilizer behavior are separate observations; only the first two
+can be reported by the app without an authorized vehicle fixture.
+
 The implemented legacy challenge transform is source-faithful for the
 recovered 8-byte flow. Customer/Valet mode incorporates the recovered unit
 serial positions; other legacy modes use Dealer/Installer material. Values

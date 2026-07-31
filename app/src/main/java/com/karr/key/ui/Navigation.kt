@@ -85,6 +85,18 @@ internal class KarrNavigationState private constructor(
         }
     }
 
+    fun moveTopLevelBy(offset: Int): Boolean {
+        require(offset == -1 || offset == 1) {
+            "Top-level navigation only supports adjacent moves."
+        }
+        if (currentBackStack.size > 1) return false
+        val destination = TopLevelDestination.entries
+            .getOrNull(selectedTopLevel.ordinal + offset)
+            ?: return false
+        selectedTopLevel = destination
+        return true
+    }
+
     fun openTools(role: UserRole?) {
         val stack = stacks.getValue(TopLevelDestination.TOOLS)
         stack.clear()

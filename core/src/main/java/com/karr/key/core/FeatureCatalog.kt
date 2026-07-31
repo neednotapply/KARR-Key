@@ -196,7 +196,16 @@ object FeatureCatalog {
         feature(
             "installer.tests",
             "Validation tests",
-            "Run recovered bump, lock, unlock, and trunk-output tests.",
+            "Run recovered bump, arm/disarm, and trunk tests.",
+            "Validation",
+            UserRole.INSTALLER,
+            Capability.INSTALLER_FITMENT,
+            safetySensitive = true,
+        ),
+        feature(
+            "installer.immobilizer_test",
+            "Immobilizer output test",
+            "Send the recovered experimental output candidate and observe the unit response.",
             "Validation",
             UserRole.INSTALLER,
             Capability.INSTALLER_FITMENT,
