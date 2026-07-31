@@ -103,12 +103,20 @@ Developers need JDK 17, Android SDK 36, and either `local.properties` or
 
 On Linux or macOS, use `./gradlew`. The debug APK is written to
 `app/build/outputs/apk/debug/KARR-Key.apk` and uses package name `com.karr.key`.
-The current app version is `0.3.0` (code 8).
+The current app version is `1.0.0` (code 9).
 
 The build checks that the app does not request Internet or network-state
 permission. GitHub Actions also runs the tests, lint, and debug build. A nightly
 prerelease is created only when the main branch has changed since the previous
 release.
+
+Stable releases are also produced entirely by GitHub Actions. Pushing a tag in
+the form `vMAJOR.MINOR.PATCH` runs the tests and lint against that exact tagged
+commit, builds and verifies a CI-signed release APK, and creates the GitHub
+release with the APK, its SHA-256 checksum, the signing-certificate fingerprint,
+Android output metadata, and workflow-build provenance. The workflow rejects a
+tag whose version does not match the app's `versionName`; release APKs are never
+uploaded manually.
 
 For implementation details and exact safety rules, see
 [DEVELOPMENT.md](DEVELOPMENT.md). For the preserved research evidence, see
