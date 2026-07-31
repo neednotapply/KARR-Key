@@ -15,6 +15,42 @@ KARR Key makes that problem visible with a local, Bluetooth-based proof of
 concept. It is intended only for authorized research and testing. The app does
 not include recovered passwords or universal device keys.
 
+## Screenshots
+
+These real-device screenshots were captured from KARR Key 1.0.1 on a Pixel 6a.
+Select an image to view it at full resolution.
+
+<table>
+  <tr>
+    <td align="center">
+      <a href="docs/screenshots/home.png">
+        <img src="docs/screenshots/home.png" width="320" alt="KARR Key Home screen">
+      </a>
+      <br><sub>Home and research overview</sub>
+    </td>
+    <td align="center">
+      <a href="docs/screenshots/operations.png">
+        <img src="docs/screenshots/operations.png" width="320" alt="KARR Key Operations screen">
+      </a>
+      <br><sub>Searchable catalog of 21 operations</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="docs/screenshots/operation-detail.png">
+        <img src="docs/screenshots/operation-detail.png" width="320" alt="KARR Key operation detail screen">
+      </a>
+      <br><sub>Authentication-gated operation detail</sub>
+    </td>
+    <td align="center">
+      <a href="docs/screenshots/device.png">
+        <img src="docs/screenshots/device.png" width="320" alt="KARR Key Device connection screen">
+      </a>
+      <br><sub>Bluetooth connection and scan controls</sub>
+    </td>
+  </tr>
+</table>
+
 ## Learn more
 
 - [Read about the security research](https://today.ucsd.edu/story/2-million-cars-with-anti-theft-systems-installed-by-dealers-are-at-higher-risk-of-theft)
