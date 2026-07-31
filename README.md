@@ -1,136 +1,125 @@
 # KARR Key
 
-KARR Key is an independent native Android research prototype that
-consolidates Customer, Dealer, and Installer workflows recovered from legacy
-KARR applications.
+KARR Key is an Android research app that demonstrates a security problem in
+some older, dealer-installed KARR vehicle security systems.
 
-> **Status:** version 0.3.0. KARR Key is offline-only and Bluetooth-first.
-> It opens directly to the device center, requests no Android Internet
-> permission, and contains no login or backend adapter. BLE discovery,
-> transparent-UART subscription, packet parsing, authentication-state
-> diagnostics, locally provisioned legacy challenge authentication, local
-> key-gated workflow navigation, recovered live device actions, and encrypted
-> local storage are implemented.
+These devices are connected to the CAN bus, the internal network used by many
+systems in a vehicle. They need that access to lock doors, sound alarms, read
+vehicle information, and perform other security functions. Some older models
+also identify themselves over Bluetooth and use security information that was
+built into the original mobile apps. If that older connection and login process
+is reproduced, it can expose much of the vehicle control available to the KARR
+unit.
 
-## Capabilities
+KARR Key makes that problem visible with a local, Bluetooth-based proof of
+concept. It is intended only for authorized research and testing. The app does
+not include recovered passwords or universal device keys.
 
-- Kotlin and Jetpack Compose UI with role-aware Customer, Dealer, and Installer
-  surfaces.
-- Horizontal swipe gestures across the three primary sections, Android back
-  navigation from feature details, and bundled navigation icons.
-- Red-black application theming and a monochrome car adaptive launcher icon
-  with a dedicated layer for Android themed icons.
-- Direct startup into the Bluetooth device center; no account sign-in, cloud
-  synchronization, push, maps service, telemetry, or production API.
-- BLE scanning with recovered `DR`/`QT` identifiers, manufacturer-frame
-  evidence tiers, and unrelated-device diagnostics. Connect is offered only
-  for connectable advertisements with a confirmed recovered identifier.
-- A `connectedDevice` foreground service keeps an active scan or GATT session
-  running while the app is backgrounded. Its ongoing KARR-branded notification
-  shows current-device status and provides Stop scan or Disconnect; newly found
-  connectable confirmed-format devices use a separate alert channel.
-- Shared transparent-UART discovery, subscription, notification parsing, and
-  explicit transport/authentication states.
-- Recovered 8-byte legacy challenge authentication with explicit Customer and
-  Dealer/Installer key provisioning. Provisioned values are encrypted with
-  Android Keystore and are never compiled into the application.
-- Provisioning Customer material exposes the complete offline Customer
-  catalog. Provisioning Dealer material exposes the complete offline Dealer
-  and Installer catalogs.
-- Evidence-backed read and mutation packets are listed directly as deduplicated
-  device operations. Enabled mutations require an authenticated compatible
-  unit, and show unit notifications separately from Android GATT delivery.
-- The authentication `READ_MODE` response identifies the connected QT/DR
-  model before operations can run. Model-restricted commands are labeled and
-  disabled in the catalog and detail screens instead of being sent to a unit
-  known not to support them.
-- The Installer catalog includes a dedicated experimental immobilizer-output
-  test. It shows the exact candidate frame, confirms ignition is off, sends
-  once without automatic retry, and reports the raw unit notification without
-  treating protocol acknowledgement as proof of physical immobilization.
-- Original (`0xAA`), counter (`0xBB`), and encrypted (`0x55`) packet codecs.
-- Android Keystore-backed local-value encryption and an encrypted local
-  operation journal.
-- One local workspace containing only Customer, Dealer, and Installer
-  workflows that can operate on local records or direct Bluetooth.
+## Learn more
 
-## Safety boundary
+- [Read about the security research](https://today.ucsd.edu/story/2-million-cars-with-anti-theft-systems-installed-by-dealers-are-at-higher-risk-of-theft)
+- [View the official firmware update instructions](https://www.karrsecurity.com/karr-security-firmware-update-instructions)
 
-BLE discovery or a GATT connection is not application authentication. A
-safety-sensitive command remains locked until the connected unit sends
-`AUTH_SUCCESS` for the current BLE connection and the user explicitly starts
-the operation.
+## What the app can do
 
-Authorized research keys are entered manually in the Device center. KARR Key
-stores only their Android-Keystore-encrypted form, never displays a
-saved value, and removes authenticated state on disconnect. A provisioned key
-unlocks its corresponding local role catalog; it does not mark a live unit
-authenticated. The legacy flow does not cover the newer 32-byte/per-unit AES
-authentication path.
+- Find nearby KARR units by their recognizable Bluetooth names and wireless
+  service.
+- Connect to an authorized unit using research access information supplied by
+  the user.
+- Read information from the unit and send recovered vehicle or service
+  commands.
+- Show 21 unique operations without repeating the same command for different
+  Customer, Dealer, or Installer workflows.
+- Search the operations list or filter it with simple tags: **Reads**,
+  **Commands**, **Vehicle controls**, **Diagnostics**, **Unit service**, and
+  **Validation**.
+- Identify the connected model and disable an operation when that model is not
+  supported. The reason is shown before the operation can be opened.
+- Show the difference between a command reaching Bluetooth, the KARR unit
+  replying, and the vehicle physically doing something.
 
-Firmware and CAN transfer pages remain visible with the appropriate Dealer
-material, but a key is not a firmware/CAN artifact. Live transfer additionally
-requires compatible authorized bytes, integrity metadata, power checks,
-chunk acknowledgement, and installed-version verification.
+The app itself works offline. It has no account system, cloud service,
+tracking, or Android Internet permission. The two links above open in the
+phone's web browser.
 
-The recovered APKs, managed decompilations, and IDA projects are offline
-compatibility evidence. KARR Key does not contact their original services
-at runtime. Recovered universal credentials are not embedded in the
-application; any per-unit material must be provisioned locally and protected
-by Android Keystore.
+## App layout
 
-## Build
+### Home
 
-Requirements:
+Home briefly explains the security issue, shows the current connection status,
+and links to the research and firmware update instructions.
 
-- JDK 17 or newer;
-- Android SDK 36;
-- `local.properties` or `ANDROID_HOME` configured for that SDK.
+### Operations
+
+Operations contains the searchable, filterable list of reads and commands.
+Operations that are incompatible with the connected KARR model are visibly
+disabled. Opening a supported operation shows what it does and any checks that
+must pass before it can run.
+
+One Installer immobilizer-output command is marked **Experimental**. It is sent
+only once, requires the ignition to be off, and does not treat a reply from the
+unit as proof that the vehicle was physically immobilized.
+
+### Device
+
+Device is where the user adds their research access information, scans for a
+unit, connects, authenticates, and views Bluetooth diagnostics. Saved access
+information is protected by Android Keystore and is never built into the app.
+
+The app can keep a user-started scan or active connection running in the
+background. If a connection unexpectedly drops, it will only try to reconnect
+to the last unit that successfully authenticated.
+
+## Important limits
+
+- Finding a device over Bluetooth does not prove ownership or permission to
+  use it.
+- A Bluetooth connection is not enough to run commands. The KARR unit must
+  complete its own authentication for the current connection.
+- KARR Key supports the older authentication method recovered from the legacy
+  apps. It does not support the newer per-unit method.
+- KARR Key is not a firmware installer or a general-purpose CAN bus tool. It
+  only exposes operations supported by the preserved app evidence.
+- A response from the KARR unit does not prove that a door, alarm, trunk, or
+  other physical part of the vehicle changed state.
+- The app has been installed and smoke-tested on a Pixel 6a. That confirms the
+  Android app and interface work; testing real vehicle behavior still requires
+  an authorized compatible unit and direct observation.
+
+## Design and navigation
+
+The interface uses a greyscale light and dark theme. Home, Operations, and
+Device can be selected from the navigation bar or by swiping between them.
+Operation details use the normal Android back action.
+
+## Building the app
+
+Developers need JDK 17, Android SDK 36, and either `local.properties` or
+`ANDROID_HOME` configured for that SDK.
 
 ```powershell
-.\gradlew.bat --no-daemon testDebugUnitTest lintDebug assembleDebug
+.\gradlew.bat --no-daemon testDebugUnitTest lintDebug assembleDebug :app:assembleDebugAndroidTest
 ```
 
-`preBuild` runs `verifyOfflineManifest`, which fails if the application starts
-requesting `INTERNET` or `ACCESS_NETWORK_STATE`.
+On Linux or macOS, use `./gradlew`. The debug APK is written to
+`app/build/outputs/apk/debug/KARR-Key.apk` and uses package name `com.karr.key`.
+The current app version is `0.3.0` (code 8).
 
-On Linux or macOS, use `./gradlew` instead of `.\gradlew.bat`. The debug APK is
-written to `app/build/outputs/apk/debug/KARR-Key.apk`.
+The build checks that the app does not request Internet or network-state
+permission. GitHub Actions also runs the tests, lint, and debug build. A nightly
+prerelease is created only when the main branch has changed since the previous
+release.
 
-GitHub Actions retains the debug APK, SHA-256 checksum, and Android package
-metadata in `KARR-Key-debug-<commit SHA>`. The APK is named `KARR-Key.apk`,
-uses application ID `com.karr.key`, is debug-signed, and is
-intended only for development and authorized-device testing.
-
-The Nightly Release workflow runs automatically each day at 2:15 AM Pacific.
-It compares `main` with the newest non-draft GitHub release. When the
-repository has changed, it runs the full test/lint/build command and publishes
-the debug APK, SHA-256 checksum, and Android package metadata as a dated
-prerelease. It creates no release when the trees are identical.
-
-## Repository
-
-| Path | Purpose |
-|---|---|
-| `app` | Application shell, navigation, dashboard, and device center |
-| `core` | Roles, capabilities, sessions, domain models, and policy |
-| `protocol` | Packet codecs, command definitions, and compatibility tests |
-| `ble` | Android scan/connect/discover/notify/write lifecycle |
-| `data` | Local workspace, Keystore storage, and local operation journal |
-| `feature/*` | Customer, Dealer, and Installer Compose surfaces |
-| `research` | Three original APKs and their annotated IDA projects |
-
-See [DEVELOPMENT.md](DEVELOPMENT.md) for architecture, trust boundaries, tests,
-and integration requirements. See [research/README.md](research/README.md) for
-the optional Git LFS evidence set and selective checkout instructions.
+For implementation details and exact safety rules, see
+[DEVELOPMENT.md](DEVELOPMENT.md). For the preserved research evidence, see
+[research/README.md](research/README.md).
 
 ## Identity and licensing
 
-This is not an official KARR, Webhouse Group, Southwest Dealer Services, or
-vehicle-manufacturer project. Product names identify the interoperability and
-research subject only.
+KARR Key is not an official KARR, Webhouse Group, Southwest Dealer Services, or
+vehicle-manufacturer project. Product names are used only to identify the
+subject of this research.
 
 No open-source license has been selected. Until one is added, this repository
 does not grant redistribution or modification rights. The original APKs retain
-their owners' rights and are not covered by any future license for KARR Key's
-independently written code.
+their owners' rights.

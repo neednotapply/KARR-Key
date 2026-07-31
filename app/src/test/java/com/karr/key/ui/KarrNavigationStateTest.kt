@@ -174,7 +174,7 @@ class KarrNavigationStateTest {
             dealerOperations.all { operation -> UserRole.DEALER in operation.roles },
         )
 
-        val reads = deviceOperationsFor(category = "Reads")
+        val reads = deviceOperationsFor(query = "Reads")
         assertTrue(reads.isNotEmpty())
         assertTrue(reads.all { operation -> !operation.mutating })
 
@@ -183,4 +183,81 @@ class KarrNavigationStateTest {
             deviceOperationsFor(query = "READ_STATE").map { operation -> operation.command },
         )
     }
+
+    @Test
+    fun readsAndCommandsFiltersPartitionTheCatalog() {
+        val reads = deviceOperationsFor(
+            filters = OperationFilters(operationType = OperationTypeFilter.READS),
+        )
+        val commands = deviceOperationsFor(
+            filters = OperationFilters(operationType = OperationTypeFilter.COMMANDS),
+        )
+
+        assertTrue(reads.isNotEmpty())
+        assertTrue(reads.all { operation -> !operation.mutating })
+        assertTrue(commands.isNotEmpty())
+        assertTrue(commands.all { operation -> operation.mutating })
+        assertTrue(commands.any { operation -> operation.category == "Experimental" })
+        assertEquals(
+            deviceOperationsFor().map { operation -> operation.id }.toSet(),
+            (reads + commands).map { operation -> operation.id }.toSet(),
+        )
+    }
+
+    @Test
+    fun workflowFilterReturnsUniqueMatchingOperations() {
+        val filters = OperationFilters(workflow = "Validation")
+        val operations = deviceOperationsFor(filters = filters)
+
+        assertTrue(operations.isNotEmpty())
+        assertTrue(
+            operations.all { operation ->
+                operation.bindings.any { binding ->
+                    binding.feature.category == "Validation"
+                }
+            },
+        )
+        assertEquals(operations.size, operations.map { operation -> operation.id }.distinct().size)
+    }
+
+    @Test
+    fun workflowFilterRestoresFormerFeatureCategories() {
+        val vehicleControls = deviceOperationsFor(
+            filters = OperationFilters(workflow = "Vehicle controls"),
+        )
+
+        assertTrue(vehicleControls.isNotEmpty())
+        assertTrue(vehicleControls.size < deviceOperationsFor().size)
+        assertTrue(
+            vehicleControls.all { operation ->
+                operation.bindings.any { binding ->
+                    binding.feature.category == "Vehicle controls"
+                }
+            },
+        )
+    }
+
+    @Test
+    fun workflowTagsExcludeOperationSetsContainedByAnotherTag() {
+        val workflows = workflowFiltersFor()
+
+        assertEquals(
+            listOf("Vehicle controls", "Diagnostics", "Unit service", "Validation"),
+            workflows,
+        )
+        workflows.forEach { workflow ->
+            val operationIds = deviceOperationsFor(
+                filters = OperationFilters(workflow = workflow),
+            ).map { operation -> operation.id }.toSet()
+            workflows
+                .filterNot { other -> other == workflow }
+                .forEach { other ->
+                    val otherOperationIds = deviceOperationsFor(
+                        filters = OperationFilters(workflow = other),
+                    ).map { operation -> operation.id }.toSet()
+                    assertFalse(otherOperationIds.containsAll(operationIds))
+                }
+        }
+    }
+
 }

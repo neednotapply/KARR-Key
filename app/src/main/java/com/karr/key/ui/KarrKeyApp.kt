@@ -73,6 +73,11 @@ import com.karr.key.protocol.RecoveredDeviceOperation
 import com.karr.key.protocol.RecoveredWorkflowCatalog
 import kotlinx.coroutines.launch
 
+private const val KARR_FIRMWARE_UPDATE_URL =
+    "https://www.karrsecurity.com/karr-security-firmware-update-instructions"
+private const val UCSD_SECURITY_RESEARCH_URL =
+    "https://today.ucsd.edu/story/2-million-cars-with-anti-theft-systems-installed-by-dealers-are-at-higher-risk-of-theft"
+
 @Composable
 fun KarrKeyApp(
     repository: KeyRepository,
@@ -100,7 +105,9 @@ fun KarrKeyApp(
         mutableStateOf(deviceAuthenticated)
     }
     var operationsQuery by rememberSaveable { mutableStateOf("") }
-    var operationsCategory by rememberSaveable { mutableStateOf<String?>(null) }
+    var operationsFilters by rememberSaveable(stateSaver = OperationFilters.Saver) {
+        mutableStateOf(OperationFilters())
+    }
     val operationsListState = rememberLazyListState()
 
     LaunchedEffect(deviceAuthenticated) {
@@ -124,9 +131,9 @@ fun KarrKeyApp(
         requestBlePermissions = requestBlePermissions,
         snackbar = snackbar,
         operationsQuery = operationsQuery,
-        operationsCategory = operationsCategory,
+        operationsFilters = operationsFilters,
         onOperationsQueryChanged = { operationsQuery = it },
-        onOperationsCategoryChanged = { operationsCategory = it },
+        onOperationsFiltersChanged = { operationsFilters = it },
         operationsListState = operationsListState,
     )
 }
@@ -146,9 +153,9 @@ private fun KeyShell(
     requestBlePermissions: (((Boolean) -> Unit) -> Unit),
     snackbar: SnackbarHostState,
     operationsQuery: String,
-    operationsCategory: String?,
+    operationsFilters: OperationFilters,
     onOperationsQueryChanged: (String) -> Unit,
-    onOperationsCategoryChanged: (String?) -> Unit,
+    onOperationsFiltersChanged: (OperationFilters) -> Unit,
     operationsListState: androidx.compose.foundation.lazy.LazyListState,
 ) {
     val scope = rememberCoroutineScope()
@@ -299,9 +306,9 @@ private fun KeyShell(
                                 snackbar = snackbar,
                                 navigation = navigation,
                                 query = operationsQuery,
-                                category = operationsCategory,
+                                filters = operationsFilters,
                                 onQueryChanged = onOperationsQueryChanged,
-                                onCategoryChanged = onOperationsCategoryChanged,
+                                onFiltersChanged = onOperationsFiltersChanged,
                                 listState = operationsListState,
                             )
                         }
@@ -333,9 +340,9 @@ private fun KeyShell(
                                     snackbar = snackbar,
                                     navigation = navigation,
                                     query = operationsQuery,
-                                    category = operationsCategory,
+                                    filters = operationsFilters,
                                     onQueryChanged = onOperationsQueryChanged,
-                                    onCategoryChanged = onOperationsCategoryChanged,
+                                    onFiltersChanged = onOperationsFiltersChanged,
                                     listState = operationsListState,
                                 )
                             }
@@ -359,20 +366,21 @@ private fun OperationsRouteContent(
     snackbar: SnackbarHostState,
     navigation: KarrNavigationState,
     query: String,
-    category: String?,
+    filters: OperationFilters,
     onQueryChanged: (String) -> Unit,
-    onCategoryChanged: (String?) -> Unit,
+    onFiltersChanged: (OperationFilters) -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState,
 ) {
     AdaptiveOperationsScreen(
+        session = session,
         selectedOperation = selectedOperation,
         deviceAuthenticated = deviceAuthenticated,
         unitModel = unitModel,
         query = query,
-        selectedCategory = category,
+        filters = filters,
         listState = listState,
         onQueryChanged = onQueryChanged,
-        onCategorySelected = onCategoryChanged,
+        onFiltersChanged = onFiltersChanged,
         onOpenOperation = navigation::openOperation,
         detailContent = { operation ->
             DeviceOperationScreen(
@@ -408,10 +416,46 @@ private fun DashboardScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             item {
-                SectionHeader(
-                    title = "Vehicle access toolkit",
-                    supportingText = "Vehicle access, diagnostics, and service workflows.",
-                )
+                OutlinedCard(Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(
+                            text = "What this demonstrates",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "How devices are found and reached",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "Older KARR units broadcast recognizable DR/QT Bluetooth names and accept connections through an exposed wireless control service.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = "Why control is so broad",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "Because those units sit on the vehicle's CAN bus and older KARR apps shipped with built-in authentication secrets, a client that passes legacy authentication can reach most vehicle-control functions exposed by the unit.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        OutlinedButton(
+                            onClick = { uriHandler.openUri(UCSD_SECURITY_RESEARCH_URL) },
+                        ) {
+                            Text("Read the security research")
+                        }
+                        OutlinedButton(
+                            onClick = { uriHandler.openUri(KARR_FIRMWARE_UPDATE_URL) },
+                        ) {
+                            Text("Firmware update instructions")
+                        }
+                    }
+                }
             }
             item {
                 OutlinedCard(Modifier.fillMaxWidth()) {

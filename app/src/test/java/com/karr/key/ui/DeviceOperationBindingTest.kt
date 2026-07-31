@@ -8,6 +8,8 @@ import com.karr.key.protocol.QtCommand
 import com.karr.key.protocol.RecoveredActionPreflight
 import com.karr.key.protocol.RecoveredWorkflowCatalog
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DeviceOperationBindingTest {
@@ -55,10 +57,69 @@ class DeviceOperationBindingTest {
         )
     }
 
+    @Test
+    fun incompatibleConnectedModelBlocksOperationAtCatalog() {
+        val availability = operationModelAvailability(
+            session = session(UserRole.CUSTOMER),
+            operation = operation(QtCommand.SILENT_LOCK, listOf(0)),
+            deviceAuthenticated = true,
+            unitModel = KarrUnitModel.DR2_ESP,
+        )
+
+        assertTrue(availability is FeatureAvailability.ModelUnsupported)
+        assertFalse(availability.allowsOperationOpen())
+    }
+
+    @Test
+    fun supportedConnectedModelKeepsOperationOpen() {
+        val availability = operationModelAvailability(
+            session = session(UserRole.CUSTOMER),
+            operation = operation(QtCommand.SILENT_LOCK, listOf(0)),
+            deviceAuthenticated = true,
+            unitModel = KarrUnitModel.DR1_CAN,
+        )
+
+        assertEquals(FeatureAvailability.Available, availability)
+        assertTrue(availability.allowsOperationOpen())
+    }
+
+    @Test
+    fun compatibleRoleBindingKeepsFlattenedOperationOpen() {
+        val roles = UserRole.entries.toSet()
+        val availability = operationModelAvailability(
+            session = Session(
+                displayName = "All roles",
+                roles = roles,
+                capabilities = FeatureCatalog.capabilitiesFor(roles),
+            ),
+            operation = trunkOperation(),
+            deviceAuthenticated = true,
+            unitModel = KarrUnitModel.DR1_CAN,
+        )
+
+        assertEquals(FeatureAvailability.Available, availability)
+        assertTrue(availability.allowsOperationOpen())
+    }
+
+    @Test
+    fun unidentifiedConnectedModelBlocksRestrictedOperationAtCatalog() {
+        val availability = operationModelAvailability(
+            session = session(UserRole.CUSTOMER),
+            operation = operation(QtCommand.SILENT_LOCK, listOf(0)),
+            deviceAuthenticated = true,
+            unitModel = null,
+        )
+
+        assertTrue(availability is FeatureAvailability.ModelUnknown)
+        assertFalse(availability.allowsOperationOpen())
+    }
+
     private fun trunkOperation() =
+        operation(QtCommand.VEHICLE_CONTROL, listOf(10))
+
+    private fun operation(command: QtCommand, payload: List<Int>) =
         RecoveredWorkflowCatalog.operations.single { operation ->
-            operation.command == QtCommand.VEHICLE_CONTROL &&
-                operation.payload == listOf(10)
+            operation.command == command && operation.payload == payload
         }
 
     private fun session(role: UserRole) = Session(

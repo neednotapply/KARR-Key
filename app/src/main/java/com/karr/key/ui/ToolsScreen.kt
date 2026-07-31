@@ -22,8 +22,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -31,22 +33,56 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.karr.key.R
+import com.karr.key.core.Session
 import com.karr.key.core.UserRole
 import com.karr.key.core.displayName
 import com.karr.key.protocol.KarrUnitModel
 import com.karr.key.protocol.RecoveredDeviceOperation
+import com.karr.key.protocol.RecoveredModelCompatibility
 import com.karr.key.protocol.RecoveredWorkflowCatalog
+import com.karr.key.protocol.compatibilityWith
+
+internal enum class OperationTypeFilter(val displayLabel: String) {
+    READS("Reads"),
+    COMMANDS("Commands"),
+}
+
+internal data class OperationFilters(
+    val workflow: String? = null,
+    val operationType: OperationTypeFilter? = null,
+) {
+    companion object {
+        val Saver = listSaver<OperationFilters, String>(
+            save = { filters ->
+                listOf(
+                    filters.workflow.orEmpty(),
+                    filters.operationType?.name.orEmpty(),
+                )
+            },
+            restore = { values ->
+                OperationFilters(
+                    workflow = values.firstOrNull()?.ifBlank { null },
+                    operationType = values
+                        .getOrNull(1)
+                        ?.ifBlank { null }
+                        ?.let(OperationTypeFilter::valueOf),
+                )
+            },
+        )
+    }
+}
 
 @Composable
 internal fun AdaptiveOperationsScreen(
+    session: Session,
     selectedOperation: RecoveredDeviceOperation?,
     deviceAuthenticated: Boolean,
     unitModel: KarrUnitModel?,
     query: String,
-    selectedCategory: String?,
+    filters: OperationFilters,
     listState: LazyListState,
     onQueryChanged: (String) -> Unit,
-    onCategorySelected: (String?) -> Unit,
+    onFiltersChanged: (OperationFilters) -> Unit,
     onOpenOperation: (RecoveredDeviceOperation) -> Unit,
     detailContent: @Composable (RecoveredDeviceOperation) -> Unit,
     modifier: Modifier = Modifier,
@@ -56,13 +92,14 @@ internal fun AdaptiveOperationsScreen(
         if (expanded && selectedOperation != null) {
             Row(Modifier.fillMaxSize()) {
                 OperationsCatalogPane(
+                    session = session,
                     deviceAuthenticated = deviceAuthenticated,
                     unitModel = unitModel,
                     query = query,
-                    selectedCategory = selectedCategory,
+                    filters = filters,
                     listState = listState,
                     onQueryChanged = onQueryChanged,
-                    onCategorySelected = onCategorySelected,
+                    onFiltersChanged = onFiltersChanged,
                     onOpenOperation = onOpenOperation,
                     modifier = Modifier
                         .weight(0.43f)
@@ -81,13 +118,14 @@ internal fun AdaptiveOperationsScreen(
             detailContent(selectedOperation)
         } else {
             OperationsCatalogPane(
+                session = session,
                 deviceAuthenticated = deviceAuthenticated,
                 unitModel = unitModel,
                 query = query,
-                selectedCategory = selectedCategory,
+                filters = filters,
                 listState = listState,
                 onQueryChanged = onQueryChanged,
-                onCategorySelected = onCategorySelected,
+                onFiltersChanged = onFiltersChanged,
                 onOpenOperation = onOpenOperation,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -97,29 +135,33 @@ internal fun AdaptiveOperationsScreen(
 
 @Composable
 private fun OperationsCatalogPane(
+    session: Session,
     deviceAuthenticated: Boolean,
     unitModel: KarrUnitModel?,
     query: String,
-    selectedCategory: String?,
+    filters: OperationFilters,
     listState: LazyListState = rememberLazyListState(),
     onQueryChanged: (String) -> Unit,
-    onCategorySelected: (String?) -> Unit,
+    onFiltersChanged: (OperationFilters) -> Unit,
     onOpenOperation: (RecoveredDeviceOperation) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val operations = RecoveredWorkflowCatalog.operations
-    val categories = operations.map(RecoveredDeviceOperation::category).distinct()
-    val filtered = deviceOperationsFor(query, selectedCategory)
+    val workflows = workflowFiltersFor(operations)
+    val filtered = deviceOperationsFor(
+        query = query,
+        filters = filters,
+    )
 
-    LaunchedEffect(categories) {
-        if (selectedCategory != null && selectedCategory !in categories) {
-            onCategorySelected(null)
+    LaunchedEffect(workflows) {
+        if (filters.workflow != null && filters.workflow !in workflows) {
+            onFiltersChanged(filters.copy(workflow = null))
         }
     }
 
     LazyColumn(
         state = listState,
-        modifier = modifier,
+        modifier = modifier.testTag("operations-catalog"),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
             start = 16.dp,
@@ -182,25 +224,50 @@ private fun OperationsCatalogPane(
             )
         }
 
-        item(key = "categories") {
+        item(key = "operation-filters") {
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 FilterChip(
-                    selected = selectedCategory == null,
-                    onClick = { onCategorySelected(null) },
+                    selected = filters.workflow == null && filters.operationType == null,
+                    onClick = { onFiltersChanged(OperationFilters()) },
                     label = { Text("All") },
+                    modifier = Modifier.testTag("operation-filter:all"),
                 )
-                categories.forEach { category ->
+                OperationTypeFilter.entries.forEach { operationType ->
+                    val selected = filters.operationType == operationType
                     FilterChip(
-                        selected = selectedCategory == category,
+                        selected = selected,
                         onClick = {
-                            onCategorySelected(
-                                category.takeUnless { it == selectedCategory },
+                            onFiltersChanged(
+                                if (selected) {
+                                    OperationFilters()
+                                } else {
+                                    OperationFilters(operationType = operationType)
+                                },
                             )
                         },
-                        label = { Text(category) },
+                        label = { Text(operationType.displayLabel) },
+                        modifier = Modifier.testTag(
+                            "operation-filter:${operationType.name.lowercase()}",
+                        ),
+                    )
+                }
+                workflows.forEach { workflow ->
+                    val selected = filters.workflow == workflow
+                    FilterChip(
+                        selected = selected,
+                        onClick = {
+                            onFiltersChanged(
+                                if (selected) {
+                                    OperationFilters()
+                                } else {
+                                    OperationFilters(workflow = workflow)
+                                },
+                            )
+                        },
+                        label = { Text(workflow) },
                     )
                 }
             }
@@ -220,7 +287,7 @@ private fun OperationsCatalogPane(
                         style = MaterialTheme.typography.titleMedium,
                     )
                     Text(
-                        "Clear the search or select another category.",
+                        "Clear the search or select another workflow.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -245,7 +312,10 @@ private fun OperationsCatalogPane(
                         key = RecoveredDeviceOperation::id,
                     ) { operation ->
                         OperationListRow(
+                            session = session,
                             operation = operation,
+                            deviceAuthenticated = deviceAuthenticated,
+                            unitModel = unitModel,
                             onOpen = { onOpenOperation(operation) },
                         )
                     }
@@ -256,12 +326,25 @@ private fun OperationsCatalogPane(
 
 @Composable
 private fun OperationListRow(
+    session: Session,
     operation: RecoveredDeviceOperation,
+    deviceAuthenticated: Boolean,
+    unitModel: KarrUnitModel?,
     onOpen: () -> Unit,
 ) {
+    val availability = operationModelAvailability(
+        session = session,
+        operation = operation,
+        deviceAuthenticated = deviceAuthenticated,
+        unitModel = unitModel,
+    )
+    val canOpen = availability.allowsOperationOpen()
     OutlinedCard(
         onClick = onOpen,
-        modifier = Modifier.fillMaxWidth(),
+        enabled = canOpen,
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("operation:${operation.id}"),
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -280,16 +363,31 @@ private fun OperationListRow(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Icon(
-                    painter = painterResource(R.drawable.ic_chevron_right),
-                    contentDescription = null,
-                )
+                if (canOpen) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_chevron_right),
+                        contentDescription = null,
+                    )
+                } else {
+                    StatusPill(availability)
+                }
             }
             Text(
                 text = operation.description,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (!canOpen) {
+                Text(
+                    text = availability.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (availability is FeatureAvailability.ModelUnsupported) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -301,6 +399,33 @@ private fun OperationListRow(
         }
     }
 }
+
+internal fun operationModelAvailability(
+    session: Session,
+    operation: RecoveredDeviceOperation,
+    deviceAuthenticated: Boolean,
+    unitModel: KarrUnitModel?,
+): FeatureAvailability {
+    if (!deviceAuthenticated) {
+        return FeatureAvailability.Available
+    }
+    return when (
+        val compatibility = operation
+            .preferredBinding(session, unitModel)
+            .action
+            .compatibilityWith(unitModel)
+    ) {
+        RecoveredModelCompatibility.Supported -> FeatureAvailability.Available
+        is RecoveredModelCompatibility.Unsupported ->
+            FeatureAvailability.ModelUnsupported(compatibility.reason)
+        is RecoveredModelCompatibility.Unknown ->
+            FeatureAvailability.ModelUnknown(compatibility.reason)
+    }
+}
+
+internal fun FeatureAvailability.allowsOperationOpen(): Boolean =
+    this !is FeatureAvailability.ModelUnsupported &&
+        this !is FeatureAvailability.ModelUnknown
 
 @Composable
 private fun RoleTag(role: UserRole) {
@@ -320,11 +445,18 @@ private fun RoleTag(role: UserRole) {
 
 internal fun deviceOperationsFor(
     query: String = "",
-    category: String? = null,
+    filters: OperationFilters = OperationFilters(),
 ): List<RecoveredDeviceOperation> {
     val normalizedQuery = query.trim()
     return RecoveredWorkflowCatalog.operations.filter { operation ->
-        val categoryMatches = category == null || operation.category == category
+        val operationTypeMatches = when (filters.operationType) {
+            null -> true
+            OperationTypeFilter.READS -> !operation.mutating
+            OperationTypeFilter.COMMANDS -> operation.mutating
+        }
+        val workflowMatches = filters.workflow == null || operation.bindings.any { binding ->
+            binding.feature.category == filters.workflow
+        }
         val queryMatches = normalizedQuery.isEmpty() ||
             operation.label.contains(normalizedQuery, ignoreCase = true) ||
             operation.description.contains(normalizedQuery, ignoreCase = true) ||
@@ -337,6 +469,31 @@ internal fun deviceOperationsFor(
                 binding.feature.title.contains(normalizedQuery, ignoreCase = true) ||
                     binding.feature.category.contains(normalizedQuery, ignoreCase = true)
             }
-        categoryMatches && queryMatches
+        operationTypeMatches && workflowMatches && queryMatches
+    }
+}
+
+internal fun workflowFiltersFor(
+    operations: List<RecoveredDeviceOperation> = RecoveredWorkflowCatalog.operations,
+): List<String> {
+    val operationIdsByWorkflow = linkedMapOf<String, MutableSet<String>>()
+    operations.forEach { operation ->
+        operation.bindings
+            .map { binding -> binding.feature.category }
+            .distinct()
+            .forEach { workflow ->
+                operationIdsByWorkflow
+                    .getOrPut(workflow) { linkedSetOf() }
+                    .add(operation.id)
+            }
+    }
+    val workflows = operationIdsByWorkflow.entries.toList()
+    return workflows.mapIndexedNotNull { index, candidate ->
+        val addsDistinctFilteringValue = workflows.withIndex().none { (otherIndex, other) ->
+            otherIndex != index &&
+                other.value.containsAll(candidate.value) &&
+                (other.value.size > candidate.value.size || otherIndex < index)
+        }
+        candidate.key.takeIf { addsDistinctFilteringValue }
     }
 }
