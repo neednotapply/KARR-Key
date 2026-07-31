@@ -25,6 +25,13 @@ material exposes the Customer catalog; provisioned Dealer material exposes
 Dealer and Installer catalogs. Catalog access never substitutes for a live
 unit's KARR application authentication.
 
+`KarrApplication` owns the process-scoped BLE controller. User-started scan,
+connect, and reconnect operations start `BluetoothSessionService`, declared as
+Android's `connectedDevice` foreground-service type. The service mirrors BLE
+state into a private ongoing notification, alerts only for newly discovered
+connectable confirmed-format devices, and tears down Bluetooth work if the
+foreground notification can no longer be maintained.
+
 ## Required invariants
 
 - A BLE candidate classification identifies a radio family, not ownership.

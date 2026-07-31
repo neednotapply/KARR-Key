@@ -1,45 +1,47 @@
 package com.karr.key
 
+import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
-import com.karr.key.ble.AndroidBleController
 import com.karr.key.ble.BlePermissions
-import com.karr.key.data.EncryptedDeviceKeyStore
-import com.karr.key.data.EncryptedLocalValueStore
 import com.karr.key.data.LocalKeyRepository
 import com.karr.key.data.LocalOperationStore
-import com.karr.key.protocol.LegacyDeviceAuthenticator
 import com.karr.key.ui.KarrKeyApp
 import com.karr.key.ui.KarrKeyTheme
 
 class MainActivity : ComponentActivity() {
-    private lateinit var bleController: AndroidBleController
     private lateinit var operationStore: LocalOperationStore
     private var permissionResult: ((Boolean) -> Unit)? = null
 
-    private val permissionLauncher = registerForActivityResult(
+    private val blePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { results ->
         val granted = results.isNotEmpty() && results.values.all { it }
-        permissionResult?.invoke(granted)
-        permissionResult = null
+        if (granted) {
+            requestNotificationPermissionIfNeeded()
+        } else {
+            completePermissionRequest(false)
+        }
+    }
+
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) {
+        // Notification denial does not remove Bluetooth functionality. Android
+        // still surfaces an active foreground service in the system task UI.
+        completePermissionRequest(true)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        val deviceKeys = EncryptedDeviceKeyStore(
-            EncryptedLocalValueStore(this),
-        )
-        bleController = AndroidBleController(
-            context = this,
-            authenticator = LegacyDeviceAuthenticator(deviceKeys),
-        )
+        val app = application as KarrApplication
         val repository = LocalKeyRepository()
         operationStore = LocalOperationStore(this)
 
@@ -47,8 +49,8 @@ class MainActivity : ComponentActivity() {
             KarrKeyTheme {
                 KarrKeyApp(
                     repository = repository,
-                    bleController = bleController,
-                    deviceKeys = deviceKeys,
+                    bleController = app.bleController,
+                    deviceKeys = app.deviceKeys,
                     operationStore = operationStore,
                     requestBlePermissions = ::requestBlePermissions,
                 )
@@ -56,18 +58,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onStart() {
-        super.onStart()
-        bleController.setReconnectAllowed(true)
-    }
-
-    override fun onStop() {
-        bleController.setReconnectAllowed(false)
-        super.onStop()
-    }
-
     override fun onDestroy() {
-        bleController.shutdown()
         operationStore.close()
         super.onDestroy()
     }
@@ -78,10 +69,30 @@ class MainActivity : ComponentActivity() {
                 ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
             }
         ) {
-            onResult(true)
+            permissionResult = onResult
+            requestNotificationPermissionIfNeeded()
             return
         }
         permissionResult = onResult
-        permissionLauncher.launch(permissions)
+        blePermissionLauncher.launch(permissions)
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            completePermissionRequest(true)
+        }
+    }
+
+    private fun completePermissionRequest(granted: Boolean) {
+        permissionResult?.invoke(granted)
+        permissionResult = null
     }
 }

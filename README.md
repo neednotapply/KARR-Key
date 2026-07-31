@@ -25,6 +25,10 @@ KARR applications.
 - BLE scanning with recovered `DR`/`QT` identifiers, manufacturer-frame
   evidence tiers, and unrelated-device diagnostics. Connect is offered only
   for connectable advertisements with a confirmed recovered identifier.
+- A `connectedDevice` foreground service keeps an active scan or GATT session
+  running while the app is backgrounded. Its ongoing KARR-branded notification
+  shows current-device status and provides Stop scan or Disconnect; newly found
+  connectable confirmed-format devices use a separate alert channel.
 - Shared transparent-UART discovery, subscription, notification parsing, and
   explicit transport/authentication states.
 - Recovered 8-byte legacy challenge authentication with explicit Customer and
