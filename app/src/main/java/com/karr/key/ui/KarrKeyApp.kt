@@ -89,12 +89,23 @@ fun KarrKeyApp(
     val navigation = rememberSaveable(saver = KarrNavigationState.Saver) {
         KarrNavigationState()
     }
+    var wasDeviceAuthenticated by remember(bleController) {
+        mutableStateOf(deviceAuthenticated)
+    }
     var toolsQuery by rememberSaveable { mutableStateOf("") }
     var toolsCategory by rememberSaveable { mutableStateOf<String?>(null) }
     val toolsListState = rememberLazyListState()
 
     LaunchedEffect(session.roles) {
         navigation.normalizeRoles(session.roles)
+    }
+
+    LaunchedEffect(deviceAuthenticated) {
+        navigation.openToolsAfterSuccessfulConnection(
+            wasAuthenticated = wasDeviceAuthenticated,
+            isAuthenticated = deviceAuthenticated,
+        )
+        wasDeviceAuthenticated = deviceAuthenticated
     }
 
     KeyShell(

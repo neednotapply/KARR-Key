@@ -34,6 +34,63 @@ class KarrNavigationStateTest {
     }
 
     @Test
+    fun successfulConnectionFromDeviceOpensUnifiedToolsRootOnce() {
+        val navigation = KarrNavigationState()
+        navigation.openDevice(DeviceSection.DIAGNOSTICS)
+
+        assertTrue(
+            navigation.openToolsAfterSuccessfulConnection(
+                wasAuthenticated = false,
+                isAuthenticated = true,
+            ),
+        )
+        assertEquals(TopLevelDestination.TOOLS, navigation.selectedTopLevel)
+        assertEquals(AppRoute.Tools(null), navigation.currentRoute)
+        assertFalse(
+            navigation.openToolsAfterSuccessfulConnection(
+                wasAuthenticated = true,
+                isAuthenticated = true,
+            ),
+        )
+    }
+
+    @Test
+    fun authenticationDoesNotRedirectAwayFromNonDevicePages() {
+        val navigation = KarrNavigationState()
+
+        assertFalse(
+            navigation.openToolsAfterSuccessfulConnection(
+                wasAuthenticated = false,
+                isAuthenticated = true,
+            ),
+        )
+        assertEquals(AppRoute.Home, navigation.currentRoute)
+
+        navigation.openTools(UserRole.CUSTOMER)
+        assertFalse(
+            navigation.openToolsAfterSuccessfulConnection(
+                wasAuthenticated = false,
+                isAuthenticated = true,
+            ),
+        )
+        assertEquals(AppRoute.Tools(UserRole.CUSTOMER), navigation.currentRoute)
+    }
+
+    @Test
+    fun incompleteConnectionDoesNotLeaveDevicePage() {
+        val navigation = KarrNavigationState()
+        navigation.openDevice()
+
+        assertFalse(
+            navigation.openToolsAfterSuccessfulConnection(
+                wasAuthenticated = false,
+                isAuthenticated = false,
+            ),
+        )
+        assertEquals(AppRoute.Device(), navigation.currentRoute)
+    }
+
+    @Test
     fun adjacentTopLevelMovesFollowHomeToolsDeviceOrderAndStopAtEdges() {
         val navigation = KarrNavigationState()
 

@@ -68,6 +68,29 @@ notification, require confirmation for mutating packets, and retain command
 metadata in the encrypted local operation journal without recording payload
 contents.
 
+The customer trunk action retains the recovered `VEHICLE_CONTROL` selector
+`10`, but it is not a universal KARR output. Both recovered customer callers
+show the control only for `QTRED`/`RED` products. The offline workflow therefore
+reads the unit mode/type first and sends `AA 00 02 18 0A DC` only to a QT6 RED
+unit in User or Valet mode. Other units are blocked locally rather than being
+sent a command their firmware rejects with `ACK_ERROR Invalid_Mode`.
+
+Silent Lock/Unlock are also capability-dependent. The recovered KARR BT
+customer app exposes the dedicated commands only for compatible product and
+tone-setting combinations; when arm/disarm tones are already off, it hides
+the dedicated controls and uses ordinary Lock/Unlock, which are silent under
+that setting. The offline workflow reads mode, unit type, and settings first,
+then either sends the dedicated `SILENT_LOCK`/`SILENT_UNLOCK` frame, routes to
+`LOCK_DOORS`/`UNLOCK_DOORS` when tones are off, or blocks an unsupported
+configuration with a local explanation.
+
+Successful diagnostic reads are decoded locally before display. Battery and
+state voltage fields are little-endian millivolts; vehicle state uses the
+recovered door, ignition, armed, inhibit, and optional extended-position
+layout; violation history uses a four-byte unit clock plus twelve five-byte
+timestamp/source slots. The raw protocol frame remains available under an
+expandable technical section so decoded labels never replace capture evidence.
+
 The Installer immobilizer-output tool is explicitly experimental. Its hidden
 installer handler supplies the candidate `VEHICLE_CONTROL` output selector
 `2`, producing the Original frame `AA 00 02 18 02 E4`. The tool first requires

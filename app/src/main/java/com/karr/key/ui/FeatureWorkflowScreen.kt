@@ -47,7 +47,11 @@ import com.karr.key.protocol.RecoveredDeviceAction
 import com.karr.key.protocol.RecoveredPreflightDecision
 import com.karr.key.protocol.RecoveredWorkflowCatalog
 import com.karr.key.protocol.QtCommand
+import com.karr.key.protocol.QtDecodedResponse
+import com.karr.key.protocol.QtErrorCode
+import com.karr.key.protocol.QtPacket
 import com.karr.key.protocol.QtProtocolCodec
+import com.karr.key.protocol.QtResponseDecoder
 import com.karr.key.protocol.evaluate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -76,6 +80,9 @@ fun FeatureWorkflowScreen(
         mutableStateOf<RecoveredDeviceAction?>(null)
     }
     var commandStatus by remember(feature.id) { mutableStateOf<String?>(null) }
+    var decodedResponse by remember(feature.id) {
+        mutableStateOf<QtDecodedResponse?>(null)
+    }
     var lastResponse by remember(feature.id) { mutableStateOf<String?>(null) }
     var sending by remember(feature.id) { mutableStateOf(false) }
     val opensDeviceCenter = feature.id in DEVICE_CENTER_FEATURES
@@ -83,6 +90,7 @@ fun FeatureWorkflowScreen(
     LaunchedEffect(controller, feature.id) {
         controller.notifications.collect { bytes ->
             val parsed = QtProtocolCodec.parse(bytes)
+            decodedResponse = null
             val framePreview = bytes
                 .take(MAX_RESPONSE_PREVIEW_BYTES)
                 .toByteArray()
@@ -98,6 +106,7 @@ fun FeatureWorkflowScreen(
                         }
                     }
                 is PacketParseResult.Success -> {
+                    decodedResponse = QtResponseDecoder.decode(parsed.packet)
                     val command = parsed.packet.command?.name
                         ?: "0x${parsed.packet.commandCode.toString(16).uppercase()}"
                     val payload = parsed.packet.payload
@@ -147,50 +156,78 @@ fun FeatureWorkflowScreen(
         }
     }
 
-    suspend fun runPreflight(action: RecoveredDeviceAction): String? {
-        val preflight = action.preflight ?: return null
-        commandStatus = "Checking ignition state before ${action.command.name}..."
-        return when (
-            val result = exchange.sendAndAwait(
-                packet = QtProtocolCodec.generateOriginal(QtCommand.READ_STATE),
-                expectedCommand = QtCommand.READ_STATE,
-                acceptGenericAck = false,
-                onGattAccepted = {
-                    commandStatus =
-                        "READ_STATE was accepted by Android GATT; waiting for unit state."
-                },
-            )
-        ) {
-            is BleCommandExchangeResult.Acknowledged -> {
-                when (val decision = preflight.evaluate(result.response)) {
-                    RecoveredPreflightDecision.Allowed -> {
-                        commandStatus = "Ignition-off preflight passed."
-                        null
-                    }
-                    is RecoveredPreflightDecision.Denied -> decision.reason
-                }
+    suspend fun runPreflight(
+        action: RecoveredDeviceAction,
+    ): RecoveredPreflightDecision {
+        val preflight = action.preflight ?: return RecoveredPreflightDecision.Allowed()
+        commandStatus = "Checking unit compatibility before ${action.command.name}..."
+        val responses = mutableListOf<QtPacket>()
+        preflight.requestCommands.forEach { requestCommand ->
+            when (
+                val result = exchange.sendAndAwait(
+                    packet = QtProtocolCodec.generateOriginal(
+                        requestCommand,
+                        byteArrayOf(0),
+                    ),
+                    expectedCommand = requestCommand,
+                    acceptGenericAck = false,
+                    onGattAccepted = {
+                        commandStatus =
+                            "$requestCommand was accepted by Android GATT; " +
+                                "waiting for the unit response."
+                    },
+                )
+            ) {
+                is BleCommandExchangeResult.Acknowledged -> responses += result.response
+                is BleCommandExchangeResult.Rejected ->
+                    return RecoveredPreflightDecision.Denied(
+                        result.response.ackErrorMessage(
+                            requestCommand,
+                            "Preflight rejected",
+                        ),
+                    )
+                BleCommandExchangeResult.TimedOut ->
+                    return RecoveredPreflightDecision.Denied(
+                        "Command blocked because $requestCommand compatibility data " +
+                            "could not be confirmed.",
+                    )
+                is BleCommandExchangeResult.TransportFailure ->
+                    return RecoveredPreflightDecision.Denied(
+                        "Command blocked because its preflight failed: ${result.message}",
+                    )
             }
-            is BleCommandExchangeResult.Rejected ->
-                "Command blocked because the unit rejected the ignition preflight."
-            BleCommandExchangeResult.TimedOut ->
-                "Command blocked because ignition state could not be confirmed."
-            is BleCommandExchangeResult.TransportFailure ->
-                "Command blocked because ignition preflight failed: ${result.message}"
         }
+        return preflight.evaluate(
+            responses = responses,
+            attemptedCommand = action.command,
+        )
     }
 
     fun execute(action: RecoveredDeviceAction) {
         sending = true
         scope.launch {
             try {
-                val preflightFailure = runPreflight(action)
-                if (preflightFailure != null) {
-                    commandStatus = preflightFailure
-                    snackbar.showSnackbar(preflightFailure)
-                    return@launch
+                val preflightDecision = runPreflight(action)
+                val executableAction = when (preflightDecision) {
+                    is RecoveredPreflightDecision.Allowed -> action.copy(
+                        command = preflightDecision.commandOverride ?: action.command,
+                    )
+                    is RecoveredPreflightDecision.Denied -> {
+                        commandStatus = preflightDecision.reason
+                        snackbar.showSnackbar(preflightDecision.reason)
+                        return@launch
+                    }
                 }
+                val routingExplanation =
+                    (preflightDecision as RecoveredPreflightDecision.Allowed).explanation
 
-                commandStatus = "Sending ${action.command.name}..."
+                commandStatus = buildString {
+                    routingExplanation?.let {
+                        append(it)
+                        append("\n")
+                    }
+                    append("Sending ${executableAction.command.name}...")
+                }
                 val connectedScope = when (val state = controller.state.value) {
                     is BleSessionState.Ready -> state.name ?: state.address
                     else -> "no-ready-device"
@@ -199,9 +236,9 @@ fun FeatureWorkflowScreen(
                     runCatching {
                         operationStore.enqueue(
                             role = feature.requiredRole,
-                            type = "BLE_${action.command.name}",
+                            type = "BLE_${executableAction.command.name}",
                             scope = connectedScope,
-                            payload = "payload_bytes=${action.payload.size}",
+                            payload = "payload_bytes=${executableAction.payload.size}",
                         ).also { created ->
                             operationStore.updateState(
                                 id = created.id,
@@ -213,16 +250,23 @@ fun FeatureWorkflowScreen(
                 }
                 when (
                     val result = exchange.sendAndAwait(
-                        packet = action.packet(),
-                        expectedCommand = action.command,
+                        packet = executableAction.packet(),
+                        expectedCommand = executableAction.command,
                         onGattAccepted = {
                             updateOperation(
                                 operationId = operation?.id,
                                 state = LocalOperationState.DELIVERED_TO_GATT,
                             )
-                            commandStatus =
-                                "${action.command.name} was accepted by Android GATT; " +
-                                    "waiting for the unit notification."
+                            commandStatus = buildString {
+                                routingExplanation?.let {
+                                    append(it)
+                                    append("\n")
+                                }
+                                append(
+                                    "${executableAction.command.name} was accepted by " +
+                                        "Android GATT; waiting for the unit notification.",
+                                )
+                            }
                         },
                     )
                 ) {
@@ -231,13 +275,34 @@ fun FeatureWorkflowScreen(
                             operationId = operation?.id,
                             state = LocalOperationState.SUCCEEDED,
                         )
-                        commandStatus =
-                            "The unit returned a protocol acknowledgement for " +
-                                "${action.command.name}. Physical output is not confirmed."
+                        commandStatus = buildString {
+                            routingExplanation?.let {
+                                append(it)
+                                append("\n")
+                            }
+                            if (executableAction.mutating) {
+                                append(
+                                    "The unit returned a protocol acknowledgement for " +
+                                        "${executableAction.command.name}. Physical output is " +
+                                        "not confirmed.",
+                                )
+                            } else {
+                                val responseDecoded =
+                                    QtResponseDecoder.decode(result.response) != null
+                                append("The unit returned ${executableAction.command.name} data. ")
+                                append(
+                                    if (responseDecoded) {
+                                        "The decoded response is shown below."
+                                    } else {
+                                        "The raw response is available below."
+                                    },
+                                )
+                            }
+                        }
                         snackbar.showSnackbar("${action.label} acknowledged.")
                     }
                     is BleCommandExchangeResult.Rejected -> {
-                        val error = "The unit rejected the command with ACK_ERROR."
+                        val error = result.response.ackErrorMessage(executableAction.command)
                         updateOperation(
                             operationId = operation?.id,
                             state = LocalOperationState.FAILED_PERMANENT,
@@ -248,16 +313,16 @@ fun FeatureWorkflowScreen(
                     }
                     BleCommandExchangeResult.TimedOut -> {
                         val error =
-                            "GATT accepted ${action.command.name}, but no matching unit " +
+                            "GATT accepted ${executableAction.command.name}, but no matching unit " +
                                 "response was observed within 5 seconds." +
-                                if (action.singleShot) {
+                                if (executableAction.singleShot) {
                                     " The single-shot command was not retried."
                                 } else {
                                     ""
                                 }
                         updateOperation(
                             operationId = operation?.id,
-                            state = if (action.singleShot) {
+                            state = if (executableAction.singleShot) {
                                 LocalOperationState.FAILED_PERMANENT
                             } else {
                                 LocalOperationState.FAILED_RETRYABLE
@@ -269,14 +334,14 @@ fun FeatureWorkflowScreen(
                     }
                     is BleCommandExchangeResult.TransportFailure -> {
                         val error = result.message +
-                            if (action.singleShot) {
+                            if (executableAction.singleShot) {
                                 " The single-shot command was not retried."
                             } else {
                                 ""
                             }
                         updateOperation(
                             operationId = operation?.id,
-                            state = if (action.singleShot) {
+                            state = if (executableAction.singleShot) {
                                 LocalOperationState.FAILED_PERMANENT
                             } else {
                                 LocalOperationState.FAILED_RETRYABLE
@@ -298,14 +363,20 @@ fun FeatureWorkflowScreen(
             onDismissRequest = { pendingAction = null },
             title = { Text("Confirm ${action.label}") },
             text = {
-                val preflightText =
-                    if (action.preflight == RecoveredActionPreflight.IGNITION_OFF) {
+                val preflightText = when (action.preflight) {
+                    RecoveredActionPreflight.IGNITION_OFF ->
                         "The app will read unit state and refuse to send unless " +
                             "ignition is confirmed off. This single-shot test is not " +
                             "automatically retried.\n\n"
-                    } else {
-                        ""
-                    }
+                    RecoveredActionPreflight.QT6_RED_TRUNK_RELEASE ->
+                        "The app will read unit type and mode first. It sends this command " +
+                            "only to a QT6 RED unit in User or Valet mode.\n\n"
+                    RecoveredActionPreflight.SILENT_CONTROL_SETTINGS ->
+                        "The app will read unit type, mode, and arm/disarm tone settings " +
+                            "first. When tones are already off, it uses the ordinary door " +
+                            "command, matching the recovered app's silent behavior.\n\n"
+                    null -> ""
+                }
                 Text(
                     "${action.description}\n\n" +
                         preflightText +
@@ -551,10 +622,30 @@ fun FeatureWorkflowScreen(
                     }
                 }
             }
+            decodedResponse?.let { decoded ->
+                item {
+                    SectionHeader(title = "Latest unit response")
+                    OutlinedCard(Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                decoded.heading,
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            decoded.lines.forEach { line ->
+                                Text(line)
+                            }
+                        }
+                    }
+                }
+            }
             lastResponse?.let { response ->
                 item {
-                    SectionHeader(title = "Latest unit notification")
-                    CodeSurface(response)
+                    TechnicalDetails(title = "Raw protocol response") {
+                        CodeSurface(response)
+                    }
                 }
             }
         }
@@ -571,3 +662,20 @@ private const val MAX_RESPONSE_PREVIEW_BYTES = 48
 
 private fun ByteArray.toHex(): String =
     joinToString(" ") { byte -> "%02X".format(byte.toInt() and 0xff) }
+
+private fun QtPacket.ackErrorMessage(
+    attemptedCommand: QtCommand,
+    prefix: String = "The unit rejected $attemptedCommand",
+): String {
+    val rawCode = payload.singleOrNull()?.toInt()?.and(0xff)
+    val error = QtErrorCode.fromAckError(this)
+    return when {
+        error != null ->
+            "$prefix: ${error.displayName} (code ${error.code.toString(16).padStart(2, '0').uppercase()}). " +
+                error.explanation
+        rawCode != null ->
+            "$prefix with ACK_ERROR code ${rawCode.toString(16).padStart(2, '0').uppercase()}."
+        else ->
+            "$prefix with an empty or malformed ACK_ERROR payload."
+    }
+}

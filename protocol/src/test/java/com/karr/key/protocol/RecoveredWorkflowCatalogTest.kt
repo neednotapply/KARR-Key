@@ -34,6 +34,10 @@ class RecoveredWorkflowCatalogTest {
         assertEquals(QtCommand.VEHICLE_CONTROL, trunk.command)
         assertEquals(listOf(10), trunk.payload)
         assertEquals(
+            RecoveredActionPreflight.QT6_RED_TRUNK_RELEASE,
+            trunk.preflight,
+        )
+        assertEquals(
             listOf(KarrDeviceMode.VALET.code, KarrDeviceMode.USER.code),
             valet.map { action -> action.payload.single() },
         )
@@ -51,6 +55,22 @@ class RecoveredWorkflowCatalogTest {
                 byteArrayOf(10),
             ),
             action.packet(),
+        )
+    }
+
+    @Test
+    fun silentControlsUseRecoveredPayloadAndSettingsPreflight() {
+        val actions = RecoveredWorkflowCatalog.actionsFor("customer.silent_controls")
+
+        assertEquals(
+            listOf(QtCommand.SILENT_LOCK, QtCommand.SILENT_UNLOCK),
+            actions.map(RecoveredDeviceAction::command),
+        )
+        assertTrue(actions.all { action -> action.payload == listOf(0) })
+        assertTrue(
+            actions.all { action ->
+                action.preflight == RecoveredActionPreflight.SILENT_CONTROL_SETTINGS
+            },
         )
     }
 

@@ -104,6 +104,21 @@ internal class KarrNavigationState private constructor(
         selectedTopLevel = TopLevelDestination.TOOLS
     }
 
+    fun openToolsAfterSuccessfulConnection(
+        wasAuthenticated: Boolean,
+        isAuthenticated: Boolean,
+    ): Boolean {
+        if (
+            wasAuthenticated ||
+            !isAuthenticated ||
+            currentRoute !is AppRoute.Device
+        ) {
+            return false
+        }
+        openTools(role = null)
+        return true
+    }
+
     fun updateToolsRole(role: UserRole?) {
         val stack = stacks.getValue(TopLevelDestination.TOOLS)
         val rootIndex = stack.indexOfFirst { it is AppRoute.Tools }

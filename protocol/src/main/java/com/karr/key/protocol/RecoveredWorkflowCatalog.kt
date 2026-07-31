@@ -74,28 +74,34 @@ object RecoveredWorkflowCatalog {
             mutate(
                 id = "silent-lock",
                 label = "Silent lock",
-                description = "Runs the recovered silent-lock command.",
+                description =
+                    "Locks without arm tones using the compatible recovered command path.",
                 command = QtCommand.SILENT_LOCK,
                 payload = listOf(0),
                 source = CUSTOMER_SOURCE,
+                preflight = RecoveredActionPreflight.SILENT_CONTROL_SETTINGS,
             ),
             mutate(
                 id = "silent-unlock",
                 label = "Silent unlock",
-                description = "Runs the recovered silent-unlock command.",
+                description =
+                    "Unlocks without disarm tones using the compatible recovered command path.",
                 command = QtCommand.SILENT_UNLOCK,
                 payload = listOf(0),
                 source = CUSTOMER_SOURCE,
+                preflight = RecoveredActionPreflight.SILENT_CONTROL_SETTINGS,
             ),
         ),
         "customer.trunk" to listOf(
             mutate(
                 id = "trunk-release",
                 label = "Release trunk",
-                description = "Activates the recovered trunk-release vehicle output.",
+                description =
+                    "Activates the recovered trunk-release output on compatible QT6 RED systems.",
                 command = QtCommand.VEHICLE_CONTROL,
                 payload = listOf(10),
                 source = CUSTOMER_SOURCE,
+                preflight = RecoveredActionPreflight.QT6_RED_TRUNK_RELEASE,
             ),
         ),
         "customer.valet" to listOf(

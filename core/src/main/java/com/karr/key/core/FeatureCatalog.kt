@@ -48,7 +48,7 @@ object FeatureCatalog {
         feature(
             "customer.trunk",
             "Trunk release",
-            "Request an authorized trunk release.",
+            "Release the trunk on a compatible QT6 RED system.",
             "Vehicle controls",
             UserRole.CUSTOMER,
             Capability.CUSTOMER_CONTROL,
