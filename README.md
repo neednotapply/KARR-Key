@@ -106,8 +106,10 @@ The Android scan is not restricted by a name or service filter. Every delivered
 BLE advertisement is classified using the recovered DR/QT formats, Dealer
 manufacturer frames (including embedded 13-character serials and QT6, QT7,
 DR1, DR2, CIU, and VW-programmer status types), branded names, and the shared
-transparent-UART service. Possible matches are shown separately instead of
-being discarded, but only connectable confirmed-format results can be opened.
+transparent-UART service. Status-only manufacturer frames must match both the
+recovered model-bit layout and numeric five-character VIN-tail encoding; model
+bits alone are not unique enough. Possible matches are shown separately instead
+of being discarded, but only connectable confirmed-format results can be opened.
 Here, confirmed means the identifier and parser are present in recovered KARR
 source material; it does not by itself mean that model was physically tested.
 The app does not treat a MAC/OUI prefix as KARR proof: BLE addresses may be

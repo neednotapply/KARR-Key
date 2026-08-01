@@ -65,8 +65,11 @@ service filter. Recovered KARR evidence includes `DR`/`QT` identifiers and
 Dealer manufacturer frames with either an embedded serial or a status-only
 payload. Android separates the first two manufacturer bytes into an integer
 identifier, so the BLE module reconstructs the complete raw AD field before
-applying the recovered Dealer parser. Possible candidates remain visible but
-diagnostic-only. The transparent-UART service is
+applying the recovered Dealer parser. A status-only match requires both the
+recovered unit-type bit layout and the parser's numeric five-character VIN-tail
+shape; unit-type bits by themselves collide with unrelated manufacturer data.
+Possible candidates remain visible but diagnostic-only. The transparent-UART
+service is
 `49535343-FE7D-4AE5-8FA9-9FAFD205E455` with characteristic
 `49535343-1E4D-4BD9-BA61-23C647249616`; because that is a shared Microchip
 service, it is supporting evidence rather than KARR identity by itself. A MAC

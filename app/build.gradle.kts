@@ -107,6 +107,24 @@ val verifyOfflineManifest by tasks.registering {
                 "$permission must have an explicit manifest-merger removal rule."
             }
         }
+
+        val bluetoothScanDeclaration = Regex(
+            """<uses-permission\s+[^>]*android:name="android.permission.BLUETOOTH_SCAN"[^>]*/>""",
+        ).find(manifestText)?.value
+        check(
+            bluetoothScanDeclaration?.contains(
+                """android:usesPermissionFlags="neverForLocation""",
+            ) == true,
+        ) {
+            "BLUETOOTH_SCAN must assert neverForLocation while location access is capped at API 30."
+        }
+
+        val fineLocationDeclaration = Regex(
+            """<uses-permission\s+[^>]*android:name="android.permission.ACCESS_FINE_LOCATION"[^>]*/>""",
+        ).find(manifestText)?.value
+        check(fineLocationDeclaration?.contains("""android:maxSdkVersion="30""") == true) {
+            "ACCESS_FINE_LOCATION must remain capped at API 30 for the Bluetooth permission policy."
+        }
     }
 }
 

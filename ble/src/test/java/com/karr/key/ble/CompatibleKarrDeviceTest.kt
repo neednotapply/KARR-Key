@@ -70,7 +70,7 @@ class CompatibleKarrDeviceTest {
         val manufacturerResult =
             CompatibleKarrDevice.classify(
                 name = null,
-                manufacturerData = listOf(byteArrayOf(0x40, 0, 0, 0, 0)),
+                manufacturerData = listOf(statusFrame(unitTypeCode = 0)),
             )
         assertEquals(
             KarrCandidateTier.CONFIRMED_FORMAT,
@@ -82,11 +82,7 @@ class CompatibleKarrDeviceTest {
     @Test
     fun confirmsEveryDealerModelIdPresentInRecoveredSource() {
         KarrUnitModel.known.forEach { model ->
-            val encodedType = model.code + 1
-            val payload = ByteArray(5).apply {
-                this[0] = ((encodedType and 0x03) shl 6).toByte()
-                this[1] = (((encodedType ushr 2) and 0x03) shl 6).toByte()
-            }
+            val payload = statusFrame(model.code)
 
             val classification = CompatibleKarrDevice.classify(
                 name = null,
@@ -115,15 +111,7 @@ class CompatibleKarrDeviceTest {
             KarrCandidateTier.POSSIBLE,
             CompatibleKarrDevice.classify(
                 name = null,
-                manufacturerData = listOf(
-                    byteArrayOf(
-                        0xC0.toByte(),
-                        0xC0.toByte(),
-                        0,
-                        0,
-                        0,
-                    ),
-                ),
+                manufacturerData = listOf(statusFrame(unitTypeCode = 14)),
             ).tier,
         )
     }
@@ -167,9 +155,28 @@ class CompatibleKarrDeviceTest {
             KarrCandidateTier.OTHER,
             CompatibleKarrDevice.classify(
                 name = null,
-                manufacturerData = listOf(byteArrayOf(0, 0, 0, 0, 0)),
+                manufacturerData = listOf("12345".toByteArray(StandardCharsets.US_ASCII)),
             ).tier,
         )
+    }
+
+    @Test
+    fun rejectsUnrelatedManufacturerRecordsWithCoincidentalUnitTypeBits() {
+        listOf(
+            "4C0012020003",
+            "4C001006341ECA9FD8B1",
+            "4C00071106A63D54F99805F4FAE24877629FC21AB3",
+            "C40031702105",
+        ).forEach { payload ->
+            assertEquals(
+                payload,
+                KarrCandidateTier.OTHER,
+                CompatibleKarrDevice.classify(
+                    name = null,
+                    manufacturerData = listOf(payload.hexBytes()),
+                ).tier,
+            )
+        }
     }
 
     @Test
@@ -211,4 +218,15 @@ class CompatibleKarrDeviceTest {
             ).connectionEligible,
         )
     }
+
+    private fun statusFrame(unitTypeCode: Int): ByteArray {
+        val encodedType = unitTypeCode + 1
+        return "12345".toByteArray(StandardCharsets.US_ASCII).apply {
+            this[0] = (this[0].toInt() or ((encodedType and 0x03) shl 6)).toByte()
+            this[1] = (this[1].toInt() or (((encodedType ushr 2) and 0x03) shl 6)).toByte()
+        }
+    }
+
+    private fun String.hexBytes(): ByteArray =
+        chunked(2).map { octet -> octet.toInt(16).toByte() }.toByteArray()
 }
