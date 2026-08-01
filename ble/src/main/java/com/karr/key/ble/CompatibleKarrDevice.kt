@@ -115,6 +115,9 @@ object CompatibleKarrDevice {
             return null
         }
 
+        if (!hasDealerVinTail(payload, 0)) {
+            return null
+        }
         val unitTypeCode = dealerUnitTypeCode(payload, 0) ?: return null
         val model = KarrUnitModel.fromCode(unitTypeCode)
         return KarrDeviceClassification(
@@ -167,6 +170,21 @@ object CompatibleKarrDevice {
         return encodedType.takeIf { it != 0 }?.minus(1)
     }
 
+    /**
+     * The recovered Dealer parser masks the status bits from the first five
+     * bytes and decodes the remainder as the numeric last five VIN digits.
+     * Unit-type bits alone are common in unrelated manufacturer records, so
+     * the VIN-tail shape is required for status-only advertisement evidence.
+     */
+    private fun hasDealerVinTail(payload: ByteArray, offset: Int): Boolean {
+        if (payload.size < offset + DEALER_VIN_TAIL_BYTES) {
+            return false
+        }
+        return (offset until offset + DEALER_VIN_TAIL_BYTES).all { index ->
+            (payload[index].toInt() and STATUS_VALUE_MASK) in ASCII_ZERO..ASCII_NINE
+        }
+    }
+
     private fun dealerFrameEvidence(prefix: String, unitTypeCode: Int): String {
         val model = KarrUnitModel.fromCode(unitTypeCode)
         return if (model.isRecognized) {
@@ -185,6 +203,10 @@ object CompatibleKarrDevice {
     private fun Char.isUpperHexDigit(): Boolean = this in '0'..'9' || this in 'A'..'F'
 
     private const val MIN_DEALER_STATUS_BYTES = 5
+    private const val DEALER_VIN_TAIL_BYTES = 5
     private const val DEALER_NAME_BYTES = 13
     private const val DEALER_NAMED_FRAME_BYTES = 26
+    private const val STATUS_VALUE_MASK = 0x3F
+    private const val ASCII_ZERO = 0x30
+    private const val ASCII_NINE = 0x39
 }
