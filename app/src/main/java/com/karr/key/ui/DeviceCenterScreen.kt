@@ -69,9 +69,11 @@ internal fun DeviceCenterScreen(
     val state by controller.state.collectAsState()
     val devices by controller.devices.collectAsState()
     val confirmedDevices = confirmedDevicesForConnection(devices)
+    val possibleDevices = possibleDevicesForConnection(devices)
     val otherDevices = otherDevicesForConnection(devices)
     val confirmedCount = confirmedDevices.size
-    val nearbyCount = confirmedCount + otherDevices.size
+    val possibleCount = possibleDevices.size
+    val nearbyCount = devices.size
     val scope = rememberCoroutineScope()
     var lastNotification by remember { mutableStateOf<String?>(null) }
     var selfTest by remember { mutableStateOf<String?>(null) }
@@ -225,8 +227,10 @@ internal fun DeviceCenterScreen(
                 state = state,
                 nearbyCount = nearbyCount,
                 confirmedDevices = confirmedDevices,
+                possibleDevices = possibleDevices,
                 otherDevices = otherDevices,
                 confirmedCount = confirmedCount,
+                possibleCount = possibleCount,
                 showOtherDevices = showOtherDevices,
                 onShowOtherDevicesChanged = { showOtherDevices = it },
                 onScan = startScan,
@@ -354,8 +358,10 @@ private fun ConnectionSection(
     state: BleSessionState,
     nearbyCount: Int,
     confirmedDevices: List<DiscoveredDevice>,
+    possibleDevices: List<DiscoveredDevice>,
     otherDevices: List<DiscoveredDevice>,
     confirmedCount: Int,
+    possibleCount: Int,
     showOtherDevices: Boolean,
     onShowOtherDevicesChanged: (Boolean) -> Unit,
     onScan: () -> Unit,
@@ -391,12 +397,14 @@ private fun ConnectionSection(
                     Text(
                         text = state.label(
                             confirmedCount,
+                            possibleCount,
                             nearbyCount,
                         ),
                         modifier = Modifier.semantics {
                             liveRegion = LiveRegionMode.Polite
                             stateDescription = state.label(
                                 confirmedCount,
+                                possibleCount,
                                 nearbyCount,
                             )
                         },
@@ -446,10 +454,11 @@ private fun ConnectionSection(
             SectionHeader(
                 title = scanCountLabel(
                     confirmedCount,
+                    possibleCount,
                     nearbyCount,
                 ),
                 supportingText = "Confirmed formats match recovered KARR identifiers. " +
-                    "Strongest recently seen signals appear first.",
+                    "Possible matches remain visible for diagnosis.",
             )
         }
         if (confirmedDevices.isEmpty()) {
@@ -475,6 +484,19 @@ private fun ConnectionSection(
                 )
             }
         }
+        if (possibleDevices.isNotEmpty()) {
+            item {
+                SectionHeader(
+                    title = "Possible KARR advertisements",
+                    supportingText = "These match broad prefixes, unrecognized status " +
+                        "codes, branding, serial shapes, or the shared UART service, " +
+                        "but need stronger source evidence before connection is enabled.",
+                )
+            }
+            items(possibleDevices, key = { "possible:${it.address}" }) { device ->
+                DiscoveredDeviceCard(device = device, onConnect = null)
+            }
+        }
         if (otherDevices.isNotEmpty()) {
             item {
                 OutlinedButton(
@@ -497,8 +519,7 @@ private fun ConnectionSection(
             item {
                 SectionHeader(
                     title = "Other nearby advertisements",
-                    supportingText = "Visible for diagnosis only. Connect remains disabled " +
-                        "without a recovered KARR identifier.",
+                    supportingText = "No recovered KARR identifier was found.",
                 )
             }
             items(otherDevices, key = { "other:${it.address}" }) { device ->
@@ -823,11 +844,12 @@ private fun BleSessionState.canScan(): Boolean =
 
 private fun BleSessionState.label(
     confirmedCount: Int,
+    possibleCount: Int,
     nearbyCount: Int,
 ): String = when (this) {
     BleSessionState.Idle -> "Idle"
     BleSessionState.Scanning ->
-        "Scanning — ${scanCountLabel(confirmedCount, nearbyCount)}"
+        "Scanning — ${scanCountLabel(confirmedCount, possibleCount, nearbyCount)}"
     is BleSessionState.Reconnecting ->
         "Reconnecting to $serial (attempt $attempt of $maxAttempts): $step"
     is BleSessionState.ReconnectFailed ->
@@ -849,14 +871,26 @@ private fun BleSessionState.label(
 
 internal fun scanCountLabel(
     confirmedCount: Int,
+    possibleCount: Int,
     nearbyCount: Int,
-): String = "$confirmedCount confirmed KARR / $nearbyCount nearby"
+): String = "$confirmedCount confirmed / $possibleCount possible KARR / $nearbyCount nearby"
 
 internal fun confirmedDevicesForConnection(
     devices: List<DiscoveredDevice>,
 ): List<DiscoveredDevice> = devices
     .asSequence()
     .filter { it.classification.tier == KarrCandidateTier.CONFIRMED_FORMAT }
+    .sortedWith(
+        compareByDescending<DiscoveredDevice> { it.rssi }
+            .thenBy { it.name ?: it.address },
+    )
+    .toList()
+
+internal fun possibleDevicesForConnection(
+    devices: List<DiscoveredDevice>,
+): List<DiscoveredDevice> = devices
+    .asSequence()
+    .filter { it.classification.tier == KarrCandidateTier.POSSIBLE }
     .sortedWith(
         compareByDescending<DiscoveredDevice> { it.rssi }
             .thenBy { it.name ?: it.address },

@@ -8,7 +8,7 @@ import org.junit.Test
 
 class ConnectionDiscoveryTest {
     @Test
-    fun connectionListHidesPossibleMatchesAndSortsConfirmedByStrongestRssi() {
+    fun connectionListKeepsPossibleMatchesVisibleAndSortsByStrongestRssi() {
         val devices = listOf(
             device(
                 address = "00:00:00:00:00:01",
@@ -37,6 +37,7 @@ class ConnectionDiscoveryTest {
         )
 
         val confirmed = confirmedDevicesForConnection(devices)
+        val possible = possibleDevicesForConnection(devices)
         val other = otherDevicesForConnection(devices)
         assertEquals(
             listOf(
@@ -46,14 +47,19 @@ class ConnectionDiscoveryTest {
             confirmed.map { it.address },
         )
         assertEquals(
+            listOf("00:00:00:00:00:02"),
+            possible.map { it.address },
+        )
+        assertEquals(
             listOf("00:00:00:00:00:04"),
             other.map { it.address },
         )
         assertEquals(
-            "2 confirmed KARR / 3 nearby",
+            "2 confirmed / 1 possible KARR / 4 nearby",
             scanCountLabel(
                 confirmedCount = confirmed.size,
-                nearbyCount = confirmed.size + other.size,
+                possibleCount = possible.size,
+                nearbyCount = devices.size,
             ),
         )
     }

@@ -1,5 +1,6 @@
 package com.karr.key.ble
 
+import com.karr.key.protocol.KarrUnitModel
 import java.nio.charset.StandardCharsets
 import java.util.Locale
 import java.util.UUID
@@ -100,24 +101,37 @@ object CompatibleKarrDevice {
 
         if (payload.size == DEALER_NAMED_FRAME_BYTES) {
             val embeddedName = recoverDealerEmbeddedName(payload)
-            if (embeddedName != null && hasDealerUnitType(payload, DEALER_NAME_BYTES)) {
+            val unitTypeCode = dealerUnitTypeCode(payload, DEALER_NAME_BYTES)
+            if (embeddedName != null && unitTypeCode != null) {
                 return KarrDeviceClassification(
                     tier = KarrCandidateTier.CONFIRMED_FORMAT,
-                    evidence = "Recovered KARR dealer manufacturer frame",
+                    evidence = dealerFrameEvidence(
+                        prefix = "Recovered KARR dealer manufacturer frame",
+                        unitTypeCode = unitTypeCode,
+                    ),
                     recoveredName = embeddedName,
                 )
             }
             return null
         }
 
-        return if (hasDealerUnitType(payload, 0)) {
-            KarrDeviceClassification(
-                tier = KarrCandidateTier.POSSIBLE,
-                evidence = "Dealer-compatible manufacturer status frame",
-            )
-        } else {
-            null
-        }
+        val unitTypeCode = dealerUnitTypeCode(payload, 0) ?: return null
+        val model = KarrUnitModel.fromCode(unitTypeCode)
+        return KarrDeviceClassification(
+            tier = if (model.isRecognized) {
+                KarrCandidateTier.CONFIRMED_FORMAT
+            } else {
+                KarrCandidateTier.POSSIBLE
+            },
+            evidence = dealerFrameEvidence(
+                prefix = if (model.isRecognized) {
+                    "Recovered KARR dealer manufacturer status frame"
+                } else {
+                    "Dealer-compatible manufacturer status frame"
+                },
+                unitTypeCode = unitTypeCode,
+            ),
+        )
     }
 
     private fun recoverDealerEmbeddedName(payload: ByteArray): String? {
@@ -143,14 +157,23 @@ object CompatibleKarrDevice {
      * status bytes and rejects only zero. Values 1..9 map to enums known by
      * that app; retaining other nonzero values avoids hiding later hardware.
      */
-    private fun hasDealerUnitType(payload: ByteArray, offset: Int): Boolean {
+    private fun dealerUnitTypeCode(payload: ByteArray, offset: Int): Int? {
         if (payload.size < offset + 2) {
-            return false
+            return null
         }
         val encodedType =
             ((payload[offset].toInt() and 0xC0) ushr 6) +
                 ((payload[offset + 1].toInt() and 0xC0) ushr 4)
-        return encodedType != 0
+        return encodedType.takeIf { it != 0 }?.minus(1)
+    }
+
+    private fun dealerFrameEvidence(prefix: String, unitTypeCode: Int): String {
+        val model = KarrUnitModel.fromCode(unitTypeCode)
+        return if (model.isRecognized) {
+            "$prefix (${model.displayName})"
+        } else {
+            "$prefix (unrecognized unit type ${model.code})"
+        }
     }
 
     private fun String?.normalizedBluetoothName(): String? =

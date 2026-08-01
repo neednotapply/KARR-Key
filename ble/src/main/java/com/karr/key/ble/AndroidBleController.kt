@@ -133,19 +133,32 @@ class AndroidBleController(
         val device = result.device ?: return
         val scanRecord = result.scanRecord
         val existing = discovered[device.address]?.device
-        val name = device.name ?: scanRecord?.deviceName ?: existing?.name
-        val advertisedServices = scanRecord
-            ?.serviceUuids
-            ?.map { parcelUuid -> parcelUuid.uuid }
-            .orEmpty()
-        val manufacturerData = buildList {
-            val records = scanRecord?.manufacturerSpecificData
-            if (records != null) {
-                for (index in 0 until records.size()) {
-                    add(records.valueAt(index).copyOf())
-                }
+        val name = scanRecord?.deviceName ?: device.name ?: existing?.name
+        val advertisedServices = buildSet {
+            scanRecord?.serviceUuids?.forEach { parcelUuid -> add(parcelUuid.uuid) }
+            scanRecord?.serviceData?.keys?.forEach { parcelUuid -> add(parcelUuid.uuid) }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                scanRecord
+                    ?.serviceSolicitationUuids
+                    ?.forEach { parcelUuid -> add(parcelUuid.uuid) }
             }
         }
+        val manufacturerData = manufacturerRecordsFromRawScanRecord(scanRecord?.bytes)
+            .ifEmpty {
+                buildList {
+                    val records = scanRecord?.manufacturerSpecificData
+                    if (records != null) {
+                        for (index in 0 until records.size()) {
+                            add(
+                                completeManufacturerRecord(
+                                    manufacturerId = records.keyAt(index),
+                                    manufacturerData = records.valueAt(index),
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
         val observedClassification = CompatibleKarrDevice.classify(
             name = name,
             advertisedServices = advertisedServices,

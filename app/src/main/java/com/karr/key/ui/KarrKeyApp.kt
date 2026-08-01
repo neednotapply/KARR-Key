@@ -432,7 +432,11 @@ private fun DashboardScreen(
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
-                            text = "Older KARR units broadcast recognizable DR/QT Bluetooth names and accept connections through an exposed wireless control service.",
+                            text = "KARR advertisements are not limited to DR/QT names. " +
+                                "Recovered Dealer units can also carry serial and model " +
+                                "status in manufacturer data, so KARR Key evaluates every " +
+                                "nearby BLE advertisement using names, raw manufacturer " +
+                                "frames, and service UUIDs.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Text(

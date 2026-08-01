@@ -1,5 +1,6 @@
 package com.karr.key.ble
 
+import com.karr.key.protocol.KarrUnitModel
 import java.nio.charset.StandardCharsets
 import java.util.UUID
 import org.junit.Assert.assertEquals
@@ -46,6 +47,7 @@ class CompatibleKarrDeviceTest {
 
         assertEquals(KarrCandidateTier.CONFIRMED_FORMAT, result.tier)
         assertEquals("DR D029A54D", result.recoveredName)
+        assertTrue(result.evidence.contains("QT6 CAN"))
     }
 
     @Test
@@ -64,14 +66,40 @@ class CompatibleKarrDeviceTest {
     }
 
     @Test
-    fun treatsShortDealerCompatibleStatusAndGenericUartAsPossible() {
-        assertEquals(
-            KarrCandidateTier.POSSIBLE,
+    fun confirmsStatusFrameWithRecoveredModelId() {
+        val manufacturerResult =
             CompatibleKarrDevice.classify(
                 name = null,
                 manufacturerData = listOf(byteArrayOf(0x40, 0, 0, 0, 0)),
-            ).tier,
+            )
+        assertEquals(
+            KarrCandidateTier.CONFIRMED_FORMAT,
+            manufacturerResult.tier,
         )
+        assertTrue(manufacturerResult.evidence.contains("QT6 CAN"))
+    }
+
+    @Test
+    fun confirmsEveryDealerModelIdPresentInRecoveredSource() {
+        KarrUnitModel.known.forEach { model ->
+            val encodedType = model.code + 1
+            val payload = ByteArray(5).apply {
+                this[0] = ((encodedType and 0x03) shl 6).toByte()
+                this[1] = (((encodedType ushr 2) and 0x03) shl 6).toByte()
+            }
+
+            val classification = CompatibleKarrDevice.classify(
+                name = null,
+                manufacturerData = listOf(payload),
+            )
+
+            assertEquals(model.displayName, KarrCandidateTier.CONFIRMED_FORMAT, classification.tier)
+            assertTrue(model.displayName, classification.evidence.contains(model.displayName))
+        }
+    }
+
+    @Test
+    fun treatsSharedGenericUartAsPossible() {
         assertEquals(
             KarrCandidateTier.POSSIBLE,
             CompatibleKarrDevice.classify(

@@ -60,9 +60,26 @@ foreground notification can no longer be maintained.
 
 ## BLE and protocol compatibility
 
-Recovered KARR candidates use `DR`/`QT` identifiers and the transparent-UART
-service `49535343-FE7D-4AE5-8FA9-9FAFD205E455` with characteristic
-`49535343-1E4D-4BD9-BA61-23C647249616`.
+The scanner requests every Android BLE result without a name, address, or
+service filter. Recovered KARR evidence includes `DR`/`QT` identifiers and
+Dealer manufacturer frames with either an embedded serial or a status-only
+payload. Android separates the first two manufacturer bytes into an integer
+identifier, so the BLE module reconstructs the complete raw AD field before
+applying the recovered Dealer parser. Possible candidates remain visible but
+diagnostic-only. The transparent-UART service is
+`49535343-FE7D-4AE5-8FA9-9FAFD205E455` with characteristic
+`49535343-1E4D-4BD9-BA61-23C647249616`; because that is a shared Microchip
+service, it is supporting evidence rather than KARR identity by itself. A MAC
+OUI is likewise not a KARR identifier: public addresses identify an interface
+vendor, while BLE also permits static and private random addresses.
+
+`CONFIRMED_FORMAT` means that the identifier and parser are explicit in the
+recovered KARR source material. It is intentionally separate from physical
+hardware validation.
+
+Real-hardware validation currently covers a unit advertising as `DR`. Treat
+the other recovered families and formats as source- and fixture-backed until
+each is separately observed and exercised on physical hardware.
 
 `QtProtocolCodec` supports Original `0xAA`, Counter `0xBB`, and Encrypted
 `0x55` packets. Packet framing is established compatibility behavior;

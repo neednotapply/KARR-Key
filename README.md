@@ -102,6 +102,22 @@ Device is where the user adds their research access information, scans for a
 unit, connects, authenticates, and views Bluetooth diagnostics. Saved access
 information is protected by Android Keystore and is never built into the app.
 
+The Android scan is not restricted by a name or service filter. Every delivered
+BLE advertisement is classified using the recovered DR/QT formats, Dealer
+manufacturer frames (including embedded 13-character serials and QT6, QT7,
+DR1, DR2, CIU, and VW-programmer status types), branded names, and the shared
+transparent-UART service. Possible matches are shown separately instead of
+being discarded, but only connectable confirmed-format results can be opened.
+Here, confirmed means the identifier and parser are present in recovered KARR
+source material; it does not by itself mean that model was physically tested.
+The app does not treat a MAC/OUI prefix as KARR proof: BLE addresses may be
+random, and a public prefix identifies the radio/interface vendor rather than
+the product or its owner.
+
+End-to-end operation has been confirmed on real hardware advertising as a `DR`
+unit. Recognition of the other recovered families and formats is source- and
+test-backed, but is not yet physical-hardware confirmation for those models.
+
 The app can keep a user-started scan or active connection running in the
 background. If a connection unexpectedly drops, it will only try to reconnect
 to the last unit that successfully authenticated.
