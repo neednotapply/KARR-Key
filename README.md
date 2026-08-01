@@ -155,7 +155,7 @@ Developers need JDK 17, Android SDK 36, and either `local.properties` or
 
 On Linux or macOS, use `./gradlew`. The debug APK is written to
 `app/build/outputs/apk/debug/KARR-Key.apk` and uses package name `com.karr.key`.
-The current app version is `1.0.1` (code 10).
+The current app version is `1.0.2` (code 11).
 
 The build checks that the app does not request Internet or network-state
 permission. GitHub Actions also runs the tests, lint, and debug build. A nightly
