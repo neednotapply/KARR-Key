@@ -865,7 +865,12 @@ private fun BleSessionState.label(
         "Authenticating ${name ?: address}: $step"
     is BleSessionState.Ready ->
         "Authenticated and ready: ${name ?: address}; " +
-            (unitModel?.displayName ?: "model not identified")
+            listOfNotNull(
+                unitModel?.displayName,
+                unitMode?.let { mode -> "${mode.displayName} mode" },
+            ).ifEmpty {
+                listOf("compatibility details not identified")
+            }.joinToString("; ")
     is BleSessionState.Error -> "Error: $message"
 }
 

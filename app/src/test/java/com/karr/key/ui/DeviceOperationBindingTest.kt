@@ -3,6 +3,7 @@ package com.karr.key.ui
 import com.karr.key.core.FeatureCatalog
 import com.karr.key.core.Session
 import com.karr.key.core.UserRole
+import com.karr.key.protocol.KarrDeviceMode
 import com.karr.key.protocol.KarrUnitModel
 import com.karr.key.protocol.QtCommand
 import com.karr.key.protocol.RecoveredActionPreflight
@@ -66,7 +67,7 @@ class DeviceOperationBindingTest {
             unitModel = KarrUnitModel.DR2_ESP,
         )
 
-        assertTrue(availability is FeatureAvailability.ModelUnsupported)
+        assertTrue(availability is FeatureAvailability.HardwareUnsupported)
         assertFalse(availability.allowsOperationOpen())
     }
 
@@ -110,8 +111,97 @@ class DeviceOperationBindingTest {
             unitModel = null,
         )
 
-        assertTrue(availability is FeatureAvailability.ModelUnknown)
+        assertTrue(availability is FeatureAvailability.HardwareUnknown)
         assertFalse(availability.allowsOperationOpen())
+    }
+
+    @Test
+    fun dr1LearnedRemoteReadIsDisabledAtCatalog() {
+        val availability = operationModelAvailability(
+            session = session(UserRole.INSTALLER),
+            operation = operation(QtCommand.READ_REMOTES, emptyList()),
+            deviceAuthenticated = true,
+            unitModel = KarrUnitModel.DR1_CAN,
+            unitMode = KarrDeviceMode.USER,
+        )
+
+        assertTrue(availability is FeatureAvailability.HardwareUnsupported)
+        assertFalse(availability.allowsOperationOpen())
+    }
+
+    @Test
+    fun bumpTestAvailabilityTracksCurrentOperatingMode() {
+        val operation = operation(QtCommand.BUMP_TEST, listOf(1))
+        val userMode = operationModelAvailability(
+            session = session(UserRole.INSTALLER),
+            operation = operation,
+            deviceAuthenticated = true,
+            unitModel = KarrUnitModel.DR1_CAN,
+            unitMode = KarrDeviceMode.USER,
+        )
+        val installerMode = operationModelAvailability(
+            session = session(UserRole.INSTALLER),
+            operation = operation,
+            deviceAuthenticated = true,
+            unitModel = KarrUnitModel.DR1_CAN,
+            unitMode = KarrDeviceMode.INSTALLER,
+        )
+
+        assertTrue(userMode is FeatureAvailability.ModeRestricted)
+        assertTrue(userMode.allowsOperationOpen())
+        assertEquals(FeatureAvailability.Available, installerMode)
+        assertTrue(installerMode.allowsOperationOpen())
+    }
+
+    @Test
+    fun experimentalInstallerSwitchTracksMostRecentlySuppliedMode() {
+        val switchToInstaller = operation(
+            QtCommand.CHANGE_MODE,
+            listOf(KarrDeviceMode.INSTALLER.code),
+        )
+        val dealerMode = operationModelAvailability(
+            session = session(UserRole.INSTALLER),
+            operation = switchToInstaller,
+            deviceAuthenticated = true,
+            unitModel = KarrUnitModel.QT6_RED,
+            unitMode = KarrDeviceMode.DEALER,
+        )
+        val userMode = operationModelAvailability(
+            session = session(UserRole.INSTALLER),
+            operation = switchToInstaller,
+            deviceAuthenticated = true,
+            unitModel = KarrUnitModel.QT6_RED,
+            unitMode = KarrDeviceMode.USER,
+        )
+
+        assertEquals(FeatureAvailability.Available, dealerMode)
+        assertTrue(userMode is FeatureAvailability.ModeRestricted)
+        assertTrue(userMode.allowsOperationOpen())
+    }
+
+    @Test
+    fun sharedUserModePacketSelectsRoleAndSourceModeAppropriateBinding() {
+        val returnToUser = operation(
+            QtCommand.CHANGE_MODE,
+            listOf(KarrDeviceMode.USER.code),
+        )
+
+        assertEquals(
+            "customer.valet",
+            returnToUser.preferredBinding(
+                session = session(UserRole.CUSTOMER),
+                unitModel = KarrUnitModel.QT6_RED,
+                unitMode = KarrDeviceMode.VALET,
+            ).feature.id,
+        )
+        assertEquals(
+            "installer.mode_switches",
+            returnToUser.preferredBinding(
+                session = session(UserRole.INSTALLER),
+                unitModel = KarrUnitModel.QT6_RED,
+                unitMode = KarrDeviceMode.DEALER,
+            ).feature.id,
+        )
     }
 
     private fun trunkOperation() =

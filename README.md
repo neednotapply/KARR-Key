@@ -32,7 +32,7 @@ Select an image to view it at full resolution.
       <a href="docs/screenshots/operations.png">
         <img src="docs/screenshots/operations.png" width="320" alt="KARR Key Operations screen">
       </a>
-      <br><sub>Searchable catalog of 21 operations</sub>
+      <br><sub>Searchable operations catalog</sub>
     </td>
   </tr>
   <tr>
@@ -64,13 +64,15 @@ Select an image to view it at full resolution.
   the user.
 - Read information from the unit and send recovered vehicle or service
   commands.
-- Show 21 unique operations without repeating the same command for different
+- Show 25 unique operations without repeating the same command for different
   Customer, Dealer, or Installer workflows.
-- Search the operations list or filter it with simple tags: **Reads**,
-  **Commands**, **Vehicle controls**, **Diagnostics**, **Unit service**, and
-  **Validation**.
-- Identify the connected model and disable an operation when that model is not
-  supported. The reason is shown before the operation can be opened.
+- Search the operations list or filter it with **Reads**, **Commands**, **Unit
+  mode**, or **Experimental**. Deselect the active tag to show all operations;
+  redundant workflow tags are omitted.
+- Identify the connected model and operating mode, then label restrictions as
+  either **Hardware** or **Unit mode**. Hardware-incompatible operations remain
+  disabled; mode-restricted operations can be opened to see and start an
+  authorized recovered mode-switch path.
 - Show the difference between a command reaching Bluetooth, the KARR unit
   replying, and the vehicle physically doing something.
 
@@ -88,13 +90,27 @@ and links to the research and firmware update instructions.
 ### Operations
 
 Operations contains the searchable, filterable list of reads and commands.
-Operations that are incompatible with the connected KARR model are visibly
-disabled. Opening a supported operation shows what it does and any checks that
-must pass before it can run.
+Operations that are incompatible with the connected KARR hardware are visibly
+disabled with a model-specific reason. An operation blocked only by the current
+unit mode remains selectable and explains the required mode. When the recovered
+transition graph and current access permit it, the detail page links to the
+appropriate mode switch or first step of a multi-step path.
 
 One Installer immobilizer-output command is marked **Experimental**. It is sent
 only once, requires the ignition to be off, and does not treat a reply from the
-unit as proof that the vehicle was physically immobilized.
+unit as proof that the vehicle was physically immobilized. Its detail page pairs
+the candidate with the recovered **Unlock and disarm** recovery operation. The
+candidate stays unavailable unless that recovery operation is authorized and
+compatible, and the user is instructed to verify a drivable state before testing.
+
+The recovered Installer section also exposes switches to Installer, Dealer,
+User, No sale, and BCA modes. The Dealer and User transitions have been confirmed
+by `READ_MODE` on authorized hardware and are no longer experimental; the other
+service/lifecycle transitions remain candidates. They are offered only from the
+source modes used by preserved callers. Each `CHANGE_MODE` packet is sent once,
+then the app issues `READ_MODE`; success is shown only when the unit reports the
+requested mode. Bootload and Unconfigured are not exposed as ordinary mode
+switches because the preserved apps do not use them that way.
 
 ### Device
 

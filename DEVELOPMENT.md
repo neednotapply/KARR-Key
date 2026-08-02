@@ -40,16 +40,19 @@ foreground notification can no longer be maintained.
 - UART subscription confirms transport, not authenticated readiness.
 - An 8-byte `REQUEST_AUTH` challenge triggers `READ_MODE`, selects the
   matching locally provisioned Customer or Dealer/Installer material, sends
-  `PROVIDE_AUTH`, retains the returned unit model, and still waits for the
-  unit's `AUTH_SUCCESS`.
+  `PROVIDE_AUTH`, retains the returned unit model and operating mode, and still
+  waits for the unit's `AUTH_SUCCESS`.
 - `Ready` requires a valid authentication-success notification for the current
   connection generation.
 - Disconnect invalidates authentication, counters, and outstanding responses.
 - Writes remain serialized and correlated with expected responses/timeouts.
+- Every valid `READ_MODE` notification received in `Ready` replaces the stored
+  model and operating mode before command observers are notified. Restricted
+  operations therefore follow the unit's most recently read mode.
 - A provisioned key grants only its recovered local role surface. Device
   mutations still require the current connection to reach `Ready`.
 - Safety-sensitive actions require an authenticated BLE session, local role
-  authorization, and a compatible identified unit model.
+  authorization, and compatible identified unit model and operating mode.
 - Recovered universal credentials are never compiled into the application.
 - Every visible operation sends one distinct recovered device packet. Scanning, connection,
   access keys, and transport diagnostics stay in the Device center. Inventory,
@@ -92,8 +95,9 @@ supported unit mode without silent downgrade.
 
 `RecoveredWorkflowCatalog` contains only packets backed by recovered managed
 callers. The user-facing catalog groups identical command/payload pairs into one
-operation while retaining every role, model, and preflight binding. Operation
-pages distinguish GATT write acceptance from a matching unit notification,
+operation while retaining every role, model, operating-mode, and preflight
+binding. Operation pages distinguish GATT write acceptance from a matching unit
+notification,
 execute enabled mutating packets directly, and retain command
 metadata in the encrypted local operation journal without recording payload
 contents. Read results display only the packet correlated with the active
@@ -103,12 +107,47 @@ flags remain explicitly labeled instead of receiving guessed meanings. The
 single expandable Technical details section is always the final box and includes
 raw protocol evidence after a response.
 
-The `READ_MODE` response received during authentication is also the model
-discovery source. `Ready` retains the recovered QT6, DR1, DR2, QT7, CIU, or VW
-programmer identity without sending a second request. Action metadata is
-evaluated against that model before a command can be reviewed or sent. An
-unrecognized or missing model leaves restricted commands unconfirmed and
-disabled; it is not treated as evidence of support.
+The `READ_MODE` response received during authentication is the initial model and
+operating-mode discovery source. `Ready` retains the recovered QT6, DR1, DR2,
+QT7, CIU, or VW programmer identity and its current Installer, Dealer, User, or
+other reported mode without sending a redundant request. Later `READ_MODE`
+responses reconcile those same fields immediately. Action metadata is evaluated
+against the latest values before a command can be reviewed or sent. Missing
+compatibility details leave restricted commands unconfirmed and disabled; they
+are not treated as evidence of support.
+
+An authenticated DR1 CAN observation returned `ACK_ERROR Invalid_Command (01)`
+for `READ_REMOTES`, so that read is limited to the QT6 products recovered from
+the legacy caller and blocked locally for other units. `BUMP_TEST` with its
+active payload returned `ACK_ERROR Invalid_Mode (03)` outside the permitted
+state; the recovered Installer caller covers QT6 and DR1 CAN products but
+reaches the active bump-test workflow only in Installer mode. KARR Key retains the
+authenticated mode, labels this as a `Unit mode` restriction, and keeps the
+detail selectable while the send button remains disabled. If the current role
+has a recovered transition path, the detail offers the appropriate switch or
+first step. A hardware mismatch remains labeled `Hardware` and blocks navigation.
+
+`CHANGE_MODE` is modeled as a state transition, not as a successful write. The
+Customer User-to-Valet and Valet-to-User actions and every service mode action
+send the mutation once, wait for its acknowledgement, then issue a
+fresh `READ_MODE`. Only an exact target-mode read-back succeeds. A different,
+malformed, rejected, timed-out, or unavailable read-back is retained as a
+failure and never causes the mutating command to be retried. The fresh response
+also updates `Ready`, so all model/mode restrictions are recomputed immediately.
+
+The Installer mode-switch section exposes only ordinary transitions recovered
+from managed callers: Dealer to Installer, No sale, or BCA; User, Installer, No
+sale, or BCA back to Dealer; and Dealer or No sale to User. Valet follows the
+recovered staged path through User before Dealer. Bootload uses its dedicated
+entry command rather than `CHANGE_MODE`, and no ordinary transition into
+Unconfigured was recovered, so neither value is offered. The transitions into
+Dealer and User have been confirmed by fresh `READ_MODE` on authorized hardware
+and are no longer experimental. The other service/lifecycle edges remain source-backed
+candidates awaiting physical-hardware observations; the app reports protocol
+read-back separately from any broader vehicle effect.
+Because User/Valet use Customer material while service modes use Dealer material,
+a later reconnect authenticates with the key family selected by the newly read
+mode.
 
 The customer trunk action retains the recovered `VEHICLE_CONTROL` selector
 `10`, but it is not a universal KARR output. Both recovered customer callers
@@ -147,7 +186,13 @@ a QT-family model plus a `READ_STATE` response with ignition off, sends the
 candidate exactly once, and displays TX/RX evidence. DR1 and DR2 models are
 blocked before review. GATT acceptance, protocol acknowledgement, and physical
 immobilizer behavior are separate observations; only the first two can be
-reported by the app without an authorized vehicle fixture.
+reported by the app without an authorized vehicle fixture. The preserved
+installer sequence uses `UNLOCK_DOORS` with payload `0` and then instructs the
+technician to confirm that the vehicle is not immobilized. The app exposes that
+operation as **Restore drivable state / Unlock and disarm** beside the candidate
+and keeps the candidate disabled unless the recovery operation is authorized
+and compatible. The technician must still verify physical drivability before
+testing; a protocol acknowledgement is not enough.
 
 The implemented legacy challenge transform is source-faithful for the
 recovered 8-byte flow. Customer/Valet mode incorporates the recovered unit

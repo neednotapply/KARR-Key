@@ -37,6 +37,13 @@ enum class KarrDeviceMode(val code: Int) {
     UNCONFIGURED(7),
     ;
 
+    val displayName: String
+        get() = when (this) {
+            NO_SALE -> "No sale"
+            BCA -> "BCA"
+            else -> name.lowercase().replaceFirstChar(Char::uppercase)
+        }
+
     val keyPurpose: DeviceKeyPurpose
         get() = if (this == USER || this == VALET) {
             DeviceKeyPurpose.CUSTOMER

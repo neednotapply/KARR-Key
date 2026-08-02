@@ -27,15 +27,20 @@ import androidx.compose.ui.unit.dp
 import com.karr.key.ble.BleCommandExchange
 import com.karr.key.ble.BleCommandExchangeResult
 import com.karr.key.ble.BleController
+import com.karr.key.ble.BleModeChangeExchange
+import com.karr.key.ble.BleModeChangeResult
 import com.karr.key.ble.BleSessionState
+import com.karr.key.ble.ModeChangeStage
 import com.karr.key.core.AuthorizationDecision
 import com.karr.key.core.RolePolicy
 import com.karr.key.core.Session
 import com.karr.key.core.displayName
 import com.karr.key.data.LocalOperationState
 import com.karr.key.data.LocalOperationStore
+import com.karr.key.protocol.KarrDeviceMode
 import com.karr.key.protocol.KarrUnitModel
 import com.karr.key.protocol.RecoveredActionPreflight
+import com.karr.key.protocol.RecoveredCompatibilityConstraint
 import com.karr.key.protocol.RecoveredDeviceAction
 import com.karr.key.protocol.RecoveredDeviceOperation
 import com.karr.key.protocol.RecoveredModelCompatibility
@@ -59,22 +64,49 @@ fun DeviceOperationScreen(
     operation: RecoveredDeviceOperation,
     deviceAuthenticated: Boolean,
     unitModel: KarrUnitModel?,
+    unitMode: KarrDeviceMode?,
     controller: BleController,
     operationStore: LocalOperationStore,
     snackbar: SnackbarHostState,
+    onOpenOperation: (RecoveredDeviceOperation) -> Unit,
 ) {
     val binding = remember(
         operation.id,
         session.roles,
         session.capabilities,
         unitModel,
+        unitMode,
     ) {
-        operation.preferredBinding(session, unitModel)
+        operation.preferredBinding(session, unitModel, unitMode)
     }
     val feature = binding.feature
     val action = binding.action
     val decision = RolePolicy().authorize(session, feature, deviceAuthenticated)
+    val modeSwitchOffer = modeSwitchOffer(
+        session = session,
+        blockedAction = action,
+        deviceAuthenticated = deviceAuthenticated,
+        unitModel = unitModel,
+        unitMode = unitMode,
+    )
+    val recoveryStatus = remember(
+        operation.id,
+        session.roles,
+        session.capabilities,
+        deviceAuthenticated,
+        unitModel,
+        unitMode,
+    ) {
+        immobilizerRecoveryStatus(
+            session = session,
+            operation = operation,
+            deviceAuthenticated = deviceAuthenticated,
+            unitModel = unitModel,
+            unitMode = unitMode,
+        )
+    }
     val exchange = remember(controller) { BleCommandExchange(controller) }
+    val modeChangeExchange = remember(controller) { BleModeChangeExchange(controller) }
     val scope = rememberCoroutineScope()
     var commandStatus by remember(operation.id) { mutableStateOf<String?>(null) }
     var decodedResponse by remember(operation.id) {
@@ -148,7 +180,7 @@ fun DeviceOperationScreen(
     }
 
     fun execute(action: RecoveredDeviceAction) {
-        action.compatibilityWith(unitModel).blockingReason()?.let { reason ->
+        action.compatibilityWith(unitModel, unitMode).blockingReason()?.let { reason ->
             commandStatus = reason
             scope.launch {
                 snackbar.showSnackbar(reason)
@@ -199,6 +231,128 @@ fun DeviceOperationScreen(
                             )
                         }
                     }.getOrNull()
+                }
+                executableAction.targetMode?.let { targetMode ->
+                    when (
+                        val result = modeChangeExchange.changeAndConfirm(
+                            changePacket = executableAction.packet(),
+                            targetMode = targetMode,
+                            onChangeGattAccepted = {
+                                updateOperation(
+                                    operationId = operation?.id,
+                                    state = LocalOperationState.DELIVERED_TO_GATT,
+                                )
+                                commandStatus =
+                                    "CHANGE_MODE was accepted by Android GATT; waiting for " +
+                                        "the unit acknowledgement."
+                            },
+                            onReadGattAccepted = {
+                                commandStatus =
+                                    "CHANGE_MODE was acknowledged; reading the unit mode back."
+                            },
+                        )
+                    ) {
+                        is BleModeChangeResult.Confirmed -> {
+                            decodedResponse = QtResponseDecoder.decode(
+                                packet = result.readResponse,
+                                unitModel = unitModel,
+                            )
+                            lastResponse = result.readResponse.rawResponseText(result.rawFrame)
+                            updateOperation(
+                                operationId = operation?.id,
+                                state = LocalOperationState.SUCCEEDED,
+                            )
+                            commandStatus =
+                                "Unit reports ${targetMode.displayName} mode. The mode change " +
+                                    "is confirmed by a fresh READ_MODE response."
+                            snackbar.showSnackbar(
+                                "Mode confirmed: ${targetMode.displayName}.",
+                            )
+                        }
+                        is BleModeChangeResult.ObservedDifferent -> {
+                            decodedResponse = QtResponseDecoder.decode(
+                                packet = result.readResponse,
+                                unitModel = unitModel,
+                            )
+                            lastResponse = result.readResponse.rawResponseText(result.rawFrame)
+                            val error =
+                                "CHANGE_MODE was acknowledged, but a fresh READ_MODE reports " +
+                                    "${result.observedMode.displayName} mode rather than " +
+                                    "${targetMode.displayName}. The command was not repeated."
+                            updateOperation(
+                                operationId = operation?.id,
+                                state = LocalOperationState.FAILED_PERMANENT,
+                                lastError = error,
+                            )
+                            commandStatus = error
+                            snackbar.showSnackbar(error)
+                        }
+                        is BleModeChangeResult.Rejected -> {
+                            decodedResponse = null
+                            lastResponse = result.response.rawResponseText(result.rawFrame)
+                            val attemptedCommand = when (result.stage) {
+                                ModeChangeStage.CHANGE_MODE -> QtCommand.CHANGE_MODE
+                                ModeChangeStage.READ_MODE -> QtCommand.READ_MODE
+                            }
+                            val error = result.response.ackErrorMessage(
+                                attemptedCommand = attemptedCommand,
+                                prefix = "The unit rejected ${result.stage.displayName}",
+                            ) + " The mode-change command was not repeated."
+                            updateOperation(
+                                operationId = operation?.id,
+                                state = LocalOperationState.FAILED_PERMANENT,
+                                lastError = error,
+                            )
+                            commandStatus = error
+                            snackbar.showSnackbar(error)
+                        }
+                        is BleModeChangeResult.TimedOut -> {
+                            val error = when (result.stage) {
+                                ModeChangeStage.CHANGE_MODE ->
+                                    "GATT accepted CHANGE_MODE, but no unit acknowledgement was " +
+                                        "observed within 5 seconds. The command was not repeated."
+                                ModeChangeStage.READ_MODE ->
+                                    "CHANGE_MODE was acknowledged, but the follow-up READ_MODE " +
+                                        "did not return within 5 seconds. The requested mode is " +
+                                        "not confirmed, and CHANGE_MODE was not repeated."
+                            }
+                            updateOperation(
+                                operationId = operation?.id,
+                                state = LocalOperationState.FAILED_PERMANENT,
+                                lastError = error,
+                            )
+                            commandStatus = error
+                            snackbar.showSnackbar(error)
+                        }
+                        is BleModeChangeResult.TransportFailure -> {
+                            val error =
+                                "${result.stage.displayName} failed: ${result.message} " +
+                                    "The mode-change command was not repeated."
+                            updateOperation(
+                                operationId = operation?.id,
+                                state = LocalOperationState.FAILED_PERMANENT,
+                                lastError = error,
+                            )
+                            commandStatus = error
+                            snackbar.showSnackbar(error)
+                        }
+                        is BleModeChangeResult.MalformedRead -> {
+                            decodedResponse = null
+                            lastResponse = result.response.rawResponseText(result.rawFrame)
+                            val error =
+                                "CHANGE_MODE was acknowledged, but READ_MODE returned no mode " +
+                                    "byte. The requested mode is not confirmed, and the command " +
+                                    "was not repeated."
+                            updateOperation(
+                                operationId = operation?.id,
+                                state = LocalOperationState.FAILED_PERMANENT,
+                                lastError = error,
+                            )
+                            commandStatus = error
+                            snackbar.showSnackbar(error)
+                        }
+                    }
+                    return@launch
                 }
                 when (
                     val result = exchange.sendAndAwait(
@@ -416,7 +570,7 @@ fun DeviceOperationScreen(
                 )
             }
             item {
-                val modelCompatibility = action.compatibilityWith(unitModel)
+                val compatibility = action.compatibilityWith(unitModel, unitMode)
                 OutlinedCard(Modifier.fillMaxWidth()) {
                     Column(
                         modifier = Modifier.padding(18.dp),
@@ -432,7 +586,12 @@ fun DeviceOperationScreen(
                         )
                         if (deviceAuthenticated) {
                             Text(
-                                "${unitModel?.displayName ?: "Unknown model"} connected",
+                                listOfNotNull(
+                                    unitModel?.displayName,
+                                    unitMode?.let { mode -> "${mode.displayName} mode" },
+                                ).ifEmpty {
+                                    listOf("Compatibility details unavailable")
+                                }.joinToString(" • ") + " connected",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         } else {
@@ -441,32 +600,80 @@ fun DeviceOperationScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        when (modelCompatibility) {
+                        when (compatibility) {
                             RecoveredModelCompatibility.Supported -> Unit
                             is RecoveredModelCompatibility.Unsupported -> {
+                                val modeRestriction =
+                                    compatibility.constraint ==
+                                        RecoveredCompatibilityConstraint.UNIT_MODE
                                 Text(
-                                    "NOT SUPPORTED ON " +
-                                        (unitModel?.displayName?.uppercase()
-                                            ?: "CONNECTED MODEL"),
+                                    if (modeRestriction) {
+                                        "UNIT MODE CHANGE REQUIRED"
+                                    } else {
+                                        "HARDWARE NOT SUPPORTED"
+                                    },
                                     style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.error,
+                                    color = if (modeRestriction) {
+                                        MaterialTheme.colorScheme.tertiary
+                                    } else {
+                                        MaterialTheme.colorScheme.error
+                                    },
                                 )
                                 Text(
-                                    modelCompatibility.reason,
-                                    color = MaterialTheme.colorScheme.error,
+                                    compatibility.reason,
+                                    color = if (modeRestriction) {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    } else {
+                                        MaterialTheme.colorScheme.error
+                                    },
                                 )
                             }
                             is RecoveredModelCompatibility.Unknown -> {
                                 Text(
-                                    "MODEL SUPPORT UNCONFIRMED",
+                                    if (
+                                        compatibility.constraint ==
+                                        RecoveredCompatibilityConstraint.UNIT_MODE
+                                    ) {
+                                        "UNIT MODE UNKNOWN"
+                                    } else {
+                                        "HARDWARE COMPATIBILITY UNKNOWN"
+                                    },
                                     style = MaterialTheme.typography.labelLarge,
                                     color = MaterialTheme.colorScheme.tertiary,
                                 )
                                 Text(
-                                    modelCompatibility.reason,
+                                    compatibility.reason,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
+                        }
+                        if (
+                            compatibility is RecoveredModelCompatibility.Unsupported &&
+                            compatibility.constraint ==
+                            RecoveredCompatibilityConstraint.UNIT_MODE &&
+                            decision == AuthorizationDecision.Allowed
+                        ) {
+                            modeSwitchOffer?.let { offer ->
+                                Text(
+                                    if (offer.totalSteps == 1) {
+                                        "A recovered mode switch can make this operation available."
+                                    } else {
+                                        "A recovered ${offer.totalSteps}-step path can reach " +
+                                            "${offer.destinationDescription}. Start by switching " +
+                                            "to ${offer.nextMode.displayName} mode."
+                                    },
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                OutlinedButton(
+                                    onClick = { onOpenOperation(offer.operation) },
+                                ) {
+                                    Text("Open ${offer.operation.label}")
+                                }
+                            } ?: Text(
+                                "No authorized recovered mode switch is available from the " +
+                                    "unit's current mode.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                         if (decision is AuthorizationDecision.Denied) {
                             Text(
@@ -481,14 +688,50 @@ fun DeviceOperationScreen(
                                 color = MaterialTheme.colorScheme.tertiary,
                             )
                         }
+                        recoveryStatus?.let { recovery ->
+                            Text(
+                                "RESTORE DRIVABLE STATE",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.tertiary,
+                            )
+                            Text(
+                                "The preserved installer sequence uses Unlock and disarm to " +
+                                    "return the vehicle to a non-immobilized state. Open it and " +
+                                    "physically verify the vehicle is drivable before this test, " +
+                                    "and keep it available afterward. A protocol acknowledgement " +
+                                    "is not physical proof.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            recovery.operation?.let { recoveryOperation ->
+                                OutlinedButton(
+                                    onClick = { onOpenOperation(recoveryOperation) },
+                                ) {
+                                    Text("Open recovery: ${recoveryOperation.label}")
+                                }
+                            }
+                            if (!recovery.available) {
+                                Text(
+                                    "IMMOBILIZATION TEST BLOCKED",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                                recovery.reason?.let { reason ->
+                                    Text(
+                                        reason,
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                }
+                            }
+                        }
                         if (action.mutating) {
                             Button(
                                 onClick = { execute(action) },
                                 enabled =
                                     decision == AuthorizationDecision.Allowed &&
                                         deviceAuthenticated &&
-                                        modelCompatibility ==
+                                        compatibility ==
                                         RecoveredModelCompatibility.Supported &&
+                                        recoveryStatus?.available != false &&
                                         !sending,
                             ) {
                                 Text(
@@ -505,7 +748,7 @@ fun DeviceOperationScreen(
                                 enabled =
                                     decision == AuthorizationDecision.Allowed &&
                                         deviceAuthenticated &&
-                                        modelCompatibility ==
+                                        compatibility ==
                                         RecoveredModelCompatibility.Supported &&
                                         !sending,
                             ) {
@@ -611,6 +854,7 @@ fun DeviceOperationScreen(
 internal fun RecoveredDeviceOperation.preferredBinding(
     session: Session,
     unitModel: KarrUnitModel?,
+    unitMode: KarrDeviceMode? = null,
 ): RecoveredOperationBinding = bindings.maxBy { binding ->
     val feature = binding.feature
     var score = 0
@@ -620,7 +864,7 @@ internal fun RecoveredDeviceOperation.preferredBinding(
     if (session.capabilities.containsAll(feature.requiredCapabilities)) {
         score += 50
     }
-    score += when (binding.action.compatibilityWith(unitModel)) {
+    score += when (binding.action.compatibilityWith(unitModel, unitMode)) {
         RecoveredModelCompatibility.Supported -> 20
         is RecoveredModelCompatibility.Unknown -> 10
         is RecoveredModelCompatibility.Unsupported -> 0
@@ -689,3 +933,9 @@ private fun RecoveredModelCompatibility.blockingReason(): String? = when (this) 
     is RecoveredModelCompatibility.Unsupported -> reason
     is RecoveredModelCompatibility.Unknown -> reason
 }
+
+private val ModeChangeStage.displayName: String
+    get() = when (this) {
+        ModeChangeStage.CHANGE_MODE -> "CHANGE_MODE"
+        ModeChangeStage.READ_MODE -> "READ_MODE confirmation"
+    }

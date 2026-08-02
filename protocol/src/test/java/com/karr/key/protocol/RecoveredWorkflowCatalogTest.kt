@@ -26,7 +26,7 @@ class RecoveredWorkflowCatalogTest {
             operation.command to operation.payload
         }
 
-        assertEquals(21, operations.size)
+        assertEquals(25, operations.size)
         assertEquals(operationPackets.size, operationPackets.distinct().size)
 
         val readState = operations.single { operation ->
@@ -97,6 +97,22 @@ class RecoveredWorkflowCatalogTest {
             listOf(KarrDeviceMode.VALET.code, KarrDeviceMode.USER.code),
             valet.map { action -> action.payload.single() },
         )
+        assertEquals(
+            listOf(KarrDeviceMode.VALET, KarrDeviceMode.USER),
+            valet.map(RecoveredDeviceAction::targetMode),
+        )
+        assertEquals(
+            RecoveredModelCompatibility.Supported,
+            valet.first().compatibilityWith(KarrUnitModel.QT6_RED, KarrDeviceMode.USER),
+        )
+        assertTrue(
+            valet.first().compatibilityWith(KarrUnitModel.QT6_RED, KarrDeviceMode.VALET) is
+                RecoveredModelCompatibility.Unsupported,
+        )
+        assertEquals(
+            RecoveredModelCompatibility.Supported,
+            valet.last().compatibilityWith(KarrUnitModel.QT6_RED, KarrDeviceMode.VALET),
+        )
         assertTrue(lock.mutating)
         assertTrue(trunk.mutating)
     }
@@ -141,6 +157,74 @@ class RecoveredWorkflowCatalogTest {
     }
 
     @Test
+    fun learnedRemoteReadIsLimitedToRecoveredQt6Models() {
+        val action = RecoveredWorkflowCatalog.operations.single { operation ->
+            operation.command == QtCommand.READ_REMOTES
+        }.bindings.first().action
+
+        assertTrue(
+            action.compatibilityWith(
+                KarrUnitModel.DR1_CAN,
+                KarrDeviceMode.USER,
+            ) is RecoveredModelCompatibility.Unsupported,
+        )
+        assertTrue(
+            action.compatibilityWith(
+                KarrUnitModel.DR2_ESP,
+                KarrDeviceMode.DEALER,
+            ) is RecoveredModelCompatibility.Unsupported,
+        )
+        assertEquals(
+            RecoveredModelCompatibility.Supported,
+            action.compatibilityWith(
+                KarrUnitModel.QT6_RED,
+                KarrDeviceMode.USER,
+            ),
+        )
+        assertTrue(
+            action.compatibilityWith(
+                KarrUnitModel.QT7_GREEN,
+                KarrDeviceMode.USER,
+            ) is RecoveredModelCompatibility.Unsupported,
+        )
+    }
+
+    @Test
+    fun bumpTestRequiresInstallerOperatingMode() {
+        val action = RecoveredWorkflowCatalog.operations.single { operation ->
+            operation.command == QtCommand.BUMP_TEST
+        }.bindings.single().action
+
+        val blocked = action.compatibilityWith(
+            KarrUnitModel.DR1_CAN,
+            KarrDeviceMode.USER,
+        )
+        assertTrue(blocked is RecoveredModelCompatibility.Unsupported)
+        assertEquals(
+            RecoveredCompatibilityConstraint.UNIT_MODE,
+            (blocked as RecoveredModelCompatibility.Unsupported).constraint,
+        )
+        assertTrue(blocked.reason.contains("User mode"))
+        assertEquals(
+            RecoveredModelCompatibility.Supported,
+            action.compatibilityWith(
+                KarrUnitModel.DR1_CAN,
+                KarrDeviceMode.INSTALLER,
+            ),
+        )
+        assertTrue(
+            action.compatibilityWith(
+                KarrUnitModel.DR2_ESP,
+                KarrDeviceMode.INSTALLER,
+            ) is RecoveredModelCompatibility.Unsupported,
+        )
+        assertTrue(
+            action.compatibilityWith(KarrUnitModel.DR1_CAN) is
+                RecoveredModelCompatibility.Unknown,
+        )
+    }
+
+    @Test
     fun installerImmobilizerTestMatchesRecoveredExperimentalOutputSelector() {
         val action = RecoveredWorkflowCatalog.actionsFor("installer.immobilizer_test").single()
 
@@ -177,6 +261,94 @@ class RecoveredWorkflowCatalogTest {
     }
 
     @Test
+    fun installerUnlockIsTheRecoveredDisarmedRecoveryState() {
+        val action = RecoveredWorkflowCatalog.actionsFor("installer.tests")
+            .single { candidate -> candidate.command == QtCommand.UNLOCK_DOORS }
+
+        assertEquals(listOf(0), action.payload)
+        assertEquals(QtSecurityState.DISARMED, action.expectedSecurityState)
+        assertFalse(action.experimental)
+    }
+
+    @Test
+    fun serviceModeSwitchesExposeOnlyRecoveredOrdinaryTargets() {
+        val actions = RecoveredWorkflowCatalog.actionsFor("installer.mode_switches")
+
+        assertEquals(
+            setOf(
+                KarrDeviceMode.INSTALLER,
+                KarrDeviceMode.DEALER,
+                KarrDeviceMode.USER,
+                KarrDeviceMode.NO_SALE,
+                KarrDeviceMode.BCA,
+            ),
+            actions.mapNotNull(RecoveredDeviceAction::targetMode).toSet(),
+        )
+        assertTrue(actions.all { action -> action.command == QtCommand.CHANGE_MODE })
+        assertTrue(actions.all(RecoveredDeviceAction::mutating))
+        assertTrue(actions.all(RecoveredDeviceAction::singleShot))
+        assertFalse(
+            actions.single { action -> action.targetMode == KarrDeviceMode.DEALER }.experimental,
+        )
+        assertFalse(
+            actions.single { action -> action.targetMode == KarrDeviceMode.USER }.experimental,
+        )
+        assertTrue(
+            actions
+                .filterNot { action ->
+                    action.targetMode in setOf(KarrDeviceMode.DEALER, KarrDeviceMode.USER)
+                }
+                .all(RecoveredDeviceAction::experimental),
+        )
+        assertTrue(
+            actions.none { action ->
+                action.targetMode in setOf(
+                    KarrDeviceMode.BOOTLOAD,
+                    KarrDeviceMode.UNCONFIGURED,
+                )
+            },
+        )
+    }
+
+    @Test
+    fun valetAndServiceReturnsToUserAreConfirmed() {
+        val customerReturn = RecoveredWorkflowCatalog.actionsFor("customer.valet")
+            .single { action -> action.targetMode == KarrDeviceMode.USER }
+        val serviceReturn = RecoveredWorkflowCatalog.actionsFor("installer.mode_switches")
+            .single { action -> action.targetMode == KarrDeviceMode.USER }
+
+        assertFalse(customerReturn.experimental)
+        assertFalse(serviceReturn.experimental)
+    }
+
+    @Test
+    fun experimentalModeSwitchesFollowRecoveredSourceModeGraph() {
+        val actions = RecoveredWorkflowCatalog.actionsFor("installer.mode_switches")
+            .associateBy(RecoveredDeviceAction::targetMode)
+
+        assertEquals(
+            RecoveredModelCompatibility.Supported,
+            actions.getValue(KarrDeviceMode.INSTALLER)
+                .compatibilityWith(KarrUnitModel.QT6_RED, KarrDeviceMode.DEALER),
+        )
+        assertTrue(
+            actions.getValue(KarrDeviceMode.INSTALLER)
+                .compatibilityWith(KarrUnitModel.QT6_RED, KarrDeviceMode.USER) is
+                RecoveredModelCompatibility.Unsupported,
+        )
+        assertEquals(
+            RecoveredModelCompatibility.Supported,
+            actions.getValue(KarrDeviceMode.DEALER)
+                .compatibilityWith(KarrUnitModel.QT6_RED, KarrDeviceMode.INSTALLER),
+        )
+        assertTrue(
+            actions.getValue(KarrDeviceMode.BCA)
+                .compatibilityWith(KarrUnitModel.QT6_RED, KarrDeviceMode.USER) is
+                RecoveredModelCompatibility.Unsupported,
+        )
+    }
+
+    @Test
     fun customerImmobilizerRemainsReadOnly() {
         val actions = RecoveredWorkflowCatalog.actionsFor("customer.immobilizer")
 
@@ -192,6 +364,7 @@ class RecoveredWorkflowCatalogTest {
             "dealer.violations",
             "installer.tests",
             "installer.immobilizer_test",
+            "installer.mode_switches",
         ).flatMap(RecoveredWorkflowCatalog::actionsFor).filter { action -> action.mutating }
 
         assertFalse(destructiveActions.isEmpty())

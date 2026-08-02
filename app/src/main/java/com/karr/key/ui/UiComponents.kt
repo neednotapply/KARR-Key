@@ -37,6 +37,7 @@ import com.karr.key.core.AuthorizationDecision
 import com.karr.key.core.FeatureDefinition
 import com.karr.key.core.RolePolicy
 import com.karr.key.core.Session
+import com.karr.key.protocol.KarrDeviceMode
 import com.karr.key.protocol.KarrUnitModel
 
 internal sealed interface FeatureAvailability {
@@ -71,7 +72,27 @@ internal sealed interface FeatureAvailability {
     }
 
     data class ModelUnknown(override val description: String) : FeatureAvailability {
-        override val label = "Model unknown"
+        override val label = "Support unknown"
+        override val iconRes = R.drawable.ic_nav_bluetooth
+    }
+
+    data class HardwareUnsupported(override val description: String) : FeatureAvailability {
+        override val label = "Hardware"
+        override val iconRes = R.drawable.ic_status_lock
+    }
+
+    data class HardwareUnknown(override val description: String) : FeatureAvailability {
+        override val label = "Hardware unknown"
+        override val iconRes = R.drawable.ic_nav_bluetooth
+    }
+
+    data class ModeRestricted(override val description: String) : FeatureAvailability {
+        override val label = "Unit mode"
+        override val iconRes = R.drawable.ic_status_lock
+    }
+
+    data class ModeUnknown(override val description: String) : FeatureAvailability {
+        override val label = "Mode unknown"
         override val iconRes = R.drawable.ic_nav_bluetooth
     }
 }
@@ -81,13 +102,16 @@ internal fun featureAvailability(
     feature: FeatureDefinition,
     deviceAuthenticated: Boolean,
     unitModel: KarrUnitModel? = null,
+    unitMode: KarrDeviceMode? = null,
 ): FeatureAvailability {
     return when (val decision = RolePolicy().authorize(session, feature, deviceAuthenticated)) {
         AuthorizationDecision.Allowed -> {
             if (!deviceAuthenticated) {
                 FeatureAvailability.Available
             } else {
-                when (val compatibility = featureModelCompatibility(feature, unitModel)) {
+                when (
+                    val compatibility = featureModelCompatibility(feature, unitModel, unitMode)
+                ) {
                     FeatureModelCompatibility.Supported -> FeatureAvailability.Available
                     is FeatureModelCompatibility.Limited ->
                         FeatureAvailability.ModelLimited(compatibility.description)
@@ -182,11 +206,16 @@ internal fun StatusPill(
         }
         is FeatureAvailability.ModelLimited,
         is FeatureAvailability.ModelUnknown,
+        is FeatureAvailability.HardwareUnknown,
+        is FeatureAvailability.ModeRestricted,
+        is FeatureAvailability.ModeUnknown,
         -> {
             container = MaterialTheme.colorScheme.tertiaryContainer
             content = MaterialTheme.colorScheme.onTertiaryContainer
         }
-        is FeatureAvailability.ModelUnsupported -> {
+        is FeatureAvailability.ModelUnsupported,
+        is FeatureAvailability.HardwareUnsupported,
+        -> {
             container = MaterialTheme.colorScheme.errorContainer
             content = MaterialTheme.colorScheme.onErrorContainer
         }

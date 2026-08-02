@@ -1,5 +1,7 @@
 package com.karr.key.ble
 
+import com.karr.key.protocol.KarrDeviceMode
+import com.karr.key.protocol.PacketParseResult
 import com.karr.key.protocol.QtCommand
 import com.karr.key.protocol.QtProtocolCodec
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -113,7 +115,129 @@ class BleCommandExchangeTest {
         assertTrue(result is BleCommandExchangeResult.TransportFailure)
         assertEquals(1, controller.sentPackets.size)
     }
+
+    @Test
+    fun modeChangeIsConfirmedByASeparateReadModeResponse() = runTest {
+        val controller = FakeBleController { packet, notifications ->
+            when (packet.command()) {
+                QtCommand.CHANGE_MODE ->
+                    notifications.emit(QtProtocolCodec.generateOriginal(QtCommand.ACK_OK))
+                QtCommand.READ_MODE -> notifications.emit(
+                    QtProtocolCodec.generateOriginal(
+                        QtCommand.READ_MODE,
+                        byteArrayOf(KarrDeviceMode.DEALER.code.toByte()),
+                    ),
+                )
+                else -> error("Unexpected packet")
+            }
+            Result.success(Unit)
+        }
+
+        val result = BleModeChangeExchange(controller).changeAndConfirm(
+            changePacket = QtProtocolCodec.generateOriginal(
+                QtCommand.CHANGE_MODE,
+                byteArrayOf(KarrDeviceMode.DEALER.code.toByte()),
+            ),
+            targetMode = KarrDeviceMode.DEALER,
+            timeoutMillis = 100,
+        )
+
+        assertTrue(result is BleModeChangeResult.Confirmed)
+        assertEquals(
+            listOf(QtCommand.CHANGE_MODE, QtCommand.READ_MODE),
+            controller.sentPackets.map(ByteArray::command),
+        )
+    }
+
+    @Test
+    fun modeChangeReportsTheModeActuallyReturnedByTheUnit() = runTest {
+        val controller = FakeBleController { packet, notifications ->
+            if (packet.command() == QtCommand.CHANGE_MODE) {
+                notifications.emit(QtProtocolCodec.generateOriginal(QtCommand.ACK_OK))
+            } else {
+                notifications.emit(
+                    QtProtocolCodec.generateOriginal(
+                        QtCommand.READ_MODE,
+                        byteArrayOf(KarrDeviceMode.USER.code.toByte()),
+                    ),
+                )
+            }
+            Result.success(Unit)
+        }
+
+        val result = BleModeChangeExchange(controller).changeAndConfirm(
+            changePacket = QtProtocolCodec.generateOriginal(
+                QtCommand.CHANGE_MODE,
+                byteArrayOf(KarrDeviceMode.DEALER.code.toByte()),
+            ),
+            targetMode = KarrDeviceMode.DEALER,
+            timeoutMillis = 100,
+        )
+
+        assertTrue(result is BleModeChangeResult.ObservedDifferent)
+        assertEquals(
+            KarrDeviceMode.USER,
+            (result as BleModeChangeResult.ObservedDifferent).observedMode,
+        )
+    }
+
+    @Test
+    fun rejectedModeChangeDoesNotIssueReadOrRetry() = runTest {
+        val controller = FakeBleController { _, notifications ->
+            notifications.emit(
+                QtProtocolCodec.generateOriginal(QtCommand.ACK_ERROR, byteArrayOf(1)),
+            )
+            Result.success(Unit)
+        }
+
+        val result = BleModeChangeExchange(controller).changeAndConfirm(
+            changePacket = QtProtocolCodec.generateOriginal(
+                QtCommand.CHANGE_MODE,
+                byteArrayOf(KarrDeviceMode.DEALER.code.toByte()),
+            ),
+            targetMode = KarrDeviceMode.DEALER,
+            timeoutMillis = 100,
+        )
+
+        assertTrue(result is BleModeChangeResult.Rejected)
+        assertEquals(
+            ModeChangeStage.CHANGE_MODE,
+            (result as BleModeChangeResult.Rejected).stage,
+        )
+        assertEquals(1, controller.sentPackets.size)
+    }
+
+    @Test
+    fun readModeTimeoutNeverResendsMutatingModeChange() = runTest {
+        val controller = FakeBleController { packet, notifications ->
+            if (packet.command() == QtCommand.CHANGE_MODE) {
+                notifications.emit(QtProtocolCodec.generateOriginal(QtCommand.ACK_OK))
+            }
+            Result.success(Unit)
+        }
+
+        val result = BleModeChangeExchange(controller).changeAndConfirm(
+            changePacket = QtProtocolCodec.generateOriginal(
+                QtCommand.CHANGE_MODE,
+                byteArrayOf(KarrDeviceMode.DEALER.code.toByte()),
+            ),
+            targetMode = KarrDeviceMode.DEALER,
+            timeoutMillis = 1,
+        )
+
+        assertEquals(
+            BleModeChangeResult.TimedOut(ModeChangeStage.READ_MODE),
+            result,
+        )
+        assertEquals(
+            listOf(QtCommand.CHANGE_MODE, QtCommand.READ_MODE),
+            controller.sentPackets.map(ByteArray::command),
+        )
+    }
 }
+
+private fun ByteArray.command(): QtCommand? =
+    (QtProtocolCodec.parse(this) as PacketParseResult.Success).packet.command
 
 private class FakeBleController(
     private val sendBehavior: suspend (

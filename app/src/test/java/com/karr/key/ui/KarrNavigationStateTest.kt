@@ -1,6 +1,7 @@
 package com.karr.key.ui
 
 import com.karr.key.core.UserRole
+import com.karr.key.protocol.KarrDeviceMode
 import com.karr.key.protocol.QtCommand
 import com.karr.key.protocol.RecoveredWorkflowCatalog
 import org.junit.Assert.assertEquals
@@ -158,7 +159,7 @@ class KarrNavigationStateTest {
             operation.command to operation.payload
         }
 
-        assertEquals(21, operations.size)
+        assertEquals(25, operations.size)
         assertEquals(packets.size, packets.distinct().size)
         assertEquals(
             UserRole.entries.toSet(),
@@ -171,12 +172,21 @@ class KarrNavigationStateTest {
         val dealerOperations = deviceOperationsFor(query = "dealer")
         assertTrue(dealerOperations.isNotEmpty())
         assertTrue(
-            dealerOperations.all { operation -> UserRole.DEALER in operation.roles },
+            dealerOperations.any { operation -> UserRole.DEALER in operation.roles },
+        )
+        assertTrue(
+            dealerOperations.any { operation ->
+                operation.label == "Switch to Dealer mode"
+            },
         )
 
         val reads = deviceOperationsFor(query = "Reads")
         assertTrue(reads.isNotEmpty())
-        assertTrue(reads.all { operation -> !operation.mutating })
+        assertTrue(
+            reads.containsAll(
+                RecoveredWorkflowCatalog.operations.filter { operation -> !operation.mutating },
+            ),
+        )
 
         assertEquals(
             listOf(QtCommand.READ_STATE),
@@ -238,25 +248,55 @@ class KarrNavigationStateTest {
     }
 
     @Test
-    fun workflowTagsExcludeOperationSetsContainedByAnotherTag() {
+    fun unitModeFilterCollectsEveryModeSwitch() {
+        val modeSwitches = deviceOperationsFor(
+            filters = OperationFilters(workflow = UNIT_MODE_FILTER),
+        )
+
+        assertEquals(6, modeSwitches.size)
+        assertTrue(modeSwitches.all { operation -> operation.command == QtCommand.CHANGE_MODE })
+        assertEquals(
+            (0..5).toSet(),
+            modeSwitches.map { operation -> operation.payload.single() }.toSet(),
+        )
+    }
+
+    @Test
+    fun experimentalFilterCollectsCandidatesAndExcludesConfirmedModeSwitches() {
+        val experimental = deviceOperationsFor(
+            filters = OperationFilters(workflow = EXPERIMENTAL_FILTER),
+        )
+
+        assertEquals(4, experimental.size)
+        assertTrue(
+            experimental.all { operation ->
+                operation.bindings.any { binding -> binding.action.experimental }
+            },
+        )
+        assertTrue(
+            experimental.none { operation ->
+                operation.command == QtCommand.CHANGE_MODE &&
+                    operation.payload.singleOrNull() in setOf(
+                        KarrDeviceMode.DEALER.code,
+                        KarrDeviceMode.USER.code,
+                    )
+            },
+        )
+    }
+
+    @Test
+    fun workflowTagsOnlyExposeCrossCuttingFilters() {
         val workflows = workflowFiltersFor()
 
         assertEquals(
-            listOf("Vehicle controls", "Diagnostics", "Unit service", "Validation"),
+            listOf(
+                UNIT_MODE_FILTER,
+                EXPERIMENTAL_FILTER,
+            ),
             workflows,
         )
-        workflows.forEach { workflow ->
-            val operationIds = deviceOperationsFor(
-                filters = OperationFilters(workflow = workflow),
-            ).map { operation -> operation.id }.toSet()
-            workflows
-                .filterNot { other -> other == workflow }
-                .forEach { other ->
-                    val otherOperationIds = deviceOperationsFor(
-                        filters = OperationFilters(workflow = other),
-                    ).map { operation -> operation.id }.toSet()
-                    assertFalse(otherOperationIds.containsAll(operationIds))
-                }
+        listOf("Vehicle controls", "Diagnostics", "Validation", "Unit service").forEach { redundant ->
+            assertFalse(redundant in workflows)
         }
     }
 

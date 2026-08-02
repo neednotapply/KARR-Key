@@ -10,6 +10,7 @@ sealed interface AuthenticationAction {
 
     data class Authenticated(
         val unitModel: KarrUnitModel?,
+        val unitMode: KarrDeviceMode,
     ) : AuthenticationAction
 
     data class Failed(val reason: String) : AuthenticationAction
@@ -21,6 +22,7 @@ class KarrAuthenticationSession(
     private var challenge: ByteArray? = null
     private var awaitingResult = false
     private var unitModel: KarrUnitModel? = null
+    private var unitMode: KarrDeviceMode? = null
 
     suspend fun onPacket(
         unitSerial: String,
@@ -38,6 +40,7 @@ class KarrAuthenticationSession(
         challenge = null
         awaitingResult = false
         unitModel = null
+        unitMode = null
     }
 
     private fun begin(payload: ByteArray): AuthenticationAction {
@@ -65,6 +68,7 @@ class KarrAuthenticationSession(
         }
 
         val mode = KarrDeviceMode.fromStatusByte(payload[0])
+        unitMode = mode
         unitModel = payload.getOrNull(1)?.let(KarrUnitModel::fromTypeByte)
         val response = authenticator.answerChallenge(
             unitSerial = unitSerial,
@@ -90,8 +94,14 @@ class KarrAuthenticationSession(
             return AuthenticationAction.None
         }
         val authenticatedUnitModel = unitModel
+        val authenticatedUnitMode = unitMode ?: return AuthenticationAction.Failed(
+            "The unit operating mode was unavailable after authentication.",
+        ).also { reset() }
         reset()
-        return AuthenticationAction.Authenticated(authenticatedUnitModel)
+        return AuthenticationAction.Authenticated(
+            unitModel = authenticatedUnitModel,
+            unitMode = authenticatedUnitMode,
+        )
     }
 
     private fun reject(): AuthenticationAction {

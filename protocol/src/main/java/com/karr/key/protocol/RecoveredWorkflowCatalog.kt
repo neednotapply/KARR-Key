@@ -15,6 +15,8 @@ data class RecoveredDeviceAction(
     val source: String,
     val preflight: RecoveredActionPreflight? = null,
     val modelRequirement: RecoveredModelRequirement? = null,
+    val modeRequirement: RecoveredModeRequirement? = null,
+    val targetMode: KarrDeviceMode? = null,
     val expectedSecurityState: QtSecurityState? = null,
     val singleShot: Boolean = false,
     val experimental: Boolean = false,
@@ -28,6 +30,14 @@ data class RecoveredDeviceAction(
             "Only mutating actions can declare an expected security state."
         }
         require(!singleShot || mutating) { "Only mutating actions can be single-shot." }
+        targetMode?.let { target ->
+            require(mutating && command == QtCommand.CHANGE_MODE) {
+                "A target mode requires a mutating CHANGE_MODE action."
+            }
+            require(payload == listOf(target.code)) {
+                "A mode-change payload must contain only the target mode code."
+            }
+        }
     }
 
     fun packet(): ByteArray = QtProtocolCodec.generateOriginal(
@@ -95,6 +105,56 @@ object RecoveredWorkflowCatalog {
     private val QT_FAMILY_ONLY = RecoveredModelRequirement(
         supportedFamilies = setOf(KarrUnitFamily.QT),
         supportedDescription = "QT models",
+    )
+
+    private val RECOVERED_QT6_MODELS = RecoveredModelRequirement(
+        supportedModels = setOf(
+            KarrUnitModel.QT6_CAN,
+            KarrUnitModel.QT6_BLUE,
+            KarrUnitModel.QT6_GREEN,
+            KarrUnitModel.QT6_RED,
+        ),
+        supportedDescription = "recovered QT6 models",
+    )
+
+    private val INSTALLER_BUMP_TEST_MODELS = RecoveredModelRequirement(
+        supportedModels = RECOVERED_QT6_MODELS.supportedModels + KarrUnitModel.DR1_CAN,
+        supportedDescription = "recovered QT6 models or DR1 CAN",
+    )
+
+    private val INSTALLER_MODE_ONLY = RecoveredModeRequirement(
+        supportedModes = setOf(KarrDeviceMode.INSTALLER),
+        supportedDescription = "Installer mode",
+    )
+
+    private val USER_MODE_ONLY = RecoveredModeRequirement(
+        supportedModes = setOf(KarrDeviceMode.USER),
+        supportedDescription = "User mode",
+    )
+
+    private val VALET_MODE_ONLY = RecoveredModeRequirement(
+        supportedModes = setOf(KarrDeviceMode.VALET),
+        supportedDescription = "Valet mode",
+    )
+
+    private val DEALER_MODE_ONLY = RecoveredModeRequirement(
+        supportedModes = setOf(KarrDeviceMode.DEALER),
+        supportedDescription = "Dealer mode",
+    )
+
+    private val DEALER_ENTRY_MODES = RecoveredModeRequirement(
+        supportedModes = setOf(
+            KarrDeviceMode.USER,
+            KarrDeviceMode.INSTALLER,
+            KarrDeviceMode.NO_SALE,
+            KarrDeviceMode.BCA,
+        ),
+        supportedDescription = "User, Installer, No sale, or BCA mode",
+    )
+
+    private val USER_SERVICE_RETURN_MODES = RecoveredModeRequirement(
+        supportedModes = setOf(KarrDeviceMode.DEALER, KarrDeviceMode.NO_SALE),
+        supportedDescription = "Dealer or No sale mode",
     )
 
     private val commonIdentityReads = listOf(
@@ -184,6 +244,8 @@ object RecoveredWorkflowCatalog {
                 command = QtCommand.CHANGE_MODE,
                 payload = listOf(KarrDeviceMode.VALET.code),
                 source = CUSTOMER_SOURCE,
+                modeRequirement = USER_MODE_ONLY,
+                targetMode = KarrDeviceMode.VALET,
             ),
             mutate(
                 id = "return-user",
@@ -192,6 +254,8 @@ object RecoveredWorkflowCatalog {
                 command = QtCommand.CHANGE_MODE,
                 payload = listOf(KarrDeviceMode.USER.code),
                 source = CUSTOMER_SOURCE,
+                modeRequirement = VALET_MODE_ONLY,
+                targetMode = KarrDeviceMode.USER,
             ),
         ),
         "customer.immobilizer" to listOf(
@@ -250,7 +314,7 @@ object RecoveredWorkflowCatalog {
             ),
         ),
         "installer.checks" to commonDiagnostics + listOf(
-            read("read-remotes", "Read learned remotes", QtCommand.READ_REMOTES),
+            readRemotes(),
         ),
         "installer.tests" to listOf(
             mutate(
@@ -260,6 +324,8 @@ object RecoveredWorkflowCatalog {
                 command = QtCommand.BUMP_TEST,
                 payload = listOf(1),
                 source = INSTALLER_SOURCE,
+                modelRequirement = INSTALLER_BUMP_TEST_MODELS,
+                modeRequirement = INSTALLER_MODE_ONLY,
             ),
             mutate(
                 id = "test-lock",
@@ -272,10 +338,13 @@ object RecoveredWorkflowCatalog {
             mutate(
                 id = "test-unlock",
                 label = "Test disarm / unlock",
-                description = "Runs the recovered installer unlock validation.",
+                description =
+                    "Runs the recovered installer recovery step used to return the vehicle " +
+                        "to a non-immobilized, disarmed state.",
                 command = QtCommand.UNLOCK_DOORS,
                 payload = listOf(0),
                 source = INSTALLER_SOURCE,
+                expectedSecurityState = QtSecurityState.DISARMED,
             ),
             mutate(
                 id = "test-trunk",
@@ -300,6 +369,40 @@ object RecoveredWorkflowCatalog {
                 modelRequirement = QT_FAMILY_ONLY,
                 singleShot = true,
                 experimental = true,
+            ),
+        ),
+        "installer.mode_switches" to listOf(
+            modeSwitch(
+                id = "switch-installer-mode",
+                target = KarrDeviceMode.INSTALLER,
+                sourceModes = DEALER_MODE_ONLY,
+                source = INSTALLER_SOURCE,
+            ),
+            modeSwitch(
+                id = "switch-dealer-mode",
+                target = KarrDeviceMode.DEALER,
+                sourceModes = DEALER_ENTRY_MODES,
+                source = "$DEALER_SOURCE and $INSTALLER_SOURCE",
+                experimental = false,
+            ),
+            modeSwitch(
+                id = "switch-user-mode",
+                target = KarrDeviceMode.USER,
+                sourceModes = USER_SERVICE_RETURN_MODES,
+                source = DEALER_SOURCE,
+                experimental = false,
+            ),
+            modeSwitch(
+                id = "switch-no-sale-mode",
+                target = KarrDeviceMode.NO_SALE,
+                sourceModes = DEALER_MODE_ONLY,
+                source = DEALER_SOURCE,
+            ),
+            modeSwitch(
+                id = "switch-bca-mode",
+                target = KarrDeviceMode.BCA,
+                sourceModes = DEALER_MODE_ONLY,
+                source = DEALER_SOURCE,
             ),
         ),
         "installer.repair" to commonDiagnostics,
@@ -352,7 +455,7 @@ object RecoveredWorkflowCatalog {
                     label = canonicalLabel(first),
                     description = canonicalDescription(first),
                     category = when {
-                        bindings.any { binding -> binding.action.experimental } ->
+                        bindings.all { binding -> binding.action.experimental } ->
                             "Experimental"
                         first.mutating -> "Commands"
                         else -> "Reads"
@@ -376,12 +479,21 @@ object RecoveredWorkflowCatalog {
         "installer.immobilizer_test" ->
             "This is a candidate recovered from a hidden experimental installer handler: " +
                 "VEHICLE_CONTROL with output selector 2. Unit acknowledgement and physical " +
-                "immobilizer behavior are intentionally reported as separate observations."
+                "immobilizer behavior are intentionally reported as separate observations. " +
+                "The preserved installer test sequence uses UNLOCK_DOORS to return to a " +
+                "non-immobilized state and requires the technician to verify that result."
+        "installer.mode_switches" ->
+            "The Dealer and User transitions have been confirmed by READ_MODE on authorized " +
+                "hardware; the remaining service and lifecycle transitions are experimental. " +
+                "Each sends " +
+                "CHANGE_MODE once, then requires a fresh READ_MODE to confirm the unit's actual " +
+                "mode. Bootload uses a separate protocol path, and no ordinary Unconfigured " +
+                "transition was recovered, so neither is exposed here."
         else -> null
     }
 
     private fun remoteServiceActions(source: String) = listOf(
-        read("read-remotes", "Read learned remotes", QtCommand.READ_REMOTES),
+        readRemotes(),
         mutate(
             id = "start-remote-learning",
             label = "Start remote learning",
@@ -422,17 +534,26 @@ object RecoveredWorkflowCatalog {
         id: String,
         label: String,
         command: QtCommand,
+        modelRequirement: RecoveredModelRequirement? = null,
     ) = RecoveredDeviceAction(
         id = id,
         label = label,
         description = "Requests ${command.name} from the authenticated unit.",
         command = command,
+        modelRequirement = modelRequirement,
         source = when (command) {
             QtCommand.READ_ALL_SETTINGS,
             QtCommand.READ_VIOLATION_INHIBIT,
             -> CUSTOMER_SOURCE
             else -> "Shared recovered BLE callers"
         },
+    )
+
+    private fun readRemotes() = read(
+        id = "read-remotes",
+        label = "Read learned remotes",
+        command = QtCommand.READ_REMOTES,
+        modelRequirement = RECOVERED_QT6_MODELS,
     )
 
     private fun mutate(
@@ -444,6 +565,8 @@ object RecoveredWorkflowCatalog {
         source: String,
         preflight: RecoveredActionPreflight? = null,
         modelRequirement: RecoveredModelRequirement? = null,
+        modeRequirement: RecoveredModeRequirement? = null,
+        targetMode: KarrDeviceMode? = null,
         expectedSecurityState: QtSecurityState? = null,
         singleShot: Boolean = false,
         experimental: Boolean = false,
@@ -457,8 +580,31 @@ object RecoveredWorkflowCatalog {
         source = source,
         preflight = preflight,
         modelRequirement = modelRequirement,
+        modeRequirement = modeRequirement,
+        targetMode = targetMode,
         expectedSecurityState = expectedSecurityState,
         singleShot = singleShot,
+        experimental = experimental,
+    )
+
+    private fun modeSwitch(
+        id: String,
+        target: KarrDeviceMode,
+        sourceModes: RecoveredModeRequirement,
+        source: String,
+        experimental: Boolean = true,
+    ) = mutate(
+        id = id,
+        label = "Switch to ${target.displayName} mode",
+        description =
+            "Sends the recovered ${target.displayName} mode transition once, then reads the " +
+                "unit mode back before reporting success.",
+        command = QtCommand.CHANGE_MODE,
+        payload = listOf(target.code),
+        source = source,
+        modeRequirement = sourceModes,
+        targetMode = target,
+        singleShot = true,
         experimental = experimental,
     )
 

@@ -1,6 +1,7 @@
 package com.karr.key.ui
 
 import com.karr.key.core.FeatureDefinition
+import com.karr.key.protocol.KarrDeviceMode
 import com.karr.key.protocol.KarrUnitModel
 import com.karr.key.protocol.RecoveredModelCompatibility
 import com.karr.key.protocol.RecoveredWorkflowCatalog
@@ -16,12 +17,13 @@ internal sealed interface FeatureModelCompatibility {
 internal fun featureModelCompatibility(
     feature: FeatureDefinition,
     unitModel: KarrUnitModel?,
+    unitMode: KarrDeviceMode? = null,
 ): FeatureModelCompatibility {
     val actions = RecoveredWorkflowCatalog.actionsFor(feature.id)
     if (actions.isEmpty()) {
         return FeatureModelCompatibility.Supported
     }
-    val results = actions.map { action -> action.compatibilityWith(unitModel) }
+    val results = actions.map { action -> action.compatibilityWith(unitModel, unitMode) }
     if (results.all { result -> result == RecoveredModelCompatibility.Supported }) {
         return FeatureModelCompatibility.Supported
     }
@@ -36,18 +38,20 @@ internal fun featureModelCompatibility(
     return when {
         !hasSupported && unsupported.size == results.size ->
             FeatureModelCompatibility.Unsupported(
-                "No commands in ${feature.title} are supported on $modelName.",
+                "No commands in ${feature.title} are available for $modelName in its " +
+                    "current mode.",
             )
         !hasSupported && unknown.size == results.size ->
             FeatureModelCompatibility.Unknown(
-                "The connected unit model must be identified before these commands can run.",
+                "The connected unit's compatibility details must be identified before " +
+                    "these commands can run.",
             )
         else ->
             FeatureModelCompatibility.Limited(
                 if (modelName == null) {
-                    "Some commands require a confirmed unit model."
+                    "Some commands require confirmed unit compatibility details."
                 } else {
-                    "Some commands are not supported on $modelName."
+                    "Some commands are not available for $modelName in its current mode."
                 },
             )
     }

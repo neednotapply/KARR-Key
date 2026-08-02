@@ -68,6 +68,7 @@ import com.karr.key.data.LocalOperationStore
 import com.karr.key.data.KeyRepository
 import com.karr.key.protocol.DeviceKeyPurpose
 import com.karr.key.protocol.DeviceKeyProvisioning
+import com.karr.key.protocol.KarrDeviceMode
 import com.karr.key.protocol.KarrUnitModel
 import com.karr.key.protocol.RecoveredDeviceOperation
 import com.karr.key.protocol.RecoveredWorkflowCatalog
@@ -96,7 +97,9 @@ fun KarrKeyApp(
     }
     val bleState by bleController.state.collectAsState()
     val deviceAuthenticated = bleState is BleSessionState.Ready
-    val unitModel = (bleState as? BleSessionState.Ready)?.unitModel
+    val readyState = bleState as? BleSessionState.Ready
+    val unitModel = readyState?.unitModel
+    val unitMode = readyState?.unitMode
     val snackbar = remember { SnackbarHostState() }
     val navigation = rememberSaveable(saver = KarrNavigationState.Saver) {
         KarrNavigationState()
@@ -122,6 +125,7 @@ fun KarrKeyApp(
         session = session,
         deviceAuthenticated = deviceAuthenticated,
         unitModel = unitModel,
+        unitMode = unitMode,
         bleState = bleState,
         navigation = navigation,
         bleController = bleController,
@@ -144,6 +148,7 @@ private fun KeyShell(
     session: Session,
     deviceAuthenticated: Boolean,
     unitModel: KarrUnitModel?,
+    unitMode: KarrDeviceMode?,
     bleState: BleSessionState,
     navigation: KarrNavigationState,
     bleController: BleController,
@@ -301,6 +306,7 @@ private fun KeyShell(
                                 session = session,
                                 deviceAuthenticated = deviceAuthenticated,
                                 unitModel = unitModel,
+                                unitMode = unitMode,
                                 controller = bleController,
                                 operationStore = operationStore,
                                 snackbar = snackbar,
@@ -335,6 +341,7 @@ private fun KeyShell(
                                     session = session,
                                     deviceAuthenticated = deviceAuthenticated,
                                     unitModel = unitModel,
+                                    unitMode = unitMode,
                                     controller = bleController,
                                     operationStore = operationStore,
                                     snackbar = snackbar,
@@ -361,6 +368,7 @@ private fun OperationsRouteContent(
     session: Session,
     deviceAuthenticated: Boolean,
     unitModel: KarrUnitModel?,
+    unitMode: KarrDeviceMode?,
     controller: BleController,
     operationStore: LocalOperationStore,
     snackbar: SnackbarHostState,
@@ -376,6 +384,7 @@ private fun OperationsRouteContent(
         selectedOperation = selectedOperation,
         deviceAuthenticated = deviceAuthenticated,
         unitModel = unitModel,
+        unitMode = unitMode,
         query = query,
         filters = filters,
         listState = listState,
@@ -388,9 +397,11 @@ private fun OperationsRouteContent(
                 operation = operation,
                 deviceAuthenticated = deviceAuthenticated,
                 unitModel = unitModel,
+                unitMode = unitMode,
                 controller = controller,
                 operationStore = operationStore,
                 snackbar = snackbar,
+                onOpenOperation = navigation::openOperation,
             )
         },
     )
@@ -422,30 +433,29 @@ private fun DashboardScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         Text(
-                            text = "What this demonstrates",
+                            text = "What is KARR/SWDS?",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
-                            text = "How devices are found and reached",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            text = "KARR advertisements are not limited to DR/QT names. " +
-                                "Recovered Dealer units can also carry serial and model " +
-                                "status in manufacturer data, so KARR Key evaluates every " +
-                                "nearby BLE advertisement using names, raw manufacturer " +
-                                "frames, and service UUIDs.",
+                            text = "KARR/SWDS security devices are dealer-installed vehicle alarm " +
+                                "and control modules. They connect to door locks, the alarm, and " +
+                                "other vehicle functions, and communicate with phone apps over " +
+                                "Bluetooth. Many owners do not know one is installed in their " +
+                                "vehicle.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Text(
-                            text = "Why control is so broad",
+                            text = "Why this matters",
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
-                            text = "Because those units sit on the vehicle's CAN bus and older KARR apps shipped with built-in authentication secrets, a client that passes legacy authentication can reach most vehicle-control functions exposed by the unit.",
+                            text = "These devices use universal authentication—the same access " +
+                                "works across devices—instead of credentials unique to each " +
+                                "vehicle. This app demonstrates why that can expose vehicle " +
+                                "controls. Technical details and supporting research are available " +
+                                "below.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         OutlinedButton(
@@ -575,7 +585,8 @@ private fun BleSessionState.homeStatus(): String = when (this) {
     is BleSessionState.Authenticating -> "Authenticating the connected unit."
     is BleSessionState.Ready ->
         unitModel?.let { model ->
-            "Device authenticated and ready: ${model.displayName}."
+            val modeText = unitMode?.let { mode -> ", ${mode.displayName} mode" }.orEmpty()
+            "Device authenticated and ready: ${model.displayName}$modeText."
         } ?: "Device authenticated and ready; model not identified."
     is BleSessionState.Error -> "Device error: $message"
 }

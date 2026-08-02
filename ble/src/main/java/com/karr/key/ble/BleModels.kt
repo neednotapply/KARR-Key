@@ -1,6 +1,9 @@
 package com.karr.key.ble
 
+import com.karr.key.protocol.KarrDeviceMode
 import com.karr.key.protocol.KarrUnitModel
+import com.karr.key.protocol.QtCommand
+import com.karr.key.protocol.QtPacket
 import java.util.UUID
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -48,8 +51,23 @@ sealed interface BleSessionState {
         val address: String,
         val name: String?,
         val unitModel: KarrUnitModel? = null,
+        val unitMode: KarrDeviceMode? = null,
     ) : BleSessionState
     data class Error(val message: String) : BleSessionState
+}
+
+internal fun BleSessionState.withReadModeObservation(packet: QtPacket): BleSessionState {
+    if (this !is BleSessionState.Ready ||
+        packet.command != QtCommand.READ_MODE ||
+        packet.payload.isEmpty()
+    ) {
+        return this
+    }
+
+    return copy(
+        unitMode = KarrDeviceMode.fromStatusByte(packet.payload[0]),
+        unitModel = packet.payload.getOrNull(1)?.let(KarrUnitModel::fromTypeByte) ?: unitModel,
+    )
 }
 
 interface BleController {

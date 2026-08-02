@@ -98,14 +98,19 @@ internal fun bleNotificationContent(
     is BleSessionState.Ready -> {
         val deviceName = state.name ?: state.address
         val model = state.unitModel?.displayName ?: "Model not reported"
+        val mode = state.unitMode?.let { unitMode -> "${unitMode.displayName} mode" }
         BleNotificationContent(
             title = "Connected to $deviceName",
-            text = "Authenticated | $model",
+            text = listOfNotNull("Authenticated", model, mode).joinToString(" | "),
             expandedText = buildString {
                 append("Device: ")
                 append(deviceName)
                 append("\nModel: ")
                 append(model)
+                mode?.let {
+                    append("\nOperating mode: ")
+                    append(it)
+                }
                 append("\nAddress: ")
                 append(state.address)
                 append("\nStatus: Authenticated and ready")

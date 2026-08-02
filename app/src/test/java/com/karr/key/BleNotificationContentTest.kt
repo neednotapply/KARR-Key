@@ -4,6 +4,7 @@ import com.karr.key.ble.BleSessionState
 import com.karr.key.ble.DiscoveredDevice
 import com.karr.key.ble.KarrCandidateTier
 import com.karr.key.ble.KarrDeviceClassification
+import com.karr.key.protocol.KarrDeviceMode
 import com.karr.key.protocol.KarrUnitModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -37,6 +38,7 @@ class BleNotificationContentTest {
                 address = "00:11:22:33:44:55",
                 name = "DR D029A54D",
                 unitModel = KarrUnitModel.DR1_CAN,
+                unitMode = KarrDeviceMode.USER,
             ),
             devices = emptyList(),
         )
@@ -44,7 +46,9 @@ class BleNotificationContentTest {
         requireNotNull(content)
         assertEquals("Connected to DR D029A54D", content.title)
         assertTrue(content.text.contains("DR1 CAN"))
+        assertTrue(content.text.contains("User mode"))
         assertTrue(content.expandedText.contains("00:11:22:33:44:55"))
+        assertTrue(content.expandedText.contains("Operating mode: User mode"))
         assertTrue(content.expandedText.contains("Authenticated"))
         assertEquals(BleNotificationAction.DISCONNECT, content.action)
         assertFalse(content.showProgress)

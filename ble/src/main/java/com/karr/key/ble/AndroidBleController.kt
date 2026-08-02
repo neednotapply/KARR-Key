@@ -873,6 +873,10 @@ class AndroidBleController(
         value: ByteArray,
     ) {
         val copy = value.copyOf()
+        val parsed = QtProtocolCodec.parse(copy)
+        if (parsed is PacketParseResult.Success) {
+            _state.value = _state.value.withReadModeObservation(parsed.packet)
+        }
         _notifications.tryEmit(copy)
         notificationEvents.trySend(
             NotificationEvent(
@@ -955,6 +959,7 @@ class AndroidBleController(
                     address = address,
                     name = name,
                     unitModel = action.unitModel,
+                    unitMode = action.unitMode,
                 )
             }
             is AuthenticationAction.Failed -> {

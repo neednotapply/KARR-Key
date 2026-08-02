@@ -12,9 +12,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.accessibility.enableAccessibilityChecks
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -28,9 +31,11 @@ import androidx.test.filters.SdkSuppress
 import com.karr.key.core.FeatureCatalog
 import com.karr.key.core.Session
 import com.karr.key.core.UserRole
+import com.karr.key.protocol.KarrDeviceMode
 import com.karr.key.protocol.KarrUnitModel
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Assert.assertEquals
 
 @OptIn(ExperimentalTestApi::class)
 @SdkSuppress(minSdkVersion = 34)
@@ -42,7 +47,7 @@ class ToolsAccessibilityTest {
     fun operationCatalogIsDirectAndDeduplicated() {
         setOperationsContent()
 
-        composeRule.onNodeWithText("21 of 21 operations").assertIsDisplayed()
+        composeRule.onNodeWithText("25 of 25 operations").assertIsDisplayed()
         composeRule.onNodeWithText("Read unit state").assertIsDisplayed()
         composeRule.onAllNodesWithText("Connection").assertCountEquals(0)
         composeRule.onAllNodesWithText("Research access").assertCountEquals(0)
@@ -65,28 +70,54 @@ class ToolsAccessibilityTest {
     fun catalogExposesClickableTypeAndWorkflowTags() {
         setOperationsContent()
 
-        val vehicleControlCount = deviceOperationsFor(
-            filters = OperationFilters(workflow = "Vehicle controls"),
-        ).size
         val readCount = deviceOperationsFor(
             filters = OperationFilters(operationType = OperationTypeFilter.READS),
         ).size
         val commandCount = deviceOperationsFor(
             filters = OperationFilters(operationType = OperationTypeFilter.COMMANDS),
         ).size
-        composeRule.onNodeWithText("All").assertIsDisplayed()
+        val unitModeCount = deviceOperationsFor(
+            filters = OperationFilters(workflow = UNIT_MODE_FILTER),
+        ).size
+        val experimentalCount = deviceOperationsFor(
+            filters = OperationFilters(workflow = EXPERIMENTAL_FILTER),
+        ).size
+        composeRule.onAllNodes(hasText("All") and hasClickAction()).assertCountEquals(0)
+        listOf("Vehicle controls", "Diagnostics", "Validation", "Unit service").forEach { redundant ->
+            composeRule.onAllNodes(hasText(redundant) and hasClickAction()).assertCountEquals(0)
+        }
+        val filterTags = listOf(
+            "operation-filter:reads",
+            "operation-filter:commands",
+            "operation-filter:unit-mode",
+            "operation-filter:experimental",
+        )
+        filterTags.forEach { tag ->
+            composeRule.onNodeWithTag(tag).assertIsDisplayed()
+        }
+        val filterTop = composeRule.onNodeWithTag(filterTags.first())
+            .fetchSemanticsNode().boundsInRoot.top
+        filterTags.drop(1).forEach { tag ->
+            assertEquals(
+                filterTop,
+                composeRule.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot.top,
+                0.5f,
+            )
+        }
         composeRule.onNodeWithTag("operation-filter:reads").performClick()
-        composeRule.onNodeWithText("$readCount of 21 operations").assertIsDisplayed()
+        composeRule.onNodeWithText("$readCount of 25 operations").assertIsDisplayed()
         composeRule.onNodeWithTag("operation-filter:commands").performClick()
-        composeRule.onNodeWithText("$commandCount of 21 operations").assertIsDisplayed()
+        composeRule.onNodeWithText("$commandCount of 25 operations").assertIsDisplayed()
         composeRule.onNodeWithTag("operation-filter:commands").performClick()
-        composeRule.onNodeWithText("21 of 21 operations").assertIsDisplayed()
-        composeRule.onNodeWithText("Vehicle controls")
-            .assertIsDisplayed()
-            .performClick()
-        composeRule.onNodeWithText("$vehicleControlCount of 21 operations").assertIsDisplayed()
-        composeRule.onNodeWithText("Vehicle controls").performClick()
-        composeRule.onNodeWithText("21 of 21 operations").assertIsDisplayed()
+        composeRule.onNodeWithText("25 of 25 operations").assertIsDisplayed()
+        clickWorkflowFilter(UNIT_MODE_FILTER)
+        composeRule.onNodeWithText("$unitModeCount of 25 operations").assertIsDisplayed()
+        clickWorkflowFilter(UNIT_MODE_FILTER)
+        composeRule.onNodeWithText("25 of 25 operations").assertIsDisplayed()
+        clickWorkflowFilter(EXPERIMENTAL_FILTER)
+        composeRule.onNodeWithText("$experimentalCount of 25 operations").assertIsDisplayed()
+        clickWorkflowFilter(EXPERIMENTAL_FILTER)
+        composeRule.onNodeWithText("25 of 25 operations").assertIsDisplayed()
         composeRule.onAllNodesWithText("Type: All").assertCountEquals(0)
         composeRule.onAllNodesWithText("Role: All").assertCountEquals(0)
         composeRule.onAllNodesWithText("Vehicle information").assertCountEquals(0)
@@ -108,15 +139,41 @@ class ToolsAccessibilityTest {
         )
         composeRule.onNodeWithText("Silent lock").assertIsDisplayed()
         composeRule.onNodeWithTag("operation:silent-lock-00")
-            .assertTextContains("Not supported")
+            .assertTextContains("Hardware")
             .assertIsNotEnabled()
         composeRule.enableAccessibilityChecks()
         composeRule.onRoot().tryPerformAccessibilityChecks()
     }
 
+    @Test
+    fun modeRestrictedOperationExplainsRequirementAndRemainsSelectable() {
+        setOperationsContent(
+            deviceAuthenticated = true,
+            unitModel = KarrUnitModel.DR1_CAN,
+            unitMode = KarrDeviceMode.USER,
+            query = "bump test",
+        )
+
+        composeRule.onNodeWithTag("operations-catalog").performScrollToNode(
+            hasTestTag("operation:bump-test-01"),
+        )
+        composeRule.onNodeWithTag("operation:bump-test-01")
+            .assertTextContains("Unit mode")
+            .assertTextContains(
+                "Run bump test is available only in Installer mode; " +
+                    "the connected unit is in User mode.",
+            )
+            .assertIsEnabled()
+    }
+
+    private fun clickWorkflowFilter(label: String) {
+        composeRule.onNode(hasText(label) and hasClickAction()).performClick()
+    }
+
     private fun setOperationsContent(
         deviceAuthenticated: Boolean = false,
         unitModel: KarrUnitModel? = null,
+        unitMode: KarrDeviceMode? = null,
         query: String = "",
     ) {
         val roles = UserRole.entries.toSet()
@@ -134,6 +191,7 @@ class ToolsAccessibilityTest {
                         selectedOperation = null,
                         deviceAuthenticated = deviceAuthenticated,
                         unitModel = unitModel,
+                        unitMode = unitMode,
                         query = query,
                         filters = filters,
                         listState = rememberLazyListState(),

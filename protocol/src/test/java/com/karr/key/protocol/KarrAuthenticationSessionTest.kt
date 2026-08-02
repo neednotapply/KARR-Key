@@ -43,7 +43,10 @@ class KarrAuthenticationSessionTest {
         assertArrayEquals(challenge, authenticator.challenge)
 
         assertEquals(
-            AuthenticationAction.Authenticated(KarrUnitModel.DR1_CAN),
+            AuthenticationAction.Authenticated(
+                unitModel = KarrUnitModel.DR1_CAN,
+                unitMode = KarrDeviceMode.USER,
+            ),
             session.onPacket(SERIAL, packet(QtCommand.AUTH_SUCCESS)),
         )
         assertEquals(
