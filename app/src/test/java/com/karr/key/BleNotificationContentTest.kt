@@ -25,7 +25,10 @@ class BleNotificationContentTest {
         )
 
         requireNotNull(content)
-        assertEquals("2 compatible devices found", content.text)
+        assertEquals("2 KARR devices found", content.title)
+        assertEquals("QT ABC1234 | -45 dBm", content.text)
+        assertTrue(content.expandedText.contains("Address: AA:01"))
+        assertTrue(content.expandedText.contains("Signal: -45 dBm"))
         assertTrue(content.expandedText.contains("Scanning continues"))
         assertEquals(BleNotificationAction.STOP_SCAN, content.action)
         assertTrue(content.showProgress)
@@ -76,19 +79,20 @@ class BleNotificationContentTest {
     }
 
     @Test
-    fun discoveryAlertsOnlyNewConnectableConfirmedDevices() {
-        val devices = listOf(
-            device("AA:00", "DR D029A54D", -70, confirmed = true),
-            device("AA:01", "QT ABC1234", -45, confirmed = true),
-            device("AA:02", "Nearby device", -20, confirmed = false),
+    fun scanningStatusRetainsSearchMessageUntilACompatibleDeviceIsFound() {
+        val content = bleNotificationContent(
+            state = BleSessionState.Scanning,
+            devices = listOf(
+                device("AA:02", "Nearby device", -20, confirmed = false),
+            ),
         )
 
-        val newlyFound = newlyDiscoveredCompatibleDevices(
-            devices = devices,
-            alreadyAlertedAddresses = setOf("AA:00"),
-        )
-
-        assertEquals(listOf("AA:01"), newlyFound.map(DiscoveredDevice::address))
+        requireNotNull(content)
+        assertEquals("Scanning for KARR devices", content.title)
+        assertEquals("No compatible devices found yet", content.text)
+        assertTrue(content.expandedText.contains("Looking for connectable devices"))
+        assertEquals(BleNotificationAction.STOP_SCAN, content.action)
+        assertTrue(content.showProgress)
     }
 
     private fun device(

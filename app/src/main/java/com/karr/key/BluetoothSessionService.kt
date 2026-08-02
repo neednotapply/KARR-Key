@@ -1,6 +1,5 @@
 package com.karr.key
 
-import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -8,7 +7,6 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
@@ -44,15 +42,14 @@ class BluetoothSessionService : Service() {
         )
     }
 
-    private val alertedAddresses = mutableSetOf<String>()
     private var collectingJob: Job? = null
     private var delayedStopJob: Job? = null
-    private var scanning = false
     private var lastStatusContent: BleNotificationContent? = null
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannels()
+        removeLegacyDiscoveryNotification()
         collectingJob = serviceScope.launch {
             combine(controller.state, controller.devices) { state, devices ->
                 SessionSnapshot(state, devices)
@@ -115,18 +112,6 @@ class BluetoothSessionService : Service() {
                 return
             }
             lastStatusContent = content
-        }
-
-        if (snapshot.state == BleSessionState.Scanning) {
-            if (!scanning) {
-                scanning = true
-                alertedAddresses.clear()
-                notificationManager.cancel(DISCOVERY_NOTIFICATION_ID)
-            }
-            alertForNewCompatibleDevices(snapshot.devices)
-        } else {
-            scanning = false
-            alertedAddresses.clear()
         }
     }
 
@@ -214,68 +199,6 @@ class BluetoothSessionService : Service() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
-    private fun alertForNewCompatibleDevices(devices: List<DiscoveredDevice>) {
-        val newlyFound = newlyDiscoveredCompatibleDevices(devices, alertedAddresses)
-        if (newlyFound.isEmpty()) {
-            return
-        }
-        alertedAddresses += newlyFound.map(DiscoveredDevice::address)
-        val compatibleCount = devices.count(DiscoveredDevice::connectionEligible)
-        postDiscoveryAlert(
-            deviceDiscoveryContent(
-                device = newlyFound.maxBy(DiscoveredDevice::rssi),
-                compatibleCount = compatibleCount,
-            ),
-        )
-    }
-
-    private fun postDiscoveryAlert(content: DeviceDiscoveryContent) {
-        if (!canPostNotifications()) {
-            return
-        }
-        val notification = NotificationCompat.Builder(this, DISCOVERY_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_nav_bluetooth)
-            .setContentTitle(content.title)
-            .setContentText(content.text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(content.expandedText))
-            .setContentIntent(contentIntent)
-            .setAutoCancel(true)
-            .setTimeoutAfter(DISCOVERY_ALERT_TIMEOUT_MILLIS)
-            .setLocalOnly(true)
-            .setCategory(NotificationCompat.CATEGORY_STATUS)
-            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setPublicVersion(publicDiscoveryNotification())
-            .build()
-        try {
-            notificationManager.notify(DISCOVERY_NOTIFICATION_ID, notification)
-        } catch (_: SecurityException) {
-            // Permission can be revoked between canPostNotifications() and notify().
-        }
-    }
-
-    private fun publicDiscoveryNotification(): Notification =
-        NotificationCompat.Builder(this, DISCOVERY_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_nav_bluetooth)
-            .setContentTitle("Compatible KARR device found")
-            .setContentText("Open KARR Key to view it.")
-            .setContentIntent(contentIntent)
-            .setAutoCancel(true)
-            .setLocalOnly(true)
-            .setCategory(NotificationCompat.CATEGORY_STATUS)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .build()
-
-    private fun canPostNotifications(): Boolean {
-        val runtimePermissionGranted =
-            Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-                ContextCompat.checkSelfPermission(
-                    this,
-                    Manifest.permission.POST_NOTIFICATIONS,
-                ) == PackageManager.PERMISSION_GRANTED
-        return runtimePermissionGranted && notificationManager.areNotificationsEnabled()
-    }
-
     private fun serviceAction(
         requestCode: Int,
         action: String,
@@ -291,28 +214,25 @@ class BluetoothSessionService : Service() {
             return
         }
         val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannels(
-            listOf(
-                NotificationChannel(
-                    STATUS_CHANNEL_ID,
-                    "Bluetooth status",
-                    NotificationManager.IMPORTANCE_LOW,
-                ).apply {
-                    description = "Ongoing KARR scanning and connected-device status"
-                    setShowBadge(false)
-                    lockscreenVisibility = Notification.VISIBILITY_PRIVATE
-                },
-                NotificationChannel(
-                    DISCOVERY_CHANNEL_ID,
-                    "Device discoveries",
-                    NotificationManager.IMPORTANCE_DEFAULT,
-                ).apply {
-                    description = "Alerts when a compatible KARR device is found"
-                    setShowBadge(false)
-                    lockscreenVisibility = Notification.VISIBILITY_PRIVATE
-                },
-            ),
+        manager.createNotificationChannel(
+            NotificationChannel(
+                STATUS_CHANNEL_ID,
+                "Bluetooth status",
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply {
+                description = "Ongoing KARR scanning and connected-device status"
+                setShowBadge(false)
+                lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+            },
         )
+    }
+
+    private fun removeLegacyDiscoveryNotification() {
+        notificationManager.cancel(LEGACY_DISCOVERY_NOTIFICATION_ID)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            getSystemService(NotificationManager::class.java)
+                .deleteNotificationChannel(LEGACY_DISCOVERY_CHANNEL_ID)
+        }
     }
 
     private data class SessionSnapshot(
@@ -325,10 +245,9 @@ class BluetoothSessionService : Service() {
         private const val ACTION_STOP_SCAN = "com.karr.key.action.STOP_SCAN"
         private const val ACTION_DISCONNECT = "com.karr.key.action.DISCONNECT"
         private const val STATUS_CHANNEL_ID = "bluetooth_status"
-        private const val DISCOVERY_CHANNEL_ID = "device_discoveries"
         private const val STATUS_NOTIFICATION_ID = 1001
-        private const val DISCOVERY_NOTIFICATION_ID = 1002
-        private const val DISCOVERY_ALERT_TIMEOUT_MILLIS = 60_000L
+        private const val LEGACY_DISCOVERY_CHANNEL_ID = "device_discoveries"
+        private const val LEGACY_DISCOVERY_NOTIFICATION_ID = 1002
         private const val INACTIVE_STOP_GRACE_MILLIS = 250L
 
         private val STARTING_CONTENT = BleNotificationContent(

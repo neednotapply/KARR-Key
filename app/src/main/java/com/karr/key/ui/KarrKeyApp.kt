@@ -1,41 +1,48 @@
 package com.karr.key.ui
 
+import android.widget.Toast
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -49,13 +56,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.ui.NavDisplay
@@ -72,12 +82,39 @@ import com.karr.key.protocol.KarrDeviceMode
 import com.karr.key.protocol.KarrUnitModel
 import com.karr.key.protocol.RecoveredDeviceOperation
 import com.karr.key.protocol.RecoveredWorkflowCatalog
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val KARR_FIRMWARE_UPDATE_URL =
     "https://www.karrsecurity.com/karr-security-firmware-update-instructions"
 private const val UCSD_SECURITY_RESEARCH_URL =
     "https://today.ucsd.edu/story/2-million-cars-with-anti-theft-systems-installed-by-dealers-are-at-higher-risk-of-theft"
+internal const val WATCH_DOGS_MODE_URL = "https://fuckyou.gay/?KARR-Key"
+private const val WATCH_DOGS_MODE_TAPS = 7
+private const val WATCH_DOGS_COUNTDOWN_MILLIS = 2_500L
+
+internal data class WatchDogsModeProgress(
+    val nextTapCount: Int,
+    val remainingTaps: Int,
+    val activated: Boolean,
+) {
+    val message: String
+        get() = when {
+            activated -> "Watch Dogs mode enabled."
+            remainingTaps == 1 -> "You are now 1 tap away from Watch Dogs mode."
+            else -> "You are now $remainingTaps taps away from Watch Dogs mode."
+        }
+}
+
+internal fun advanceWatchDogsMode(currentTapCount: Int): WatchDogsModeProgress {
+    val completedTaps = currentTapCount.coerceIn(0, WATCH_DOGS_MODE_TAPS - 1) + 1
+    val activated = completedTaps == WATCH_DOGS_MODE_TAPS
+    return WatchDogsModeProgress(
+        nextTapCount = if (activated) 0 else completedTaps,
+        remainingTaps = WATCH_DOGS_MODE_TAPS - completedTaps,
+        activated = activated,
+    )
+}
 
 @Composable
 fun KarrKeyApp(
@@ -167,12 +204,10 @@ private fun KeyShell(
     val currentOperation = (navigation.currentRoute as? AppRoute.OperationDetail)
         ?.operationId
         ?.let(RecoveredWorkflowCatalog::operationById)
-    val topBarTitle = when (navigation.currentRoute) {
-        AppRoute.Home -> "KARR Key"
-        AppRoute.Operations -> "Device operations"
-        is AppRoute.Device -> "Device"
-        is AppRoute.OperationDetail -> currentOperation?.label ?: "Operation"
-    }
+    val topBarTitle = shellTopBarTitle(
+        route = navigation.currentRoute,
+        operationTitle = currentOperation?.label,
+    )
     val topLevelSwipeEnabled = navigation.currentRoute !is AppRoute.OperationDetail
 
     BoxWithConstraints {
@@ -201,24 +236,26 @@ private fun KeyShell(
         ) {
             Scaffold(
             topBar = {
-                TopAppBar(
-                    title = {
-                        Text(
-                            text = topBarTitle,
-                            maxLines = 1,
-                        )
-                    },
-                    navigationIcon = {
-                        if (navigation.currentRoute is AppRoute.OperationDetail) {
-                            IconButton(onClick = { navigation.navigateUp() }) {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_arrow_back),
-                                    contentDescription = "Navigate up",
-                                )
+                topBarTitle?.let { title ->
+                    TopAppBar(
+                        title = {
+                            Text(
+                                text = title,
+                                maxLines = 1,
+                            )
+                        },
+                        navigationIcon = {
+                            if (navigation.currentRoute is AppRoute.OperationDetail) {
+                                IconButton(onClick = { navigation.navigateUp() }) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_arrow_back),
+                                        contentDescription = "Navigate up",
+                                    )
+                                }
                             }
-                        }
-                    },
-                )
+                        },
+                    )
+                }
             },
             snackbarHost = { SnackbarHost(snackbar) },
         ) { innerPadding ->
@@ -419,18 +456,37 @@ internal fun DashboardScreen(
     onOpenDevice: () -> Unit,
     onOpenAccessKeys: () -> Unit,
 ) {
+    val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
+    var watchDogsTapCount by rememberSaveable { mutableIntStateOf(0) }
+    var watchDogsMessage by remember { mutableStateOf<String?>(null) }
+    var watchDogsMessageRevision by remember { mutableIntStateOf(0) }
 
-    ResponsiveContent(Modifier.fillMaxSize()) { contentModifier ->
-        Column(
-            modifier = contentModifier
-                .fillMaxSize()
-                .padding(vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            OutlinedCard(Modifier.fillMaxWidth()) {
+    LaunchedEffect(watchDogsMessageRevision) {
+        if (watchDogsMessage != null) {
+            delay(WATCH_DOGS_COUNTDOWN_MILLIS)
+            watchDogsMessage = null
+        }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        ResponsiveContent(Modifier.fillMaxSize()) { contentModifier ->
+            Column(
+                modifier = contentModifier
+                    .fillMaxSize()
+                    .padding(vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+            OutlinedCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("home-device-card"),
+            ) {
                 Column(
-                    modifier = Modifier.padding(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 170.dp)
+                        .padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Row(
@@ -440,35 +496,48 @@ internal fun DashboardScreen(
                     ) {
                         Text(
                             "Device",
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("home-device-title"),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.SemiBold,
                         )
-                        Button(
-                            onClick = if (session.roles.isEmpty()) {
-                                onOpenAccessKeys
-                            } else {
-                                onOpenDevice
-                            },
-                        ) {
-                            Text(
-                                if (session.roles.isEmpty()) {
-                                    "Set up access"
-                                } else if (deviceAuthenticated) {
-                                    "View device"
+                        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
+                            Button(
+                                modifier = Modifier
+                                    .height(32.dp)
+                                    .testTag("home-device-action"),
+                                contentPadding = PaddingValues(horizontal = 14.dp),
+                                onClick = if (session.roles.isEmpty()) {
+                                    onOpenAccessKeys
                                 } else {
-                                    "Connect device"
+                                    onOpenDevice
                                 },
-                            )
+                            ) {
+                                Text(
+                                    text = if (session.roles.isEmpty()) {
+                                        "Set up access"
+                                    } else if (deviceAuthenticated) {
+                                        "View device"
+                                    } else {
+                                        "Connect device"
+                                    },
+                                    maxLines = 1,
+                                    style = MaterialTheme.typography.labelLarge,
+                                )
+                            }
                         }
                     }
                     val status = bleState.homeStatus()
                     Text(
                         status,
-                        modifier = Modifier.semantics {
-                            liveRegion = LiveRegionMode.Polite
-                            stateDescription = status
-                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("home-device-status")
+                            .semantics {
+                                liveRegion = LiveRegionMode.Polite
+                                stateDescription = status
+                            },
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -546,38 +615,69 @@ internal fun DashboardScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("credits-attribution")
+                            .pointerInput(watchDogsTapCount) {
+                                detectTapGestures {
+                                    val progress = advanceWatchDogsMode(watchDogsTapCount)
+                                    watchDogsTapCount = progress.nextTapCount
+                                    if (progress.activated) {
+                                        watchDogsMessage = null
+                                        Toast.makeText(
+                                            context,
+                                            progress.message,
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                        uriHandler.openUri(WATCH_DOGS_MODE_URL)
+                                    } else {
+                                        watchDogsMessage = progress.message
+                                        watchDogsMessageRevision++
+                                    }
+                                }
+                            },
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Image(
-                            painter = painterResource(R.drawable.pirates_plunder_mark),
-                            contentDescription = "The Pirates' Plunder skull and crossed tusks",
+                            painter = painterResource(R.drawable.watch_dogs_mark),
+                            contentDescription = "NeedNotApply profile picture",
                             contentScale = ContentScale.Fit,
-                            modifier = Modifier
-                                .sizeIn(maxWidth = 72.dp, maxHeight = 72.dp)
-                                .aspectRatio(966f / 876f),
+                            modifier = Modifier.size(72.dp),
                         )
                         Column(
                             modifier = Modifier.weight(1f),
+                            horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(2.dp),
                         ) {
                             Text(
                                 "Developed by",
+                                modifier = Modifier.fillMaxWidth(),
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
                             )
                             Text(
                                 "NeedNotApply",
+                                modifier = Modifier.fillMaxWidth(),
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
                             )
                             Text(
                                 "for The Pirates' Plunder",
+                                modifier = Modifier.fillMaxWidth(),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
                             )
                         }
+                        Image(
+                            painter = painterResource(R.drawable.pirates_plunder_mark),
+                            contentDescription = "The Pirates' Plunder skull and crossed tusks",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.size(72.dp),
+                        )
                     }
                     OutlinedButton(
                         modifier = Modifier.fillMaxWidth(),
@@ -585,9 +685,34 @@ internal fun DashboardScreen(
                             uriHandler.openUri("https://www.discord.gg/thepirates")
                         },
                     ) {
-                        Text("Join us online")
+                        Text("Join us on Discord")
                     }
                 }
+            }
+        }
+        }
+
+        watchDogsMessage?.let { message ->
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 24.dp, vertical = 16.dp)
+                    .testTag("watch-dogs-countdown")
+                    .semantics {
+                        liveRegion = LiveRegionMode.Assertive
+                        stateDescription = message
+                    },
+                shape = MaterialTheme.shapes.extraLarge,
+                color = MaterialTheme.colorScheme.inverseSurface,
+                contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                tonalElevation = 6.dp,
+            ) {
+                Text(
+                    text = message,
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                )
             }
         }
     }
@@ -611,7 +736,7 @@ private fun MissingOperationState(onBack: () -> Unit) {
     }
 }
 
-private fun BleSessionState.homeStatus(): String = when (this) {
+internal fun BleSessionState.homeStatus(): String = when (this) {
     BleSessionState.Idle -> "Ready to scan."
     BleSessionState.Scanning -> "Scanning for compatible KARR units."
     is BleSessionState.Reconnecting ->
@@ -623,11 +748,10 @@ private fun BleSessionState.homeStatus(): String = when (this) {
     is BleSessionState.UartSubscribed -> "Bluetooth connected; waiting for unit authentication."
     is BleSessionState.AuthenticationRequired -> "The unit requested application authentication."
     is BleSessionState.Authenticating -> "Authenticating the connected unit."
-    is BleSessionState.Ready ->
-        unitModel?.let { model ->
-            val modeText = unitMode?.let { mode -> ", ${mode.displayName} mode" }.orEmpty()
-            "Device authenticated and ready: ${model.displayName}$modeText."
-        } ?: "Device authenticated and ready; model not identified."
+    is BleSessionState.Ready -> listOfNotNull(
+        unitModel?.displayName ?: "Model not identified",
+        unitMode?.let { mode -> "${mode.displayName} mode" },
+    ).joinToString(" • ")
     is BleSessionState.Error -> "Device error: $message"
 }
 
@@ -635,6 +759,16 @@ internal fun BleSessionState.shouldStartHomeScan(): Boolean =
     this is BleSessionState.Idle ||
         this is BleSessionState.Error ||
         this is BleSessionState.ReconnectFailed
+
+internal fun shellTopBarTitle(
+    route: AppRoute,
+    operationTitle: String? = null,
+): String? = when (route) {
+    AppRoute.Home -> null
+    AppRoute.Operations -> "Device operations"
+    is AppRoute.Device -> "Device"
+    is AppRoute.OperationDetail -> operationTitle ?: "Operation"
+}
 
 private fun horizontalPageSlide(forward: Boolean): ContentTransform {
     val direction = if (forward) 1 else -1

@@ -6,10 +6,25 @@ import com.karr.key.protocol.QtCommand
 import com.karr.key.protocol.RecoveredWorkflowCatalog
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class KarrNavigationStateTest {
+    @Test
+    fun homeOmitsTopBarWhileOtherRoutesKeepTheirTitles() {
+        assertNull(shellTopBarTitle(AppRoute.Home))
+        assertEquals("Device operations", shellTopBarTitle(AppRoute.Operations))
+        assertEquals("Device", shellTopBarTitle(AppRoute.Device()))
+        assertEquals(
+            "Read state",
+            shellTopBarTitle(
+                route = AppRoute.OperationDetail("read-state"),
+                operationTitle = "Read state",
+            ),
+        )
+    }
+
     @Test
     fun shellExposesHomeOperationsAndDeviceDestinations() {
         assertEquals(

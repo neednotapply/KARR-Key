@@ -16,12 +16,6 @@ internal data class BleNotificationContent(
     val showProgress: Boolean,
 )
 
-internal data class DeviceDiscoveryContent(
-    val title: String,
-    val text: String,
-    val expandedText: String,
-)
-
 internal fun bleNotificationContent(
     state: BleSessionState,
     devices: List<DiscoveredDevice>,
@@ -34,19 +28,22 @@ internal fun bleNotificationContent(
     BleSessionState.Scanning -> {
         val compatible = devices.filter(DiscoveredDevice::connectionEligible)
         val count = compatible.size
+        val strongest = compatible.maxByOrNull(DiscoveredDevice::rssi)
         BleNotificationContent(
-            title = "Scanning for KARR devices",
-            text = when (count) {
-                0 -> "No compatible devices found yet"
-                1 -> "1 compatible device found"
-                else -> "$count compatible devices found"
+            title = when (count) {
+                0 -> "Scanning for KARR devices"
+                1 -> "1 KARR device found"
+                else -> "$count KARR devices found"
             },
-            expandedText = if (count == 0) {
-                "Looking for connectable devices with a confirmed KARR identifier."
-            } else {
-                "Open KARR Key to review compatible devices. " +
-                    "Scanning continues until you stop or connect."
-            },
+            text = strongest?.let { device ->
+                "${device.displayName()} | ${device.rssi} dBm"
+            } ?: "No compatible devices found yet",
+            expandedText = strongest?.let { device ->
+                "Device: ${device.displayName()}\n" +
+                    "Address: ${device.address}\n" +
+                    "Signal: ${device.rssi} dBm\n" +
+                    "Scanning continues. Open KARR Key to connect."
+            } ?: "Looking for connectable devices with a confirmed KARR identifier.",
             action = BleNotificationAction.STOP_SCAN,
             showProgress = true,
         )
@@ -119,32 +116,6 @@ internal fun bleNotificationContent(
             showProgress = false,
         )
     }
-}
-
-internal fun newlyDiscoveredCompatibleDevices(
-    devices: List<DiscoveredDevice>,
-    alreadyAlertedAddresses: Set<String>,
-): List<DiscoveredDevice> = devices.filter { device ->
-    device.connectionEligible && device.address !in alreadyAlertedAddresses
-}
-
-internal fun deviceDiscoveryContent(
-    device: DiscoveredDevice,
-    compatibleCount: Int,
-): DeviceDiscoveryContent {
-    val deviceName = device.displayName()
-    return DeviceDiscoveryContent(
-        title = if (compatibleCount == 1) {
-            "KARR device found"
-        } else {
-            "$compatibleCount KARR devices found"
-        },
-        text = "$deviceName | ${device.rssi} dBm",
-        expandedText = "Device: $deviceName\n" +
-            "Address: ${device.address}\n" +
-            "Signal: ${device.rssi} dBm\n" +
-            "Open KARR Key to connect.",
-    )
 }
 
 private fun connectionContent(

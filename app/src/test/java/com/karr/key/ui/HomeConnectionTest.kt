@@ -1,11 +1,43 @@
 package com.karr.key.ui
 
 import com.karr.key.ble.BleSessionState
+import com.karr.key.protocol.KarrDeviceMode
+import com.karr.key.protocol.KarrUnitModel
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HomeConnectionTest {
+    @Test
+    fun readyHomeStatusShowsOnlyModelAndMode() {
+        assertEquals(
+            "DR1 CAN • User mode",
+            BleSessionState.Ready(
+                address = "00:11:22:33:44:55",
+                name = "DR D029A54D",
+                unitModel = KarrUnitModel.DR1_CAN,
+                unitMode = KarrDeviceMode.USER,
+            ).homeStatus(),
+        )
+        assertEquals(
+            "DR1 CAN",
+            BleSessionState.Ready(
+                address = "00:11:22:33:44:55",
+                name = "DR D029A54D",
+                unitModel = KarrUnitModel.DR1_CAN,
+            ).homeStatus(),
+        )
+        assertEquals(
+            "Model not identified • User mode",
+            BleSessionState.Ready(
+                address = "00:11:22:33:44:55",
+                name = "DR D029A54D",
+                unitMode = KarrDeviceMode.USER,
+            ).homeStatus(),
+        )
+    }
+
     @Test
     fun startsHomeScanOnlyWhenItWillNotInterruptConnectionWork() {
         assertTrue(BleSessionState.Idle.shouldStartHomeScan())
