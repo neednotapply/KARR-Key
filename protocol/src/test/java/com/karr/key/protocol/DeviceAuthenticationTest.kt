@@ -8,6 +8,25 @@ import org.junit.Test
 
 class DeviceAuthenticationTest {
     @Test
+    fun deviceModeLabelsExplainDealerLifecycleModes() {
+        assertEquals("No sale", KarrDeviceMode.NO_SALE.displayName)
+        assertEquals(
+            "Borrowed Car Agreement (BCA)",
+            KarrDeviceMode.BCA.displayName,
+        )
+    }
+
+    @Test
+    fun exposedModeEffectsDescribeTheTargetState() {
+        assertTrue(KarrDeviceMode.INSTALLER.effectDescription.contains("commissioning"))
+        assertTrue(KarrDeviceMode.DEALER.effectDescription.contains("lot-protection"))
+        assertTrue(KarrDeviceMode.USER.effectDescription.contains("consumer state"))
+        assertTrue(KarrDeviceMode.NO_SALE.effectDescription.contains("deactivates"))
+        assertTrue(KarrDeviceMode.BCA.effectDescription.contains("extended period"))
+        assertTrue(KarrDeviceMode.VALET.effectDescription.contains("Temporarily disables"))
+    }
+
+    @Test
     fun dealerChallengeMatchesIndependentLegacyVector() = runTest {
         val keys = FakeKeyProvider(
             dealer = ByteArray(16) { index -> index.toByte() },

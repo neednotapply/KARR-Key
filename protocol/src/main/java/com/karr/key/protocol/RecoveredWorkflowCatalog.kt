@@ -149,7 +149,8 @@ object RecoveredWorkflowCatalog {
             KarrDeviceMode.NO_SALE,
             KarrDeviceMode.BCA,
         ),
-        supportedDescription = "User, Installer, No sale, or BCA mode",
+        supportedDescription =
+            "User, Installer, No sale, or Borrowed Car Agreement (BCA) mode",
     )
 
     private val USER_SERVICE_RETURN_MODES = RecoveredModeRequirement(
@@ -377,6 +378,7 @@ object RecoveredWorkflowCatalog {
                 target = KarrDeviceMode.INSTALLER,
                 sourceModes = DEALER_MODE_ONLY,
                 source = INSTALLER_SOURCE,
+                experimental = false,
             ),
             modeSwitch(
                 id = "switch-dealer-mode",
@@ -397,12 +399,14 @@ object RecoveredWorkflowCatalog {
                 target = KarrDeviceMode.NO_SALE,
                 sourceModes = DEALER_MODE_ONLY,
                 source = DEALER_SOURCE,
+                experimental = false,
             ),
             modeSwitch(
                 id = "switch-bca-mode",
                 target = KarrDeviceMode.BCA,
                 sourceModes = DEALER_MODE_ONLY,
                 source = DEALER_SOURCE,
+                experimental = false,
             ),
         ),
         "installer.repair" to commonDiagnostics,
@@ -483,9 +487,8 @@ object RecoveredWorkflowCatalog {
                 "The preserved installer test sequence uses UNLOCK_DOORS to return to a " +
                 "non-immobilized state and requires the technician to verify that result."
         "installer.mode_switches" ->
-            "The Dealer and User transitions have been confirmed by READ_MODE on authorized " +
-                "hardware; the remaining service and lifecycle transitions are experimental. " +
-                "Each sends " +
+            "The Installer, Dealer, User, No sale, and Borrowed Car Agreement (BCA) " +
+                "transitions have been confirmed by READ_MODE on authorized hardware. Each sends " +
                 "CHANGE_MODE once, then requires a fresh READ_MODE to confirm the unit's actual " +
                 "mode. Bootload uses a separate protocol path, and no ordinary Unconfigured " +
                 "transition was recovered, so neither is exposed here."
@@ -621,7 +624,7 @@ object RecoveredWorkflowCatalog {
         action.command == QtCommand.LOCK_DOORS && action.payload == listOf(0) ->
             "Lock and arm"
         action.command == QtCommand.UNLOCK_DOORS && action.payload == listOf(0) ->
-            "Unlock and disarm"
+            "Restore drivable state"
         action.command == QtCommand.VEHICLE_CONTROL && action.payload == listOf(10) ->
             "Activate trunk output"
         else -> action.label
@@ -633,6 +636,9 @@ object RecoveredWorkflowCatalog {
                 "and immobilizer-related state."
         action.command == QtCommand.READ_MODE ->
             "Reads the connected unit's model, operating mode, and security state."
+        action.command == QtCommand.UNLOCK_DOORS && action.payload == listOf(0) ->
+            "Unlocks the doors and disarms the connected unit using the recovered operation " +
+                "that restores a non-immobilized, drivable state."
         action.command == QtCommand.READ_VEHICLE_BATTERY_VOLTAGE ->
             "Reads the vehicle battery voltage reported by the connected unit."
         action.command == QtCommand.READ_FIRMWARE_VERSION ->

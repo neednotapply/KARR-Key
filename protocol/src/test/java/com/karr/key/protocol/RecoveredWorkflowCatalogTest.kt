@@ -287,25 +287,47 @@ class RecoveredWorkflowCatalogTest {
         assertTrue(actions.all { action -> action.command == QtCommand.CHANGE_MODE })
         assertTrue(actions.all(RecoveredDeviceAction::mutating))
         assertTrue(actions.all(RecoveredDeviceAction::singleShot))
-        assertFalse(
-            actions.single { action -> action.targetMode == KarrDeviceMode.DEALER }.experimental,
-        )
-        assertFalse(
-            actions.single { action -> action.targetMode == KarrDeviceMode.USER }.experimental,
-        )
-        assertTrue(
-            actions
-                .filterNot { action ->
-                    action.targetMode in setOf(KarrDeviceMode.DEALER, KarrDeviceMode.USER)
-                }
-                .all(RecoveredDeviceAction::experimental),
-        )
+        assertTrue(actions.none(RecoveredDeviceAction::experimental))
         assertTrue(
             actions.none { action ->
                 action.targetMode in setOf(
                     KarrDeviceMode.BOOTLOAD,
                     KarrDeviceMode.UNCONFIGURED,
                 )
+            },
+        )
+    }
+
+    @Test
+    fun modeSwitchCatalogDescriptionsStayCompact() {
+        val modeDescriptions = RecoveredWorkflowCatalog.operations
+            .filter { operation -> operation.command == QtCommand.CHANGE_MODE }
+            .associate { operation ->
+                KarrDeviceMode.entries.single { mode ->
+                    mode.code == operation.payload.single()
+                } to operation.description
+            }
+
+        assertEquals(
+            setOf(
+                KarrDeviceMode.INSTALLER,
+                KarrDeviceMode.DEALER,
+                KarrDeviceMode.USER,
+                KarrDeviceMode.NO_SALE,
+                KarrDeviceMode.BCA,
+                KarrDeviceMode.VALET,
+            ),
+            modeDescriptions.keys,
+        )
+        assertTrue(modeDescriptions.values.none { description -> description.contains("Mode effect:") })
+        assertEquals(
+            "Changes the connected unit to recovered mode 5 (Valet).",
+            modeDescriptions.getValue(KarrDeviceMode.VALET),
+        )
+        assertTrue(
+            modeDescriptions.values.all { description ->
+                description.startsWith("Changes the connected unit ") ||
+                    description.startsWith("Sends the recovered ")
             },
         )
     }
@@ -322,7 +344,7 @@ class RecoveredWorkflowCatalogTest {
     }
 
     @Test
-    fun experimentalModeSwitchesFollowRecoveredSourceModeGraph() {
+    fun confirmedModeSwitchesFollowRecoveredSourceModeGraph() {
         val actions = RecoveredWorkflowCatalog.actionsFor("installer.mode_switches")
             .associateBy(RecoveredDeviceAction::targetMode)
 

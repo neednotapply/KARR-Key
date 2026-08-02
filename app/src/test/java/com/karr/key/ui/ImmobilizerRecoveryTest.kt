@@ -25,7 +25,7 @@ class ImmobilizerRecoveryTest {
         )
 
         assertEquals("unlock-doors-00", status?.operation?.id)
-        assertEquals("Unlock and disarm", status?.operation?.label)
+        assertEquals("Restore drivable state", status?.operation?.label)
         assertTrue(status?.available == true)
         assertNull(status?.reason)
     }

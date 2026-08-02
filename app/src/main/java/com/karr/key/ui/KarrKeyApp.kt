@@ -7,6 +7,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -18,7 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.sizeIn
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -55,7 +56,6 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.ui.NavDisplay
@@ -305,6 +305,7 @@ private fun KeyShell(
                                 selectedOperation = null,
                                 session = session,
                                 deviceAuthenticated = deviceAuthenticated,
+                                bleState = bleState,
                                 unitModel = unitModel,
                                 unitMode = unitMode,
                                 controller = bleController,
@@ -340,6 +341,7 @@ private fun KeyShell(
                                     selectedOperation = operation,
                                     session = session,
                                     deviceAuthenticated = deviceAuthenticated,
+                                    bleState = bleState,
                                     unitModel = unitModel,
                                     unitMode = unitMode,
                                     controller = bleController,
@@ -367,6 +369,7 @@ private fun OperationsRouteContent(
     selectedOperation: RecoveredDeviceOperation?,
     session: Session,
     deviceAuthenticated: Boolean,
+    bleState: BleSessionState,
     unitModel: KarrUnitModel?,
     unitMode: KarrDeviceMode?,
     controller: BleController,
@@ -396,6 +399,7 @@ private fun OperationsRouteContent(
                 session = session,
                 operation = operation,
                 deviceAuthenticated = deviceAuthenticated,
+                bleState = bleState,
                 unitModel = unitModel,
                 unitMode = unitMode,
                 controller = controller,
@@ -408,7 +412,7 @@ private fun OperationsRouteContent(
 }
 
 @Composable
-private fun DashboardScreen(
+internal fun DashboardScreen(
     session: Session,
     bleState: BleSessionState,
     deviceAuthenticated: Boolean,
@@ -418,78 +422,27 @@ private fun DashboardScreen(
     val uriHandler = LocalUriHandler.current
 
     ResponsiveContent(Modifier.fillMaxSize()) { contentModifier ->
-        LazyColumn(
-            modifier = contentModifier,
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                top = 16.dp,
-                bottom = 32.dp,
-            ),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+        Column(
+            modifier = contentModifier
+                .fillMaxSize()
+                .padding(vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item {
-                OutlinedCard(Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.padding(18.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Text(
-                            text = "What is KARR/SWDS?",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            text = "KARR/SWDS security devices are dealer-installed vehicle alarm " +
-                                "and control modules. They connect to door locks, the alarm, and " +
-                                "other vehicle functions, and communicate with phone apps over " +
-                                "Bluetooth. Many owners do not know one is installed in their " +
-                                "vehicle.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            text = "Why this matters",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            text = "These devices use universal authentication—the same access " +
-                                "works across devices—instead of credentials unique to each " +
-                                "vehicle. This app demonstrates why that can expose vehicle " +
-                                "controls. Technical details and supporting research are available " +
-                                "below.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        OutlinedButton(
-                            onClick = { uriHandler.openUri(UCSD_SECURITY_RESEARCH_URL) },
-                        ) {
-                            Text("Read the security research")
-                        }
-                        OutlinedButton(
-                            onClick = { uriHandler.openUri(KARR_FIRMWARE_UPDATE_URL) },
-                        ) {
-                            Text("Firmware update instructions")
-                        }
-                    }
-                }
-            }
-            item {
-                OutlinedCard(Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.padding(18.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+            OutlinedCard(Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
                             "Device",
+                            modifier = Modifier.weight(1f),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.SemiBold,
-                        )
-                        val status = bleState.homeStatus()
-                        Text(
-                            status,
-                            modifier = Modifier.semantics {
-                                liveRegion = LiveRegionMode.Polite
-                                stateDescription = status
-                            },
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Button(
                             onClick = if (session.roles.isEmpty()) {
@@ -509,43 +462,130 @@ private fun DashboardScreen(
                             )
                         }
                     }
+                    val status = bleState.homeStatus()
+                    Text(
+                        status,
+                        modifier = Modifier.semantics {
+                            liveRegion = LiveRegionMode.Polite
+                            stateDescription = status
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
-            item {
-                OutlinedCard(Modifier.fillMaxWidth()) {
+            OutlinedCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = "What is KARR/SWDS?",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                     Column(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(18.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = "KARR/SWDS security devices are dealer-installed vehicle alarm " +
+                                "and control modules. They connect to door locks, the alarm, and " +
+                                "other vehicle functions, and communicate with phone apps over " +
+                                "Bluetooth. Many owners do not know one is installed in their " +
+                                "vehicle.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = "Why this matters",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "These devices use universal authentication—the same access " +
+                                "works across devices—instead of credentials unique to each " +
+                                "vehicle. This app demonstrates why that can expose vehicle " +
+                                "controls. Technical details and supporting research are available " +
+                                "below.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        OutlinedButton(
+                            modifier = Modifier.weight(1f),
+                            onClick = { uriHandler.openUri(UCSD_SECURITY_RESEARCH_URL) },
+                        ) {
+                            Text("Security research")
+                        }
+                        OutlinedButton(
+                            modifier = Modifier.weight(1f),
+                            onClick = { uriHandler.openUri(KARR_FIRMWARE_UPDATE_URL) },
+                        ) {
+                            Text("Firmware updates")
+                        }
+                    }
+                }
+            }
+            OutlinedCard(Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Image(
                             painter = painterResource(R.drawable.pirates_plunder_mark),
                             contentDescription = "The Pirates' Plunder skull and crossed tusks",
                             contentScale = ContentScale.Fit,
                             modifier = Modifier
-                                .sizeIn(maxWidth = 180.dp, maxHeight = 180.dp)
+                                .sizeIn(maxWidth = 72.dp, maxHeight = 72.dp)
                                 .aspectRatio(966f / 876f),
                         )
-                        Text(
-                            "Developed by NeedNotApply",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            textAlign = TextAlign.Center,
-                        )
-                        Text(
-                            "for The Pirates' Plunder",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                        )
-                        OutlinedButton(
-                            onClick = {
-                                uriHandler.openUri("https://www.discord.gg/thepirates")
-                            },
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
                         ) {
-                            Text("Join us online")
+                            Text(
+                                "Developed by",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                "NeedNotApply",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                "for The Pirates' Plunder",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
+                    }
+                    OutlinedButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = {
+                            uriHandler.openUri("https://www.discord.gg/thepirates")
+                        },
+                    ) {
+                        Text("Join us online")
                     }
                 }
             }
@@ -572,7 +612,7 @@ private fun MissingOperationState(onBack: () -> Unit) {
 }
 
 private fun BleSessionState.homeStatus(): String = when (this) {
-    BleSessionState.Idle -> "Ready to scan for a compatible KARR unit."
+    BleSessionState.Idle -> "Ready to scan."
     BleSessionState.Scanning -> "Scanning for compatible KARR units."
     is BleSessionState.Reconnecting ->
         "Reconnecting to $serial (attempt $attempt of $maxAttempts): $step."

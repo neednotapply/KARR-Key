@@ -136,15 +136,21 @@ failure and never causes the mutating command to be retried. The fresh response
 also updates `Ready`, so all model/mode restrictions are recomputed immediately.
 
 The Installer mode-switch section exposes only ordinary transitions recovered
-from managed callers: Dealer to Installer, No sale, or BCA; User, Installer, No
-sale, or BCA back to Dealer; and Dealer or No sale to User. Valet follows the
-recovered staged path through User before Dealer. Bootload uses its dedicated
-entry command rather than `CHANGE_MODE`, and no ordinary transition into
-Unconfigured was recovered, so neither value is offered. The transitions into
-Dealer and User have been confirmed by fresh `READ_MODE` on authorized hardware
-and are no longer experimental. The other service/lifecycle edges remain source-backed
-candidates awaiting physical-hardware observations; the app reports protocol
-read-back separately from any broader vehicle effect.
+from managed callers: Dealer to Installer, No sale, or Borrowed Car Agreement
+(BCA); User, Installer, No sale, or Borrowed Car Agreement back to Dealer; and
+Dealer or No sale to User. Valet follows the recovered staged path through User
+before Dealer. Bootload uses its dedicated entry command rather than
+`CHANGE_MODE`, and no ordinary transition into Unconfigured was recovered, so
+neither value is offered. The transitions into Installer, Dealer, User, No sale,
+and Borrowed Car Agreement have been confirmed by fresh `READ_MODE` on
+authorized hardware and are no longer experimental. The app reports protocol
+read-back separately from any broader vehicle effect. The Device Operations
+catalog retains compact transition summaries. The selected command page adds a
+source-based **Mode effect** descriptor: Installer setup and commissioning,
+Dealer lot protection, User consumer security, No sale deactivation, BCA
+extended-drive behavior, or Valet's temporary consumer-security bypass. These
+descriptions explain unit behavior and do not grant a role, capability, or
+authentication state.
 Because User/Valet use Customer material while service modes use Dealer material,
 a later reconnect authenticates with the key family selected by the newly read
 mode.
@@ -188,8 +194,9 @@ blocked before review. GATT acceptance, protocol acknowledgement, and physical
 immobilizer behavior are separate observations; only the first two can be
 reported by the app without an authorized vehicle fixture. The preserved
 installer sequence uses `UNLOCK_DOORS` with payload `0` and then instructs the
-technician to confirm that the vehicle is not immobilized. The app exposes that
-operation as **Restore drivable state / Unlock and disarm** beside the candidate
+technician to confirm that the vehicle is not immobilized. This is a separate
+operation, not part of the immobilizer packet. The app exposes it as **Restore
+drivable state** beside the candidate
 and keeps the candidate disabled unless the recovery operation is authorized
 and compatible. The technician must still verify physical drivability before
 testing; a protocol acknowledgement is not enough.

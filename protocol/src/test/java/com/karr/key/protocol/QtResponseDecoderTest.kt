@@ -127,7 +127,9 @@ class QtResponseDecoderTest {
         assertTrue(decoded.lines.contains("Lock / unlock pulse: Double unlock"))
         assertTrue(decoded.lines.contains("Short pulse duration: 400 ms"))
         assertTrue(decoded.lines.contains("Shock sensor sensitivity: Level 10"))
-        assertTrue(decoded.lines.contains("BCA mode duration: 3 days"))
+        assertTrue(
+            decoded.lines.contains("Borrowed Car Agreement (BCA) mode duration: 3 days"),
+        )
         assertTrue(decoded.lines.contains("User arming: Active"))
         assertTrue(decoded.lines.contains("Arm / disarm tones: On"))
         assertTrue(decoded.lines.contains("Factory-alarm output duration: 3 seconds"))

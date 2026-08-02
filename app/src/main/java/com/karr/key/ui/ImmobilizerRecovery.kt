@@ -33,7 +33,7 @@ internal fun immobilizerRecoveryStatus(
         ?: return ImmobilizerRecoveryStatus(
             operation = null,
             available = false,
-            reason = "The recovered Unlock and disarm operation is missing.",
+            reason = "The recovered Restore drivable state operation is missing.",
         )
     if (!deviceAuthenticated) {
         return ImmobilizerRecoveryStatus(

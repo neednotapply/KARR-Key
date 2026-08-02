@@ -6,6 +6,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -24,6 +25,7 @@ import com.karr.key.protocol.RecoveredWorkflowCatalog
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -52,6 +54,7 @@ class ImmobilizerRecoveryAccessibilityTest {
                         session = session,
                         operation = operation,
                         deviceAuthenticated = true,
+                        bleState = NoOpReadyState,
                         unitModel = KarrUnitModel.QT6_CAN,
                         unitMode = KarrDeviceMode.INSTALLER,
                         controller = NoOpBleController,
@@ -66,7 +69,7 @@ class ImmobilizerRecoveryAccessibilityTest {
         composeRule.onNodeWithText("RESTORE DRIVABLE STATE")
             .performScrollTo()
             .assertIsDisplayed()
-        composeRule.onNodeWithText("Open recovery: Unlock and disarm")
+        composeRule.onNodeWithText("Open recovery: Restore drivable state")
             .performScrollTo()
             .assertIsDisplayed()
             .performClick()
@@ -77,17 +80,118 @@ class ImmobilizerRecoveryAccessibilityTest {
             .performScrollTo()
             .assertIsEnabled()
     }
+
+    @Test
+    fun selectedModeCommandShowsEffectWithoutExpandingCatalogSummary() {
+        val operation = RecoveredWorkflowCatalog.operations.single { candidate ->
+            candidate.bindings.any { binding ->
+                binding.action.targetMode == KarrDeviceMode.BCA
+            }
+        }
+        val roles = setOf(UserRole.INSTALLER)
+        val session = Session(
+            displayName = "Installer",
+            roles = roles,
+            capabilities = FeatureCatalog.capabilitiesFor(roles),
+        )
+
+        composeRule.setContent {
+            KarrKeyTheme(darkTheme = false) {
+                Surface {
+                    DeviceOperationScreen(
+                        session = session,
+                        operation = operation,
+                        deviceAuthenticated = true,
+                        bleState = NoOpReadyState,
+                        unitModel = KarrUnitModel.QT6_CAN,
+                        unitMode = KarrDeviceMode.DEALER,
+                        controller = NoOpBleController,
+                        operationStore = LocalOperationStore(composeRule.activity),
+                        snackbar = SnackbarHostState(),
+                        onOpenOperation = {},
+                    )
+                }
+            }
+        }
+
+        assertTrue(
+            composeRule.onAllNodesWithText(
+                "Sends the recovered Borrowed Car Agreement (BCA) mode transition once, then " +
+                    "reads the unit mode back before reporting success.",
+            ).fetchSemanticsNodes().isEmpty(),
+        )
+        composeRule.onNodeWithText("MODE EFFECT")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule.onNodeWithText(KarrDeviceMode.BCA.effectDescription)
+            .performScrollTo()
+            .assertIsDisplayed()
+        val buttonTop = composeRule.onNodeWithText("Send command")
+            .fetchSemanticsNode()
+            .boundsInRoot
+            .top
+        val requirementsTop = composeRule.onNodeWithText("Command requirements")
+            .fetchSemanticsNode()
+            .boundsInRoot
+            .top
+        assertTrue(buttonTop < requirementsTop)
+    }
+
+    @Test
+    fun disconnectedOperationRestoresConnectionWarning() {
+        val operation = RecoveredWorkflowCatalog.operations.single { candidate ->
+            candidate.bindings.any { binding ->
+                binding.action.targetMode == KarrDeviceMode.BCA
+            }
+        }
+        val roles = setOf(UserRole.INSTALLER)
+        val session = Session(
+            displayName = "Installer",
+            roles = roles,
+            capabilities = FeatureCatalog.capabilitiesFor(roles),
+        )
+
+        composeRule.setContent {
+            KarrKeyTheme(darkTheme = false) {
+                Surface {
+                    DeviceOperationScreen(
+                        session = session,
+                        operation = operation,
+                        deviceAuthenticated = false,
+                        bleState = BleSessionState.Idle,
+                        unitModel = null,
+                        unitMode = null,
+                        controller = NoOpBleController,
+                        operationStore = LocalOperationStore(composeRule.activity),
+                        snackbar = SnackbarHostState(),
+                        onOpenOperation = {},
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithText("DEVICE NOT CONNECTED")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule.onNodeWithText(
+            "Connect and authenticate a unit before running this operation.",
+        ).performScrollTo()
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("UNIT MODE UNKNOWN")
+            .performScrollTo()
+            .assertIsDisplayed()
+    }
 }
 
+private val NoOpReadyState = BleSessionState.Ready(
+    address = "00:11:22:33:44:55",
+    name = "QT000001",
+    unitModel = KarrUnitModel.QT6_CAN,
+    unitMode = KarrDeviceMode.INSTALLER,
+)
+
 private object NoOpBleController : BleController {
-    override val state = MutableStateFlow<BleSessionState>(
-        BleSessionState.Ready(
-            address = "00:11:22:33:44:55",
-            name = "QT000001",
-            unitModel = KarrUnitModel.QT6_CAN,
-            unitMode = KarrDeviceMode.INSTALLER,
-        ),
-    )
+    override val state = MutableStateFlow<BleSessionState>(NoOpReadyState)
     override val devices = MutableStateFlow<List<DiscoveredDevice>>(emptyList())
     override val notifications = MutableSharedFlow<ByteArray>()
 

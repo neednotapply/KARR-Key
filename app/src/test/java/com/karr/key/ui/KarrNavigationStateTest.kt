@@ -262,26 +262,18 @@ class KarrNavigationStateTest {
     }
 
     @Test
-    fun experimentalFilterCollectsCandidatesAndExcludesConfirmedModeSwitches() {
+    fun experimentalFilterCollectsOnlyTheRemainingCandidate() {
         val experimental = deviceOperationsFor(
             filters = OperationFilters(workflow = EXPERIMENTAL_FILTER),
         )
 
-        assertEquals(4, experimental.size)
+        assertEquals(1, experimental.size)
         assertTrue(
             experimental.all { operation ->
                 operation.bindings.any { binding -> binding.action.experimental }
             },
         )
-        assertTrue(
-            experimental.none { operation ->
-                operation.command == QtCommand.CHANGE_MODE &&
-                    operation.payload.singleOrNull() in setOf(
-                        KarrDeviceMode.DEALER.code,
-                        KarrDeviceMode.USER.code,
-                    )
-            },
-        )
+        assertTrue(experimental.none { operation -> operation.command == QtCommand.CHANGE_MODE })
     }
 
     @Test

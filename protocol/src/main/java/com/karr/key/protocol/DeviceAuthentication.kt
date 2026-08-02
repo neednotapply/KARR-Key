@@ -40,8 +40,38 @@ enum class KarrDeviceMode(val code: Int) {
     val displayName: String
         get() = when (this) {
             NO_SALE -> "No sale"
-            BCA -> "BCA"
+            BCA -> "Borrowed Car Agreement (BCA)"
             else -> name.lowercase().replaceFirstChar(Char::uppercase)
+        }
+
+    val effectDescription: String
+        get() = when (this) {
+            INSTALLER ->
+                "Technician setup and commissioning state used by recovered CAN configuration, " +
+                    "installation validation, bump testing, and firmware or service workflows. " +
+                    "It does not grant app access or authentication."
+            DEALER ->
+                "Dealer inventory and lot-protection state with limited security, passive arming " +
+                    "and locking, starter interruption, and authorized dealer controls."
+            USER ->
+                "Normal consumer state that runs the unit's configured customer security behavior " +
+                    "and customer lock, arm, unlock, disarm, and related controls."
+            NO_SALE ->
+                "Product-not-sold lifecycle state that deactivates the unit's security and control " +
+                    "functions. It is not a temporary valet state."
+            BCA ->
+                "Dealer inventory state that places lot protection into a valet-like status so a " +
+                    "customer can drive the vehicle for an extended period. Returning to Dealer " +
+                    "reactivates lot protection."
+            VALET ->
+                "Temporarily disables consumer security functions for parking or service use. " +
+                    "Returning to User resumes the configured consumer security state."
+            BOOTLOAD ->
+                "Dedicated firmware-transfer state entered through the recovered bootload path, " +
+                    "not an ordinary mode-switch operation."
+            UNCONFIGURED ->
+                "Factory or uncommissioned state with no recovered ordinary transition exposed by " +
+                    "the app."
         }
 
     val keyPurpose: DeviceKeyPurpose

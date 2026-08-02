@@ -102,7 +102,7 @@ object QtResponseDecoder {
             choice(it, "35 ms", "14 ms", "55 ms")
         },
         setting(payload, 17, "Shock sensor sensitivity") { "Level $it" },
-        setting(payload, 18, "BCA mode duration") { "$it days" },
+        setting(payload, 18, "Borrowed Car Agreement (BCA) mode duration") { "$it days" },
         setting(payload, 20, "Dealer arming") {
             choice(it, "Passive after doors", "Passive after timer")
         },

@@ -63,6 +63,7 @@ fun DeviceOperationScreen(
     session: Session,
     operation: RecoveredDeviceOperation,
     deviceAuthenticated: Boolean,
+    bleState: BleSessionState,
     unitModel: KarrUnitModel?,
     unitMode: KarrDeviceMode?,
     controller: BleController,
@@ -564,26 +565,67 @@ fun DeviceOperationScreen(
                     operation.label,
                     style = MaterialTheme.typography.headlineMedium,
                 )
-                Text(
-                    operation.description,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
             item {
                 val compatibility = action.compatibilityWith(unitModel, unitMode)
-                OutlinedCard(Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.padding(18.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Text(
-                            if (action.mutating) {
-                                "Run command"
-                            } else {
-                                "Read from unit"
-                            },
-                            style = MaterialTheme.typography.titleMedium,
-                        )
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    if (action.mutating) {
+                        Button(
+                            onClick = { execute(action) },
+                            enabled =
+                                decision == AuthorizationDecision.Allowed &&
+                                    deviceAuthenticated &&
+                                    compatibility == RecoveredModelCompatibility.Supported &&
+                                    recoveryStatus?.available != false &&
+                                    !sending,
+                        ) {
+                            Text(
+                                if (action.experimental) {
+                                    "Run once"
+                                } else {
+                                    "Send command"
+                                },
+                            )
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick = { execute(action) },
+                            enabled =
+                                decision == AuthorizationDecision.Allowed &&
+                                    deviceAuthenticated &&
+                                    compatibility == RecoveredModelCompatibility.Supported &&
+                                    !sending,
+                        ) {
+                            Text("Run read")
+                        }
+                    }
+                    OutlinedCard(Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.padding(18.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Text(
+                                if (action.mutating) {
+                                    "Command requirements"
+                                } else {
+                                    "Read requirements"
+                                },
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                        action.targetMode?.let { targetMode ->
+                            Text(
+                                "MODE EFFECT",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.tertiary,
+                            )
+                            Text(
+                                targetMode.effectDescription,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         if (deviceAuthenticated) {
                             Text(
                                 listOfNotNull(
@@ -596,7 +638,20 @@ fun DeviceOperationScreen(
                             )
                         } else {
                             Text(
-                                "Connect and authenticate a unit before running this operation.",
+                                if (bleState.hasActiveDeviceConnection()) {
+                                    "DEVICE NOT READY"
+                                } else {
+                                    "DEVICE NOT CONNECTED"
+                                },
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.tertiary,
+                            )
+                            Text(
+                                if (bleState.hasActiveDeviceConnection()) {
+                                    "Complete device authentication before running this operation."
+                                } else {
+                                    "Connect and authenticate a unit before running this operation."
+                                },
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -695,8 +750,9 @@ fun DeviceOperationScreen(
                                 color = MaterialTheme.colorScheme.tertiary,
                             )
                             Text(
-                                "The preserved installer sequence uses Unlock and disarm to " +
-                                    "return the vehicle to a non-immobilized state. Open it and " +
+                                "This is a separate Unlock and disarm command, not part of the " +
+                                    "immobilizer-output packet. Open it to return the vehicle to " +
+                                    "a non-immobilized state, then " +
                                     "physically verify the vehicle is drivable before this test, " +
                                     "and keep it available afterward. A protocol acknowledgement " +
                                     "is not physical proof.",
@@ -723,37 +779,6 @@ fun DeviceOperationScreen(
                                 }
                             }
                         }
-                        if (action.mutating) {
-                            Button(
-                                onClick = { execute(action) },
-                                enabled =
-                                    decision == AuthorizationDecision.Allowed &&
-                                        deviceAuthenticated &&
-                                        compatibility ==
-                                        RecoveredModelCompatibility.Supported &&
-                                        recoveryStatus?.available != false &&
-                                        !sending,
-                            ) {
-                                Text(
-                                    if (action.experimental) {
-                                        "Run once"
-                                    } else {
-                                        "Send command"
-                                    },
-                                )
-                            }
-                        } else {
-                            OutlinedButton(
-                                onClick = { execute(action) },
-                                enabled =
-                                    decision == AuthorizationDecision.Allowed &&
-                                        deviceAuthenticated &&
-                                        compatibility ==
-                                        RecoveredModelCompatibility.Supported &&
-                                        !sending,
-                            ) {
-                                Text("Run read")
-                            }
                         }
                     }
                 }
@@ -849,6 +874,15 @@ fun DeviceOperationScreen(
             }
         }
     }
+}
+
+private fun BleSessionState.hasActiveDeviceConnection(): Boolean = when (this) {
+    is BleSessionState.DiscoveringUart,
+    is BleSessionState.UartSubscribed,
+    is BleSessionState.AuthenticationRequired,
+    is BleSessionState.Authenticating,
+    is BleSessionState.Ready -> true
+    else -> false
 }
 
 internal fun RecoveredDeviceOperation.preferredBinding(

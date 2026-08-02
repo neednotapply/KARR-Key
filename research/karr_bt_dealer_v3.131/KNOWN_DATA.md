@@ -53,7 +53,8 @@ Bluetooth scanning, maps, user settings, legacy unit settings, and the newer
 refreshed unit surface. Dealer workflows include:
 
 - inventory, vehicle/serial search, account changes, products, and status;
-- sale, pending sale, unwind, booking/BCA, return, and offline sale handling;
+- sale, pending sale, unwind, Borrowed Car Agreement (BCA), return, and offline
+  sale handling;
 - tent/snow modes, statistics, locations, and background synchronization;
 - unit state/settings, remotes, violations, diagnostics, CAN, and firmware.
 

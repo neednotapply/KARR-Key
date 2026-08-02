@@ -99,18 +99,22 @@ appropriate mode switch or first step of a multi-step path.
 One Installer immobilizer-output command is marked **Experimental**. It is sent
 only once, requires the ignition to be off, and does not treat a reply from the
 unit as proof that the vehicle was physically immobilized. Its detail page pairs
-the candidate with the recovered **Unlock and disarm** recovery operation. The
-candidate stays unavailable unless that recovery operation is authorized and
-compatible, and the user is instructed to verify a drivable state before testing.
+the candidate with the separate recovered **Restore drivable state** operation,
+which sends Unlock and disarm. The candidate stays unavailable unless that
+recovery operation is authorized and compatible, and the user is instructed to
+verify a drivable state before testing.
 
 The recovered Installer section also exposes switches to Installer, Dealer,
-User, No sale, and BCA modes. The Dealer and User transitions have been confirmed
-by `READ_MODE` on authorized hardware and are no longer experimental; the other
-service/lifecycle transitions remain candidates. They are offered only from the
-source modes used by preserved callers. Each `CHANGE_MODE` packet is sent once,
-then the app issues `READ_MODE`; success is shown only when the unit reports the
-requested mode. Bootload and Unconfigured are not exposed as ordinary mode
-switches because the preserved apps do not use them that way.
+User, No sale, and Borrowed Car Agreement (BCA) modes. All five transitions have
+been confirmed by `READ_MODE` on authorized hardware and are no longer
+experimental. They are offered only from the source modes used by preserved
+callers. Each `CHANGE_MODE` packet is sent once, then the app issues `READ_MODE`;
+success is shown only when the unit reports the requested mode. Bootload and
+Unconfigured are not exposed as ordinary mode switches because the preserved
+apps do not use them that way. The Device Operations list keeps its compact
+transition summaries. After a mode operation is selected, its command page shows
+a **Mode effect** section explaining which security or service behavior the target
+mode enables, disables, or temporarily changes.
 
 ### Device
 
