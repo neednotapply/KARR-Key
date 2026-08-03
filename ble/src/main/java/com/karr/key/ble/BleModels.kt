@@ -1,5 +1,6 @@
 package com.karr.key.ble
 
+import android.bluetooth.BluetoothDevice
 import com.karr.key.protocol.KarrDeviceMode
 import com.karr.key.protocol.KarrUnitModel
 import com.karr.key.protocol.QtCommand
@@ -15,9 +16,31 @@ data class DiscoveredDevice(
     val connectable: Boolean,
     val classification: KarrDeviceClassification,
 ) {
-    val connectionEligible: Boolean
+    val manualProbeEligible: Boolean
+        get() = connectable && classification.isCandidate
+
+    val confirmedConnectionEligible: Boolean
         get() = connectable &&
             classification.tier == KarrCandidateTier.CONFIRMED_FORMAT
+}
+
+enum class BlePhy(val displayName: String) {
+    LE_1M("LE 1M"),
+    LE_2M("LE 2M"),
+    LE_CODED("LE Coded"),
+    UNKNOWN("Not reported"),
+}
+
+data class BleLinkDiagnostics(
+    val transmitPhy: BlePhy = BlePhy.UNKNOWN,
+    val receivePhy: BlePhy = BlePhy.UNKNOWN,
+)
+
+internal fun blePhyFromPlatformValue(value: Int): BlePhy = when (value) {
+    BluetoothDevice.PHY_LE_1M -> BlePhy.LE_1M
+    BluetoothDevice.PHY_LE_2M -> BlePhy.LE_2M
+    BluetoothDevice.PHY_LE_CODED -> BlePhy.LE_CODED
+    else -> BlePhy.UNKNOWN
 }
 
 sealed interface BleSessionState {
@@ -52,6 +75,7 @@ sealed interface BleSessionState {
         val name: String?,
         val unitModel: KarrUnitModel? = null,
         val unitMode: KarrDeviceMode? = null,
+        val linkDiagnostics: BleLinkDiagnostics = BleLinkDiagnostics(),
     ) : BleSessionState
     data class Error(val message: String) : BleSessionState
 }
@@ -68,6 +92,14 @@ internal fun BleSessionState.withReadModeObservation(packet: QtPacket): BleSessi
         unitMode = KarrDeviceMode.fromStatusByte(packet.payload[0]),
         unitModel = packet.payload.getOrNull(1)?.let(KarrUnitModel::fromTypeByte) ?: unitModel,
     )
+}
+
+internal fun BleSessionState.withLinkDiagnostics(
+    diagnostics: BleLinkDiagnostics,
+): BleSessionState = if (this is BleSessionState.Ready) {
+    copy(linkDiagnostics = diagnostics)
+} else {
+    this
 }
 
 interface BleController {

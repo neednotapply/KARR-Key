@@ -28,15 +28,17 @@ unit's KARR application authentication.
 `KarrApplication` owns the process-scoped BLE controller. User-started scan,
 connect, and reconnect operations start `BluetoothSessionService`, declared as
 Android's `connectedDevice` foreground-service type. The service mirrors BLE
-state into a private ongoing notification, alerts only for newly discovered
-connectable confirmed-format devices, and tears down Bluetooth work if the
-foreground notification can no longer be maintained.
+state into a private ongoing notification, reports connectable KARR candidates,
+and tears down Bluetooth work if the foreground notification can no longer be
+maintained.
 
 ## Required invariants
 
 - A BLE candidate classification identifies a radio family, not ownership.
-- Possible or broadcast-only advertisements remain diagnostic-only; connection
-  requires a connectable `CONFIRMED_FORMAT` result.
+- Connectable possible advertisements allow a manual diagnostic GATT probe but
+  remain possible until transport and application authentication provide stronger
+  evidence. Broadcast-only advertisements remain diagnostic-only, and automatic
+  reconnect remains limited to confirmed-format devices with a stable serial.
 - UART subscription confirms transport, not authenticated readiness.
 - An 8-byte `REQUEST_AUTH` challenge triggers `READ_MODE`, selects the
   matching locally provisioned Customer or Dealer/Installer material, sends
@@ -71,13 +73,25 @@ identifier, so the BLE module reconstructs the complete raw AD field before
 applying the recovered Dealer parser. A status-only match requires both the
 recovered unit-type bit layout and the parser's numeric five-character VIN-tail
 shape; unit-type bits by themselves collide with unrelated manufacturer data.
-Possible candidates remain visible but diagnostic-only. The transparent-UART
+Possible candidates remain visibly labeled and offer a manual connection probe
+only when Android reports the advertisement as connectable. The transparent-UART
 service is
 `49535343-FE7D-4AE5-8FA9-9FAFD205E455` with characteristic
 `49535343-1E4D-4BD9-BA61-23C647249616`; because that is a shared Microchip
 service, it is supporting evidence rather than KARR identity by itself. A MAC
 OUI is likewise not a KARR identifier: public addresses identify an interface
 vendor, while BLE also permits static and private random addresses.
+
+Manual and reconnect discovery explicitly use `SCAN_MODE_LOW_POWER`,
+`CALLBACK_TYPE_ALL_MATCHES`, and immediate delivery with no report batching.
+The manual scan continues until the user stops it, but the app does not keep the
+screen awake. The result classifier and 10-second freshness limit remain
+unchanged; retaining a stale result is not a range improvement.
+
+After a GATT connection opens, the controller keeps Android's default connection
+priority and reads the negotiated transmit/receive PHY on Android 8 and later.
+KARR Key reports the observed PHY in Device diagnostics but does not request LE
+Coded PHY until a physical unit has demonstrated support.
 
 `CONFIRMED_FORMAT` means that the identifier and parser are explicit in the
 recovered KARR source material. It is intentionally separate from physical
@@ -230,6 +244,12 @@ Run the complete check before handing off a change:
   cases.
 - Android lifecycle or UI changes require an emulator or authorized-device
   smoke test.
+- Do not run Gradle's `connectedDebugAndroidTest` task on a Pixel containing
+  provisioned KARR Key data. Its cleanup uninstalls the debug target and deletes
+  that app data. Use a disposable emulator, or install the assembled app and
+  `app-debug-androidTest.apk` directly and invoke
+  `com.karr.key.test/androidx.test.runner.AndroidJUnitRunner` so the target app
+  remains installed afterward.
 - Horizontal swipes change only primary sections. Feature details consume the
   Android back action to return to their parent section.
 - Never attach credentials, device keys, raw authentication material,

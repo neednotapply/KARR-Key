@@ -2,6 +2,7 @@ package com.karr.key.ble
 
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
@@ -9,8 +10,10 @@ import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.bluetooth.BluetoothStatusCodes
+import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.os.Build
 import android.os.SystemClock
@@ -65,6 +68,8 @@ class AndroidBleController(
 
     @Volatile
     private var gatt: BluetoothGatt? = null
+    @Volatile
+    private var linkDiagnostics = BleLinkDiagnostics()
     @Volatile
     private var uartCharacteristic: BluetoothGattCharacteristic? = null
     @Volatile
@@ -225,6 +230,23 @@ class AndroidBleController(
             )
     }
 
+    private fun recordLinkPhy(
+        callbackGatt: BluetoothGatt,
+        txPhy: Int,
+        rxPhy: Int,
+        status: Int,
+    ) {
+        if (gatt !== callbackGatt || status != BluetoothGatt.GATT_SUCCESS) {
+            return
+        }
+        val observed = linkDiagnostics.copy(
+            transmitPhy = blePhyFromPlatformValue(txPhy),
+            receivePhy = blePhyFromPlatformValue(rxPhy),
+        )
+        linkDiagnostics = observed
+        _state.value = _state.value.withLinkDiagnostics(observed)
+    }
+
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(
             callbackGatt: BluetoothGatt,
@@ -241,6 +263,9 @@ class AndroidBleController(
             if (status == BluetoothGatt.GATT_SUCCESS &&
                 newState == BluetoothProfile.STATE_CONNECTED
             ) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    runCatching { callbackGatt.readPhy() }
+                }
                 _state.value = BleSessionState.DiscoveringUart(callbackGatt.device.address)
                 if (!callbackGatt.discoverServices()) {
                     failAndClose("GATT service discovery could not be started.", callbackGatt)
@@ -288,6 +313,24 @@ class AndroidBleController(
                     callbackGatt,
                 )
             }
+        }
+
+        override fun onPhyRead(
+            callbackGatt: BluetoothGatt,
+            txPhy: Int,
+            rxPhy: Int,
+            status: Int,
+        ) {
+            recordLinkPhy(callbackGatt, txPhy, rxPhy, status)
+        }
+
+        override fun onPhyUpdate(
+            callbackGatt: BluetoothGatt,
+            txPhy: Int,
+            rxPhy: Int,
+            status: Int,
+        ) {
+            recordLinkPhy(callbackGatt, txPhy, rxPhy, status)
         }
 
         override fun onServicesDiscovered(callbackGatt: BluetoothGatt, status: Int) {
@@ -415,7 +458,7 @@ class AndroidBleController(
         stopScanner()
         discovered.clear()
         _devices.value = emptyList()
-        scanner.startScan(scanCallback)
+        startScanner(scanner, BleScanPurpose.MANUAL)
         _state.value = BleSessionState.Scanning
     }
 
@@ -435,8 +478,8 @@ class AndroidBleController(
         check(candidate.classification.isCandidate) {
             "This advertisement has no recovered KARR identifier."
         }
-        check(candidate.connectionEligible) {
-            "Connect requires a connectable advertisement with a confirmed KARR identifier."
+        check(candidate.manualProbeEligible) {
+            "A connection probe requires a connectable confirmed or possible KARR signal."
         }
         stopScanner()
         disconnect()
@@ -677,7 +720,7 @@ class AndroidBleController(
             step = "Scanning only for this authenticated unit",
         )
         try {
-            scanner.startScan(scanCallback)
+            startScanner(scanner, BleScanPurpose.RECONNECT)
             val result = withTimeoutOrNull(RECONNECT_SCAN_TIMEOUT_MS) {
                 completion.await()
             }
@@ -699,6 +742,7 @@ class AndroidBleController(
         target: ReconnectTarget?,
         showConnectingState: Boolean,
     ) {
+        linkDiagnostics = BleLinkDiagnostics()
         connectionOrigin = origin
         activeConnectionTarget = target
         if (showConnectingState) {
@@ -753,6 +797,23 @@ class AndroidBleController(
 
     private fun stopScanner() {
         runCatching { adapter?.bluetoothLeScanner?.stopScan(scanCallback) }
+    }
+
+    private fun startScanner(
+        scanner: BluetoothLeScanner,
+        purpose: BleScanPurpose,
+    ) {
+        val configuration = BleScanPolicy.configurationFor(purpose)
+        val settings = ScanSettings.Builder()
+            .setScanMode(configuration.scanMode)
+            .setCallbackType(configuration.callbackType)
+            .setReportDelay(configuration.reportDelayMillis)
+            .build()
+        scanner.startScan(
+            null,
+            settings,
+            scanCallback,
+        )
     }
 
     private fun formatDelay(delayMillis: Long): String {
@@ -960,6 +1021,7 @@ class AndroidBleController(
                     name = name,
                     unitModel = action.unitModel,
                     unitMode = action.unitMode,
+                    linkDiagnostics = linkDiagnostics,
                 )
             }
             is AuthenticationAction.Failed -> {
@@ -984,6 +1046,7 @@ class AndroidBleController(
             gatt = null
             uartCharacteristic = null
             activeConnectionTarget = null
+            linkDiagnostics = BleLinkDiagnostics()
         }
     }
 

@@ -13,6 +13,7 @@ import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -70,6 +71,7 @@ fun DeviceOperationScreen(
     operationStore: LocalOperationStore,
     snackbar: SnackbarHostState,
     onOpenOperation: (RecoveredDeviceOperation) -> Unit,
+    initialExecutionResult: OperationExecutionResult? = null,
 ) {
     val binding = remember(
         operation.id,
@@ -115,6 +117,15 @@ fun DeviceOperationScreen(
     }
     var lastResponse by remember(operation.id) { mutableStateOf<String?>(null) }
     var sending by remember(operation.id) { mutableStateOf(false) }
+    LaunchedEffect(operation.id, initialExecutionResult) {
+        initialExecutionResult
+            ?.takeIf { result -> result.operationId == operation.id }
+            ?.let { result ->
+                commandStatus = result.status
+                decodedResponse = result.decodedResponse
+                lastResponse = result.rawResponse
+            }
+    }
     suspend fun updateOperation(
         operationId: String?,
         state: LocalOperationState,
@@ -556,17 +567,6 @@ fun DeviceOperationScreen(
             ),
         ) {
             item {
-                Text(
-                    operation.category.uppercase(),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                Text(
-                    operation.label,
-                    style = MaterialTheme.typography.headlineMedium,
-                )
-            }
-            item {
                 val compatibility = action.compatibilityWith(unitModel, unitMode)
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -608,11 +608,7 @@ fun DeviceOperationScreen(
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             Text(
-                                if (action.mutating) {
-                                    "Command requirements"
-                                } else {
-                                    "Read requirements"
-                                },
+                                "Requirements",
                                 style = MaterialTheme.typography.titleMedium,
                             )
                         action.targetMode?.let { targetMode ->
@@ -639,7 +635,7 @@ fun DeviceOperationScreen(
                         } else {
                             Text(
                                 if (bleState.hasActiveDeviceConnection()) {
-                                    "DEVICE NOT READY"
+                                    "AUTHENTICATION REQUIRED"
                                 } else {
                                     "DEVICE NOT CONNECTED"
                                 },
@@ -648,18 +644,25 @@ fun DeviceOperationScreen(
                             )
                             Text(
                                 if (bleState.hasActiveDeviceConnection()) {
-                                    "Complete device authentication before running this operation."
+                                    "Finish authenticating the connected unit."
                                 } else {
-                                    "Connect and authenticate a unit before running this operation."
+                                    "Connect and authenticate a unit."
                                 },
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        when (compatibility) {
+                        when (
+                            val displayedCompatibility =
+                            if (deviceAuthenticated) {
+                                compatibility
+                            } else {
+                                RecoveredModelCompatibility.Supported
+                            }
+                        ) {
                             RecoveredModelCompatibility.Supported -> Unit
                             is RecoveredModelCompatibility.Unsupported -> {
                                 val modeRestriction =
-                                    compatibility.constraint ==
+                                    displayedCompatibility.constraint ==
                                         RecoveredCompatibilityConstraint.UNIT_MODE
                                 Text(
                                     if (modeRestriction) {
@@ -675,7 +678,7 @@ fun DeviceOperationScreen(
                                     },
                                 )
                                 Text(
-                                    compatibility.reason,
+                                    displayedCompatibility.reason,
                                     color = if (modeRestriction) {
                                         MaterialTheme.colorScheme.onSurfaceVariant
                                     } else {
@@ -686,7 +689,7 @@ fun DeviceOperationScreen(
                             is RecoveredModelCompatibility.Unknown -> {
                                 Text(
                                     if (
-                                        compatibility.constraint ==
+                                        displayedCompatibility.constraint ==
                                         RecoveredCompatibilityConstraint.UNIT_MODE
                                     ) {
                                         "UNIT MODE UNKNOWN"
@@ -697,12 +700,13 @@ fun DeviceOperationScreen(
                                     color = MaterialTheme.colorScheme.tertiary,
                                 )
                                 Text(
-                                    compatibility.reason,
+                                    displayedCompatibility.reason,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         }
                         if (
+                            deviceAuthenticated &&
                             compatibility is RecoveredModelCompatibility.Unsupported &&
                             compatibility.constraint ==
                             RecoveredCompatibilityConstraint.UNIT_MODE &&
@@ -911,7 +915,7 @@ internal fun RecoveredDeviceOperation.preferredBinding(
 
 private const val MAX_RESPONSE_PREVIEW_BYTES = 48
 
-private fun QtPacket.rawResponseText(rawFrame: ByteArray): String {
+internal fun QtPacket.rawResponseText(rawFrame: ByteArray): String {
     val commandName = command?.name
         ?: "0x${commandCode.toString(16).uppercase()}"
     val payloadPreview = payload
@@ -945,7 +949,7 @@ private fun QtPacket.rawResponseText(rawFrame: ByteArray): String {
 private fun ByteArray.toHex(): String =
     joinToString(" ") { byte -> "%02X".format(byte.toInt() and 0xff) }
 
-private fun QtPacket.ackErrorMessage(
+internal fun QtPacket.ackErrorMessage(
     attemptedCommand: QtCommand,
     prefix: String = "The unit rejected $attemptedCommand",
 ): String {
@@ -968,7 +972,7 @@ private fun RecoveredModelCompatibility.blockingReason(): String? = when (this) 
     is RecoveredModelCompatibility.Unknown -> reason
 }
 
-private val ModeChangeStage.displayName: String
+internal val ModeChangeStage.displayName: String
     get() = when (this) {
         ModeChangeStage.CHANGE_MODE -> "CHANGE_MODE"
         ModeChangeStage.READ_MODE -> "READ_MODE confirmation"

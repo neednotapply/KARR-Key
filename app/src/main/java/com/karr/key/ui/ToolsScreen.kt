@@ -5,24 +5,33 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.ui.Alignment
@@ -31,10 +40,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.karr.key.R
+import com.karr.key.core.AuthorizationDecision
 import com.karr.key.core.Session
 import com.karr.key.core.UserRole
 import com.karr.key.core.displayName
@@ -93,6 +104,8 @@ internal fun AdaptiveOperationsScreen(
     onQueryChanged: (String) -> Unit,
     onFiltersChanged: (OperationFilters) -> Unit,
     onOpenOperation: (RecoveredDeviceOperation) -> Unit,
+    onExecuteOperation: (RecoveredDeviceOperation) -> Unit,
+    executingOperationId: String? = null,
     detailContent: @Composable (RecoveredDeviceOperation) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -111,6 +124,8 @@ internal fun AdaptiveOperationsScreen(
                     onQueryChanged = onQueryChanged,
                     onFiltersChanged = onFiltersChanged,
                     onOpenOperation = onOpenOperation,
+                    onExecuteOperation = onExecuteOperation,
+                    executingOperationId = executingOperationId,
                     modifier = Modifier
                         .weight(0.43f)
                         .fillMaxSize(),
@@ -138,6 +153,8 @@ internal fun AdaptiveOperationsScreen(
                 onQueryChanged = onQueryChanged,
                 onFiltersChanged = onFiltersChanged,
                 onOpenOperation = onOpenOperation,
+                onExecuteOperation = onExecuteOperation,
+                executingOperationId = executingOperationId,
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -156,6 +173,8 @@ private fun OperationsCatalogPane(
     onQueryChanged: (String) -> Unit,
     onFiltersChanged: (OperationFilters) -> Unit,
     onOpenOperation: (RecoveredDeviceOperation) -> Unit,
+    onExecuteOperation: (RecoveredDeviceOperation) -> Unit,
+    executingOperationId: String?,
     modifier: Modifier = Modifier,
 ) {
     val operations = RecoveredWorkflowCatalog.operations
@@ -232,6 +251,18 @@ private fun OperationsCatalogPane(
                         painter = painterResource(R.drawable.ic_search),
                         contentDescription = null,
                     )
+                },
+                trailingIcon = if (query.isNotEmpty()) {
+                    {
+                        IconButton(onClick = { onQueryChanged("") }) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_close),
+                                contentDescription = "Clear search",
+                            )
+                        }
+                    }
+                } else {
+                    null
                 },
                 supportingText = {
                     Text("${filtered.size} of ${operations.size} operations")
@@ -346,6 +377,8 @@ private fun OperationsCatalogPane(
                             unitModel = unitModel,
                             unitMode = unitMode,
                             onOpen = { onOpenOperation(operation) },
+                            onExecute = onExecuteOperation,
+                            executingOperationId = executingOperationId,
                         )
                     }
                 }
@@ -361,6 +394,8 @@ private fun OperationListRow(
     unitModel: KarrUnitModel?,
     unitMode: KarrDeviceMode?,
     onOpen: () -> Unit,
+    onExecute: (RecoveredDeviceOperation) -> Unit,
+    executingOperationId: String?,
 ) {
     val availability = operationModelAvailability(
         session = session,
@@ -370,6 +405,35 @@ private fun OperationListRow(
         unitMode = unitMode,
     )
     val canOpen = availability.allowsOperationOpen()
+    val executionAccess = operation.executionAccess(
+        session = session,
+        deviceAuthenticated = deviceAuthenticated,
+        unitModel = unitModel,
+        unitMode = unitMode,
+    )
+    val isCommand = executionAccess.action.mutating
+    val modeSwitchOffer = modeSwitchOffer(
+        session = session,
+        blockedAction = executionAccess.action,
+        deviceAuthenticated = deviceAuthenticated,
+        unitModel = unitModel,
+        unitMode = unitMode,
+    )
+    val actionTarget = modeSwitchOffer?.operation ?: operation
+    val actionEnabled = (executionAccess.canExecute || modeSwitchOffer != null) &&
+        executingOperationId == null
+    val actionLabel = operationActionLabel(
+        availability = availability,
+        executionAccess = executionAccess,
+        actionTargetOperationId = actionTarget.id,
+        executingOperationId = executingOperationId,
+    )
+    val showBlockedIcon = !executionAccess.canExecute
+    val actionStateDescription = when {
+        executionAccess.canExecute -> null
+        modeSwitchOffer != null -> modeSwitchOffer.modeSwitchDescription()
+        else -> executionAccess.blockingReason
+    }
     OutlinedCard(
         onClick = onOpen,
         enabled = canOpen,
@@ -394,14 +458,78 @@ private fun OperationListRow(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (availability != FeatureAvailability.Available) {
-                    StatusPill(availability)
-                }
-                if (canOpen) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_chevron_right),
-                        contentDescription = null,
-                    )
+                CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
+                    if (isCommand) {
+                        Button(
+                            onClick = { onExecute(actionTarget) },
+                            enabled = actionEnabled,
+                            modifier = Modifier
+                                .width(144.dp)
+                                .height(32.dp)
+                                .testTag("operation-action:${operation.id}")
+                                .then(
+                                    actionStateDescription?.let { description ->
+                                        Modifier.semantics {
+                                            stateDescription = description
+                                        }
+                                    } ?: Modifier,
+                                ),
+                            contentPadding = PaddingValues(horizontal = 14.dp),
+                        ) {
+                            if (showBlockedIcon) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_status_lock),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                            Text(
+                                text = actionLabel,
+                                modifier = if (showBlockedIcon) {
+                                    Modifier.padding(start = 6.dp)
+                                } else {
+                                    Modifier
+                                },
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick = { onExecute(actionTarget) },
+                            enabled = actionEnabled,
+                            modifier = Modifier
+                                .width(144.dp)
+                                .height(32.dp)
+                                .testTag("operation-action:${operation.id}")
+                                .then(
+                                    actionStateDescription?.let { description ->
+                                        Modifier.semantics {
+                                            stateDescription = description
+                                        }
+                                    } ?: Modifier,
+                                ),
+                            contentPadding = PaddingValues(horizontal = 14.dp),
+                        ) {
+                            if (showBlockedIcon) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_status_lock),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                            Text(
+                                text = actionLabel,
+                                modifier = if (showBlockedIcon) {
+                                    Modifier.padding(start = 6.dp)
+                                } else {
+                                    Modifier
+                                },
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
                 }
             }
             Text(
@@ -409,20 +537,6 @@ private fun OperationListRow(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (availability != FeatureAvailability.Available) {
-                Text(
-                    text = availability.description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = when (availability) {
-                        is FeatureAvailability.ModelUnsupported,
-                        is FeatureAvailability.HardwareUnsupported,
-                        -> MaterialTheme.colorScheme.error
-                        is FeatureAvailability.ModeRestricted ->
-                            MaterialTheme.colorScheme.tertiary
-                        else -> MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
-            }
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -434,6 +548,32 @@ private fun OperationListRow(
         }
     }
 }
+
+internal fun operationActionLabel(
+    availability: FeatureAvailability,
+    executionAccess: OperationExecutionAccess,
+    actionTargetOperationId: String,
+    executingOperationId: String?,
+): String = when {
+    executingOperationId == actionTargetOperationId ->
+        if (executionAccess.action.mutating) "Sending..." else "Reading..."
+    executionAccess.canExecute ->
+        if (executionAccess.action.mutating) "Send command" else "Run read"
+    !executionAccess.deviceAuthenticated -> "Not connected"
+    executionAccess.decision is AuthorizationDecision.Denied ->
+        "${executionAccess.requiredRole.displayName()} required"
+    executionAccess.recoveryStatus?.available == false -> "Blocked"
+    availability != FeatureAvailability.Available -> availability.label
+    else -> "Unavailable"
+}
+
+private fun ModeSwitchOffer.modeSwitchDescription(): String =
+    if (totalSteps == 1) {
+        "Switch to ${nextMode.displayName} mode before running this operation."
+    } else {
+        "Switch to ${nextMode.displayName} mode as step 1 of $totalSteps toward " +
+            destinationDescription + "."
+    }
 
 internal fun operationModelAvailability(
     session: Session,

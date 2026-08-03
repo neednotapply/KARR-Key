@@ -14,21 +14,21 @@ import org.junit.Test
 
 class BleNotificationContentTest {
     @Test
-    fun scanningStatusCountsOnlyConnectableConfirmedDevices() {
+    fun scanningStatusCountsConnectableConfirmedAndPossibleKarrUnits() {
         val content = bleNotificationContent(
             state = BleSessionState.Scanning,
             devices = listOf(
-                device("AA:00", "DR D029A54D", -70, confirmed = true),
-                device("AA:01", "QT ABC1234", -45, confirmed = true),
-                device("AA:02", "KARR possible", -20, confirmed = false),
+                device("AA:00", "DR D029A54D", -70, KarrCandidateTier.CONFIRMED_FORMAT),
+                device("AA:01", "QT ABC1234", -45, KarrCandidateTier.CONFIRMED_FORMAT),
+                device("AA:02", "KARR possible", -20, KarrCandidateTier.POSSIBLE),
             ),
         )
 
         requireNotNull(content)
-        assertEquals("2 KARR devices found", content.title)
-        assertEquals("QT ABC1234 | -45 dBm", content.text)
-        assertTrue(content.expandedText.contains("Address: AA:01"))
-        assertTrue(content.expandedText.contains("Signal: -45 dBm"))
+        assertEquals("3 KARR units found", content.title)
+        assertEquals("KARR possible | -20 dBm", content.text)
+        assertTrue(content.expandedText.contains("Address: AA:02"))
+        assertTrue(content.expandedText.contains("Signal: -20 dBm"))
         assertTrue(content.expandedText.contains("Scanning continues"))
         assertEquals(BleNotificationAction.STOP_SCAN, content.action)
         assertTrue(content.showProgress)
@@ -79,18 +79,18 @@ class BleNotificationContentTest {
     }
 
     @Test
-    fun scanningStatusRetainsSearchMessageUntilACompatibleDeviceIsFound() {
+    fun scanningStatusRetainsSearchMessageUntilAKarrSignalIsFound() {
         val content = bleNotificationContent(
             state = BleSessionState.Scanning,
             devices = listOf(
-                device("AA:02", "Nearby device", -20, confirmed = false),
+                device("AA:02", "Nearby device", -20, KarrCandidateTier.OTHER),
             ),
         )
 
         requireNotNull(content)
-        assertEquals("Scanning for KARR devices", content.title)
-        assertEquals("No compatible devices found yet", content.text)
-        assertTrue(content.expandedText.contains("Looking for connectable devices"))
+        assertEquals("KARR scan active", content.title)
+        assertEquals("No KARR signals found yet", content.text)
+        assertTrue(content.expandedText.contains("connectable confirmed or possible"))
         assertEquals(BleNotificationAction.STOP_SCAN, content.action)
         assertTrue(content.showProgress)
     }
@@ -99,18 +99,14 @@ class BleNotificationContentTest {
         address: String,
         name: String,
         rssi: Int,
-        confirmed: Boolean,
+        tier: KarrCandidateTier,
     ): DiscoveredDevice = DiscoveredDevice(
         address = address,
         name = name,
         rssi = rssi,
         connectable = true,
         classification = KarrDeviceClassification(
-            tier = if (confirmed) {
-                KarrCandidateTier.CONFIRMED_FORMAT
-            } else {
-                KarrCandidateTier.POSSIBLE
-            },
+            tier = tier,
             evidence = "test",
         ),
     )

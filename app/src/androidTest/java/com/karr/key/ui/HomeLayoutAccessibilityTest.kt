@@ -61,7 +61,10 @@ class HomeLayoutAccessibilityTest {
 
         composeRule.onNodeWithText("Device").assertIsDisplayed()
         composeRule.onNodeWithTag("home-device-card").assertHeightIsAtLeast(170.dp)
-        composeRule.onNodeWithText("Ready to scan.").assertIsDisplayed()
+        composeRule.onNodeWithText("Set up access").assertIsDisplayed()
+        composeRule.onNodeWithText(
+            "Enter an access key before connecting to a KARR unit.",
+        ).assertIsDisplayed()
         val deviceTitleBounds = composeRule.onNodeWithTag("home-device-title")
             .fetchSemanticsNode().boundsInRoot
         val deviceActionBounds = composeRule.onNodeWithTag("home-device-action")

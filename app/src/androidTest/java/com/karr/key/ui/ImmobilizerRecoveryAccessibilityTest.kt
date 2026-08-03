@@ -69,7 +69,7 @@ class ImmobilizerRecoveryAccessibilityTest {
         composeRule.onNodeWithText("RESTORE DRIVABLE STATE")
             .performScrollTo()
             .assertIsDisplayed()
-        composeRule.onNodeWithText("Open recovery: Restore drivable state")
+        composeRule.onNodeWithText("Open recovery: Unlock and disarm")
             .performScrollTo()
             .assertIsDisplayed()
             .performClick()
@@ -130,7 +130,7 @@ class ImmobilizerRecoveryAccessibilityTest {
             .fetchSemanticsNode()
             .boundsInRoot
             .top
-        val requirementsTop = composeRule.onNodeWithText("Command requirements")
+        val requirementsTop = composeRule.onNodeWithText("Requirements")
             .fetchSemanticsNode()
             .boundsInRoot
             .top
@@ -174,12 +174,14 @@ class ImmobilizerRecoveryAccessibilityTest {
             .performScrollTo()
             .assertIsDisplayed()
         composeRule.onNodeWithText(
-            "Connect and authenticate a unit before running this operation.",
+            "Connect and authenticate a unit.",
         ).performScrollTo()
             .assertIsDisplayed()
-        composeRule.onNodeWithText("UNIT MODE UNKNOWN")
-            .performScrollTo()
-            .assertIsDisplayed()
+        assertTrue(
+            composeRule.onAllNodesWithText("UNIT MODE UNKNOWN")
+                .fetchSemanticsNodes()
+                .isEmpty(),
+        )
     }
 }
 

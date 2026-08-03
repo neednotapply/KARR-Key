@@ -26,24 +26,26 @@ internal fun bleNotificationContent(
     -> null
 
     BleSessionState.Scanning -> {
-        val compatible = devices.filter(DiscoveredDevice::connectionEligible)
-        val count = compatible.size
-        val strongest = compatible.maxByOrNull(DiscoveredDevice::rssi)
+        val probeable = devices.filter(DiscoveredDevice::manualProbeEligible)
+        val count = probeable.size
+        val strongest = probeable.maxByOrNull(DiscoveredDevice::rssi)
         BleNotificationContent(
             title = when (count) {
-                0 -> "Scanning for KARR devices"
-                1 -> "1 KARR device found"
-                else -> "$count KARR devices found"
+                0 -> "KARR scan active"
+                1 -> "1 KARR unit found"
+                else -> "$count KARR units found"
             },
             text = strongest?.let { device ->
                 "${device.displayName()} | ${device.rssi} dBm"
-            } ?: "No compatible devices found yet",
+            } ?: "No KARR signals found yet",
             expandedText = strongest?.let { device ->
                 "Device: ${device.displayName()}\n" +
                     "Address: ${device.address}\n" +
                     "Signal: ${device.rssi} dBm\n" +
-                    "Scanning continues. Open KARR Key to connect."
-            } ?: "Looking for connectable devices with a confirmed KARR identifier.",
+                    "Scanning continues. " +
+                    "Open KARR Key to connect."
+            } ?: "Scanning for connectable confirmed or possible " +
+                "KARR signals. Keep KARR Key visible for best results.",
             action = BleNotificationAction.STOP_SCAN,
             showProgress = true,
         )

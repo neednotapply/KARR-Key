@@ -12,10 +12,10 @@ import org.junit.Test
 
 class KarrNavigationStateTest {
     @Test
-    fun homeOmitsTopBarWhileOtherRoutesKeepTheirTitles() {
+    fun topLevelDestinationsOmitTopBarWhileOperationDetailsKeepTheirTitle() {
         assertNull(shellTopBarTitle(AppRoute.Home))
-        assertEquals("Device operations", shellTopBarTitle(AppRoute.Operations))
-        assertEquals("Device", shellTopBarTitle(AppRoute.Device()))
+        assertNull(shellTopBarTitle(AppRoute.Operations))
+        assertNull(shellTopBarTitle(AppRoute.Device()))
         assertEquals(
             "Read state",
             shellTopBarTitle(

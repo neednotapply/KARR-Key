@@ -39,6 +39,15 @@ class RecoveredWorkflowCatalogTest {
         )
         assertTrue(readState.bindings.size > 3)
 
+        val unlock = operations.single { operation ->
+            operation.command == QtCommand.UNLOCK_DOORS && operation.payload == listOf(0)
+        }
+        assertEquals("Unlock and disarm", unlock.label)
+        assertEquals(
+            setOf("customer.unlock", "installer.tests"),
+            unlock.bindings.map { binding -> binding.feature.id }.toSet(),
+        )
+
         val trunk = operations.single { operation ->
             operation.command == QtCommand.VEHICLE_CONTROL &&
                 operation.payload == listOf(10)

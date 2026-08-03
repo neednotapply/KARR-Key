@@ -1,12 +1,24 @@
 package com.karr.key.ui
 
+import com.karr.key.ble.BleSessionState
 import com.karr.key.ble.DiscoveredDevice
 import com.karr.key.ble.KarrCandidateTier
 import com.karr.key.ble.KarrDeviceClassification
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class ConnectionDiscoveryTest {
+    @Test
+    fun scanningStatusKeepsDiscoveryCountsInTheResultsHeader() {
+        val label = BleSessionState.Scanning.connectionStatusLabel()
+
+        assertEquals("Scanning", label)
+        assertFalse(label.contains("confirmed"))
+        assertFalse(label.contains("possible"))
+        assertFalse(label.contains("nearby"))
+    }
+
     @Test
     fun connectionListKeepsPossibleMatchesVisibleAndSortsByStrongestRssi() {
         val devices = listOf(
@@ -36,32 +48,33 @@ class ConnectionDiscoveryTest {
             ),
         )
 
-        val confirmed = confirmedDevicesForConnection(devices)
-        val possible = possibleDevicesForConnection(devices)
+        val karr = karrDevicesForConnection(devices)
         val other = otherDevicesForConnection(devices)
         assertEquals(
             listOf(
+                "00:00:00:00:00:02",
                 "00:00:00:00:00:03",
                 "00:00:00:00:00:01",
             ),
-            confirmed.map { it.address },
-        )
-        assertEquals(
-            listOf("00:00:00:00:00:02"),
-            possible.map { it.address },
+            karr.map { it.address },
         )
         assertEquals(
             listOf("00:00:00:00:00:04"),
             other.map { it.address },
         )
         assertEquals(
-            "2 confirmed / 1 possible KARR / 4 nearby",
+            "3 KARR units / 4 nearby",
             scanCountLabel(
-                confirmedCount = confirmed.size,
-                possibleCount = possible.size,
+                karrUnitCount = karr.size,
                 nearbyCount = devices.size,
             ),
         )
+        assertEquals(
+            "Possible KARR match: test",
+            karr.first().classificationDescription(),
+        )
+        assertEquals("Probe connection", karr.first().connectionActionLabel())
+        assertEquals("1 KARR unit / 4 nearby", scanCountLabel(1, devices.size))
     }
 
     private fun device(

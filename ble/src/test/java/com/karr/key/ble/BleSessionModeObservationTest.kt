@@ -12,11 +12,16 @@ import org.junit.Test
 class BleSessionModeObservationTest {
     @Test
     fun readySessionUsesLatestReadModeAndModelObservation() {
+        val diagnostics = BleLinkDiagnostics(
+            transmitPhy = BlePhy.LE_1M,
+            receivePhy = BlePhy.LE_1M,
+        )
         val ready = BleSessionState.Ready(
             address = "00:11:22:33:44:55",
             name = "QT000001",
             unitModel = KarrUnitModel.DR1_CAN,
             unitMode = KarrDeviceMode.USER,
+            linkDiagnostics = diagnostics,
         )
 
         val updated = ready.withReadModeObservation(
@@ -31,6 +36,25 @@ class BleSessionModeObservationTest {
 
         assertEquals(KarrDeviceMode.DEALER, updated.unitMode)
         assertEquals(KarrUnitModel.QT6_RED, updated.unitModel)
+        assertEquals(diagnostics, updated.linkDiagnostics)
+    }
+
+    @Test
+    fun linkDiagnosticsUpdateOnlyReadyState() {
+        val ready = BleSessionState.Ready(
+            address = "00:11:22:33:44:55",
+            name = "QT000001",
+        )
+        val diagnostics = BleLinkDiagnostics(
+            transmitPhy = BlePhy.LE_1M,
+            receivePhy = BlePhy.LE_2M,
+        )
+
+        assertEquals(
+            diagnostics,
+            (ready.withLinkDiagnostics(diagnostics) as BleSessionState.Ready).linkDiagnostics,
+        )
+        assertSame(BleSessionState.Idle, BleSessionState.Idle.withLinkDiagnostics(diagnostics))
     }
 
     @Test

@@ -624,7 +624,7 @@ object RecoveredWorkflowCatalog {
         action.command == QtCommand.LOCK_DOORS && action.payload == listOf(0) ->
             "Lock and arm"
         action.command == QtCommand.UNLOCK_DOORS && action.payload == listOf(0) ->
-            "Restore drivable state"
+            "Unlock and disarm"
         action.command == QtCommand.VEHICLE_CONTROL && action.payload == listOf(10) ->
             "Activate trunk output"
         else -> action.label
@@ -637,8 +637,7 @@ object RecoveredWorkflowCatalog {
         action.command == QtCommand.READ_MODE ->
             "Reads the connected unit's model, operating mode, and security state."
         action.command == QtCommand.UNLOCK_DOORS && action.payload == listOf(0) ->
-            "Unlocks the doors and disarms the connected unit using the recovered operation " +
-                "that restores a non-immobilized, drivable state."
+            "Unlocks the doors and disarms the connected unit."
         action.command == QtCommand.READ_VEHICLE_BATTERY_VOLTAGE ->
             "Reads the vehicle battery voltage reported by the connected unit."
         action.command == QtCommand.READ_FIRMWARE_VERSION ->

@@ -180,7 +180,7 @@ class CompatibleKarrDeviceTest {
     }
 
     @Test
-    fun connectionRequiresConfirmedFormatAndConnectableAdvertisement() {
+    fun manualProbeAllowsConnectablePossibleSignalsWithoutEnablingConfirmedReconnect() {
         val confirmed = KarrDeviceClassification(
             tier = KarrCandidateTier.CONFIRMED_FORMAT,
             evidence = "test",
@@ -190,15 +190,15 @@ class CompatibleKarrDeviceTest {
             evidence = "test",
         )
 
-        assertTrue(
-            DiscoveredDevice(
-                address = "00:00:00:00:00:01",
-                name = "DR D029A54D",
-                rssi = -50,
-                connectable = true,
-                classification = confirmed,
-            ).connectionEligible,
+        val confirmedDevice = DiscoveredDevice(
+            address = "00:00:00:00:00:01",
+            name = "DR D029A54D",
+            rssi = -50,
+            connectable = true,
+            classification = confirmed,
         )
+        assertTrue(confirmedDevice.manualProbeEligible)
+        assertTrue(confirmedDevice.confirmedConnectionEligible)
         assertFalse(
             DiscoveredDevice(
                 address = "00:00:00:00:00:02",
@@ -206,17 +206,17 @@ class CompatibleKarrDeviceTest {
                 rssi = -50,
                 connectable = false,
                 classification = confirmed,
-            ).connectionEligible,
+            ).manualProbeEligible,
         )
-        assertFalse(
-            DiscoveredDevice(
-                address = "00:00:00:00:00:03",
-                name = "Nearby television",
-                rssi = -50,
-                connectable = true,
-                classification = possible,
-            ).connectionEligible,
+        val possibleDevice = DiscoveredDevice(
+            address = "00:00:00:00:00:03",
+            name = "KARR Security",
+            rssi = -50,
+            connectable = true,
+            classification = possible,
         )
+        assertTrue(possibleDevice.manualProbeEligible)
+        assertFalse(possibleDevice.confirmedConnectionEligible)
     }
 
     private fun statusFrame(unitTypeCode: Int): ByteArray {

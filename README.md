@@ -99,10 +99,10 @@ appropriate mode switch or first step of a multi-step path.
 One Installer immobilizer-output command is marked **Experimental**. It is sent
 only once, requires the ignition to be off, and does not treat a reply from the
 unit as proof that the vehicle was physically immobilized. Its detail page pairs
-the candidate with the separate recovered **Restore drivable state** operation,
-which sends Unlock and disarm. The candidate stays unavailable unless that
-recovery operation is authorized and compatible, and the user is instructed to
-verify a drivable state before testing.
+the candidate with the separate recovered **Unlock and disarm** operation,
+presented there under the **Restore drivable state** safety heading. The candidate
+stays unavailable unless that recovery operation is authorized and compatible,
+and the user is instructed to verify a drivable state before testing.
 
 The recovered Installer section also exposes switches to Installer, Dealer,
 User, No sale, and Borrowed Car Agreement (BCA) modes. All five transitions have
@@ -140,9 +140,13 @@ End-to-end operation has been confirmed on real hardware advertising as a `DR`
 unit. Recognition of the other recovered families and formats is source- and
 test-backed, but is not yet physical-hardware confirmation for those models.
 
-The app can keep a user-started scan or active connection running in the
-background. If a connection unexpectedly drops, it will only try to reconnect
-to the last unit that successfully authenticated.
+The app requests Android's maximum-duty BLE scan mode until the user stops it.
+This increases the chance of receiving a weak advertisement but does not raise
+the KARR unit's transmit power or the phone's receiver sensitivity. The Device
+screen stays awake during the scan because Android can pause an unfiltered scan
+after the screen turns off; the foreground notification provides a Stop action.
+If a connection unexpectedly drops, the app only tries to reconnect to the last
+unit that successfully authenticated.
 
 ## Important limits
 

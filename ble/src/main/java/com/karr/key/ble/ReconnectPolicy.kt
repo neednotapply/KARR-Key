@@ -27,7 +27,7 @@ internal object ReconnectPolicy {
     ): Boolean = stableSerial(device) == target.serial
 
     private fun stableSerial(device: DiscoveredDevice?): String? {
-        if (device?.connectionEligible != true) {
+        if (device?.confirmedConnectionEligible != true) {
             return null
         }
         val normalized = (

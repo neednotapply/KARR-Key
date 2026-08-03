@@ -204,6 +204,134 @@ class DeviceOperationBindingTest {
         )
     }
 
+    @Test
+    fun directCommandRequiresAuthenticatedAuthorizedCompatibleUnit() {
+        val lock = operation(QtCommand.LOCK_DOORS, listOf(0))
+        val disconnected = lock.executionAccess(
+            session = session(UserRole.CUSTOMER),
+            deviceAuthenticated = false,
+            unitModel = null,
+            unitMode = null,
+        )
+        val wrongRole = lock.executionAccess(
+            session = session(UserRole.DEALER),
+            deviceAuthenticated = true,
+            unitModel = KarrUnitModel.DR1_CAN,
+            unitMode = KarrDeviceMode.USER,
+        )
+        val allowed = lock.executionAccess(
+            session = session(UserRole.CUSTOMER),
+            deviceAuthenticated = true,
+            unitModel = KarrUnitModel.DR1_CAN,
+            unitMode = KarrDeviceMode.USER,
+        )
+
+        assertFalse(disconnected.canExecute)
+        assertFalse(wrongRole.canExecute)
+        assertTrue(allowed.canExecute)
+    }
+
+    @Test
+    fun operationActionLabelReflectsCurrentExecutionBlocker() {
+        val lock = operation(QtCommand.LOCK_DOORS, listOf(0))
+        val disconnected = lock.executionAccess(
+            session = session(UserRole.CUSTOMER),
+            deviceAuthenticated = false,
+            unitModel = null,
+            unitMode = null,
+        )
+        val wrongRole = lock.executionAccess(
+            session = session(UserRole.DEALER),
+            deviceAuthenticated = true,
+            unitModel = KarrUnitModel.DR1_CAN,
+            unitMode = KarrDeviceMode.USER,
+        )
+        val allowed = lock.executionAccess(
+            session = session(UserRole.CUSTOMER),
+            deviceAuthenticated = true,
+            unitModel = KarrUnitModel.DR1_CAN,
+            unitMode = KarrDeviceMode.USER,
+        )
+
+        assertEquals(
+            "Not connected",
+            operationActionLabel(
+                availability = FeatureAvailability.Available,
+                executionAccess = disconnected,
+                actionTargetOperationId = lock.id,
+                executingOperationId = null,
+            ),
+        )
+        assertEquals(
+            "Customer required",
+            operationActionLabel(
+                availability = FeatureAvailability.Available,
+                executionAccess = wrongRole,
+                actionTargetOperationId = lock.id,
+                executingOperationId = null,
+            ),
+        )
+        assertEquals(
+            "Send command",
+            operationActionLabel(
+                availability = FeatureAvailability.Available,
+                executionAccess = allowed,
+                actionTargetOperationId = lock.id,
+                executingOperationId = null,
+            ),
+        )
+        assertEquals(
+            "Sending...",
+            operationActionLabel(
+                availability = FeatureAvailability.Available,
+                executionAccess = allowed,
+                actionTargetOperationId = lock.id,
+                executingOperationId = lock.id,
+            ),
+        )
+    }
+
+    @Test
+    fun operationActionLabelNamesHardwareAndModeBlockers() {
+        val learnedRemotes = operation(QtCommand.READ_REMOTES, emptyList())
+        val hardwareBlocked = learnedRemotes.executionAccess(
+            session = session(UserRole.INSTALLER),
+            deviceAuthenticated = true,
+            unitModel = KarrUnitModel.DR1_CAN,
+            unitMode = KarrDeviceMode.USER,
+        )
+        val bumpTest = operation(QtCommand.BUMP_TEST, listOf(1))
+        val modeBlocked = bumpTest.executionAccess(
+            session = session(UserRole.INSTALLER),
+            deviceAuthenticated = true,
+            unitModel = KarrUnitModel.DR1_CAN,
+            unitMode = KarrDeviceMode.USER,
+        )
+
+        assertEquals(
+            "Hardware",
+            operationActionLabel(
+                availability = FeatureAvailability.HardwareUnsupported(
+                    hardwareBlocked.blockingReason.orEmpty(),
+                ),
+                executionAccess = hardwareBlocked,
+                actionTargetOperationId = learnedRemotes.id,
+                executingOperationId = null,
+            ),
+        )
+        assertEquals(
+            "Unit mode",
+            operationActionLabel(
+                availability = FeatureAvailability.ModeRestricted(
+                    modeBlocked.blockingReason.orEmpty(),
+                ),
+                executionAccess = modeBlocked,
+                actionTargetOperationId = bumpTest.id,
+                executingOperationId = null,
+            ),
+        )
+    }
+
     private fun trunkOperation() =
         operation(QtCommand.VEHICLE_CONTROL, listOf(10))
 

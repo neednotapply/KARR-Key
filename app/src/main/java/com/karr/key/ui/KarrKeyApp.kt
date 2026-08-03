@@ -209,6 +209,9 @@ private fun KeyShell(
         operationTitle = currentOperation?.label,
     )
     val topLevelSwipeEnabled = navigation.currentRoute !is AppRoute.OperationDetail
+    var latestOperationExecutionResult by remember {
+        mutableStateOf<OperationExecutionResult?>(null)
+    }
 
     BoxWithConstraints {
         val navigationLayout = if (maxWidth < 600.dp) {
@@ -354,6 +357,10 @@ private fun KeyShell(
                                 onQueryChanged = onOperationsQueryChanged,
                                 onFiltersChanged = onOperationsFiltersChanged,
                                 listState = operationsListState,
+                                latestExecutionResult = latestOperationExecutionResult,
+                                onLatestExecutionResultChanged = {
+                                    latestOperationExecutionResult = it
+                                },
                             )
                         }
                         entry<AppRoute.Device> { route ->
@@ -390,6 +397,10 @@ private fun KeyShell(
                                     onQueryChanged = onOperationsQueryChanged,
                                     onFiltersChanged = onOperationsFiltersChanged,
                                     listState = operationsListState,
+                                    latestExecutionResult = latestOperationExecutionResult,
+                                    onLatestExecutionResultChanged = {
+                                        latestOperationExecutionResult = it
+                                    },
                                 )
                             }
                         }
@@ -418,7 +429,18 @@ private fun OperationsRouteContent(
     onQueryChanged: (String) -> Unit,
     onFiltersChanged: (OperationFilters) -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState,
+    latestExecutionResult: OperationExecutionResult?,
+    onLatestExecutionResultChanged: (OperationExecutionResult) -> Unit,
 ) {
+    val scope = rememberCoroutineScope()
+    val executor = remember(controller, operationStore, snackbar) {
+        DeviceOperationExecutor(
+            controller = controller,
+            operationStore = operationStore,
+            snackbar = snackbar,
+        )
+    }
+    var executingOperationId by remember { mutableStateOf<String?>(null) }
     AdaptiveOperationsScreen(
         session = session,
         selectedOperation = selectedOperation,
@@ -431,6 +453,48 @@ private fun OperationsRouteContent(
         onQueryChanged = onQueryChanged,
         onFiltersChanged = onFiltersChanged,
         onOpenOperation = navigation::openOperation,
+        onExecuteOperation = { operation ->
+            if (executingOperationId == null) {
+                executingOperationId = operation.id
+                scope.launch {
+                    try {
+                        executor.execute(
+                            operation = operation,
+                            session = session,
+                            deviceAuthenticated = deviceAuthenticated,
+                            unitModel = unitModel,
+                            unitMode = unitMode,
+                            callbacks = if (operation.mutating) {
+                                OperationExecutionCallbacks()
+                            } else {
+                                var status: String? = null
+                                var decodedResponse: com.karr.key.protocol.QtDecodedResponse? = null
+                                var rawResponse: String? = null
+                                OperationExecutionCallbacks(
+                                    onStatus = { value -> status = value },
+                                    onDecodedResponse = { value -> decodedResponse = value },
+                                    onRawResponse = { value -> rawResponse = value },
+                                    onSucceeded = {
+                                        onLatestExecutionResultChanged(
+                                            OperationExecutionResult(
+                                                operationId = operation.id,
+                                                status = status,
+                                                decodedResponse = decodedResponse,
+                                                rawResponse = rawResponse,
+                                            ),
+                                        )
+                                        navigation.openOperation(operation)
+                                    },
+                                )
+                            },
+                        )
+                    } finally {
+                        executingOperationId = null
+                    }
+                }
+            }
+        },
+        executingOperationId = executingOperationId,
         detailContent = { operation ->
             DeviceOperationScreen(
                 session = session,
@@ -443,6 +507,7 @@ private fun OperationsRouteContent(
                 operationStore = operationStore,
                 snackbar = snackbar,
                 onOpenOperation = navigation::openOperation,
+                initialExecutionResult = latestExecutionResult,
             )
         },
     )
@@ -528,7 +593,9 @@ internal fun DashboardScreen(
                             }
                         }
                     }
-                    val status = bleState.homeStatus()
+                    val status = bleState.homeStatus(
+                        accessConfigured = session.roles.isNotEmpty(),
+                    )
                     Text(
                         status,
                         modifier = Modifier
@@ -736,23 +803,30 @@ private fun MissingOperationState(onBack: () -> Unit) {
     }
 }
 
-internal fun BleSessionState.homeStatus(): String = when (this) {
-    BleSessionState.Idle -> "Ready to scan."
-    BleSessionState.Scanning -> "Scanning for compatible KARR units."
-    is BleSessionState.Reconnecting ->
-        "Reconnecting to $serial (attempt $attempt of $maxAttempts): $step."
-    is BleSessionState.ReconnectFailed ->
-        "Automatic reconnect to $serial stopped: $message"
-    is BleSessionState.Connecting -> "Connecting to $address."
-    is BleSessionState.DiscoveringUart -> "Discovering the KARR UART service."
-    is BleSessionState.UartSubscribed -> "Bluetooth connected; waiting for unit authentication."
-    is BleSessionState.AuthenticationRequired -> "The unit requested application authentication."
-    is BleSessionState.Authenticating -> "Authenticating the connected unit."
-    is BleSessionState.Ready -> listOfNotNull(
-        unitModel?.displayName ?: "Model not identified",
-        unitMode?.let { mode -> "${mode.displayName} mode" },
-    ).joinToString(" • ")
-    is BleSessionState.Error -> "Device error: $message"
+internal fun BleSessionState.homeStatus(accessConfigured: Boolean = true): String {
+    if (!accessConfigured && (this is BleSessionState.Idle || this is BleSessionState.Scanning)) {
+        return "Enter an access key before connecting to a KARR unit."
+    }
+    return when (this) {
+        BleSessionState.Idle -> "Ready to scan."
+        BleSessionState.Scanning -> "Scanning for compatible KARR units."
+        is BleSessionState.Reconnecting ->
+            "Reconnecting to $serial (attempt $attempt of $maxAttempts): $step."
+        is BleSessionState.ReconnectFailed ->
+            "Automatic reconnect to $serial stopped: $message"
+        is BleSessionState.Connecting -> "Connecting to $address."
+        is BleSessionState.DiscoveringUart -> "Discovering the KARR UART service."
+        is BleSessionState.UartSubscribed ->
+            "Bluetooth connected; waiting for unit authentication."
+        is BleSessionState.AuthenticationRequired ->
+            "The unit requested application authentication."
+        is BleSessionState.Authenticating -> "Authenticating the connected unit."
+        is BleSessionState.Ready -> listOfNotNull(
+            unitModel?.displayName ?: "Model not identified",
+            unitMode?.let { mode -> "${mode.displayName} mode" },
+        ).joinToString(" • ")
+        is BleSessionState.Error -> "Device error: $message"
+    }
 }
 
 internal fun BleSessionState.shouldStartHomeScan(): Boolean =
@@ -764,9 +838,10 @@ internal fun shellTopBarTitle(
     route: AppRoute,
     operationTitle: String? = null,
 ): String? = when (route) {
-    AppRoute.Home -> null
-    AppRoute.Operations -> "Device operations"
-    is AppRoute.Device -> "Device"
+    AppRoute.Home,
+    AppRoute.Operations,
+    is AppRoute.Device,
+    -> null
     is AppRoute.OperationDetail -> operationTitle ?: "Operation"
 }
 

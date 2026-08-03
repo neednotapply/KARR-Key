@@ -10,6 +10,15 @@ import org.junit.Test
 
 class HomeConnectionTest {
     @Test
+    fun missingAccessKeysReplaceIdleOrScanningStatusWithSetupGuidance() {
+        val expected = "Enter an access key before connecting to a KARR unit."
+
+        assertEquals(expected, BleSessionState.Idle.homeStatus(accessConfigured = false))
+        assertEquals(expected, BleSessionState.Scanning.homeStatus(accessConfigured = false))
+        assertEquals("Ready to scan.", BleSessionState.Idle.homeStatus(accessConfigured = true))
+    }
+
+    @Test
     fun readyHomeStatusShowsOnlyModelAndMode() {
         assertEquals(
             "DR1 CAN • User mode",

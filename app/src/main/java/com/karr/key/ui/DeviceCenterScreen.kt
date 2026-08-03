@@ -68,11 +68,9 @@ internal fun DeviceCenterScreen(
 ) {
     val state by controller.state.collectAsState()
     val devices by controller.devices.collectAsState()
-    val confirmedDevices = confirmedDevicesForConnection(devices)
-    val possibleDevices = possibleDevicesForConnection(devices)
+    val karrDevices = karrDevicesForConnection(devices)
     val otherDevices = otherDevicesForConnection(devices)
-    val confirmedCount = confirmedDevices.size
-    val possibleCount = possibleDevices.size
+    val karrUnitCount = karrDevices.size
     val nearbyCount = devices.size
     val scope = rememberCoroutineScope()
     var lastNotification by remember { mutableStateOf<String?>(null) }
@@ -226,11 +224,9 @@ internal fun DeviceCenterScreen(
             DeviceSection.CONNECTION -> ConnectionSection(
                 state = state,
                 nearbyCount = nearbyCount,
-                confirmedDevices = confirmedDevices,
-                possibleDevices = possibleDevices,
+                karrDevices = karrDevices,
                 otherDevices = otherDevices,
-                confirmedCount = confirmedCount,
-                possibleCount = possibleCount,
+                karrUnitCount = karrUnitCount,
                 showOtherDevices = showOtherDevices,
                 onShowOtherDevicesChanged = { showOtherDevices = it },
                 onScan = startScan,
@@ -357,11 +353,9 @@ internal fun DeviceCenterScreen(
 private fun ConnectionSection(
     state: BleSessionState,
     nearbyCount: Int,
-    confirmedDevices: List<DiscoveredDevice>,
-    possibleDevices: List<DiscoveredDevice>,
+    karrDevices: List<DiscoveredDevice>,
     otherDevices: List<DiscoveredDevice>,
-    confirmedCount: Int,
-    possibleCount: Int,
+    karrUnitCount: Int,
     showOtherDevices: Boolean,
     onShowOtherDevicesChanged: (Boolean) -> Unit,
     onScan: () -> Unit,
@@ -384,8 +378,7 @@ private fun ConnectionSection(
         item {
             SectionHeader(
                 title = "Connection",
-                supportingText =
-                    "Unexpected drops reconnect only to the last authenticated unit.",
+                supportingText = "Unexpected drops reconnect automatically.",
             )
         }
         item {
@@ -395,18 +388,10 @@ private fun ConnectionSection(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(
-                        text = state.label(
-                            confirmedCount,
-                            possibleCount,
-                            nearbyCount,
-                        ),
+                        text = state.connectionStatusLabel(),
                         modifier = Modifier.semantics {
                             liveRegion = LiveRegionMode.Polite
-                            stateDescription = state.label(
-                                confirmedCount,
-                                possibleCount,
-                                nearbyCount,
-                            )
+                            stateDescription = state.connectionStatusLabel()
                         },
                         style = MaterialTheme.typography.titleMedium,
                     )
@@ -453,48 +438,32 @@ private fun ConnectionSection(
         item {
             SectionHeader(
                 title = scanCountLabel(
-                    confirmedCount,
-                    possibleCount,
+                    karrUnitCount,
                     nearbyCount,
                 ),
-                supportingText = "Confirmed formats match recovered KARR identifiers. " +
-                    "Possible matches remain visible for diagnosis.",
             )
         }
-        if (confirmedDevices.isEmpty()) {
+        if (karrDevices.isEmpty()) {
             item {
                 Text(
                     if (state is BleSessionState.Scanning) {
-                        "Scanning for confirmed KARR-format signals."
+                        "Scanning for KARR signals."
                     } else {
-                        "No confirmed KARR-format signals found."
+                        "No KARR signals found."
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         } else {
-            items(confirmedDevices, key = { "confirmed:${it.address}" }) { device ->
+            items(karrDevices, key = { "karr:${it.address}" }) { device ->
                 DiscoveredDeviceCard(
                     device = device,
-                    onConnect = if (device.connectionEligible) {
+                    onConnect = if (device.manualProbeEligible) {
                         { onConnect(device) }
                     } else {
                         null
                     },
                 )
-            }
-        }
-        if (possibleDevices.isNotEmpty()) {
-            item {
-                SectionHeader(
-                    title = "Possible KARR advertisements",
-                    supportingText = "These match broad prefixes, unrecognized status " +
-                        "codes, branding, serial shapes, or the shared UART service, " +
-                        "but need stronger source evidence before connection is enabled.",
-                )
-            }
-            items(possibleDevices, key = { "possible:${it.address}" }) { device ->
-                DiscoveredDeviceCard(device = device, onConnect = null)
             }
         }
         if (otherDevices.isNotEmpty()) {
@@ -754,6 +723,24 @@ private fun DiagnosticsSection(
             }
         }
         item {
+            val ready = state as? BleSessionState.Ready
+            TechnicalDetails(title = "Bluetooth link") {
+                Text("Negotiated PHY", style = MaterialTheme.typography.labelLarge)
+                CodeSurface(
+                    ready?.linkDiagnostics?.let { diagnostics ->
+                        "TX ${diagnostics.transmitPhy.displayName}  •  " +
+                            "RX ${diagnostics.receivePhy.displayName}"
+                    } ?: "Not reported",
+                )
+                Text(
+                    "This reports the observed Bluetooth link. KARR Key does not request " +
+                        "LE Coded PHY or increase radio transmit power.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+        item {
             TechnicalDetails(title = "Bluetooth UUIDs") {
                 Text("UART service", style = MaterialTheme.typography.labelLarge)
                 CodeSurface(KarrGatt.UART_SERVICE.toString())
@@ -796,11 +783,7 @@ private fun DiscoveredDeviceCard(
             val isConfirmed =
                 device.classification.tier == KarrCandidateTier.CONFIRMED_FORMAT
             Text(
-                if (isConfirmed) {
-                    "Confirmed KARR format: ${device.classification.evidence}"
-                } else {
-                    device.classification.evidence
-                },
+                device.classificationDescription(),
                 color = if (isConfirmed) {
                     MaterialTheme.colorScheme.primary
                 } else {
@@ -820,7 +803,7 @@ private fun DiscoveredDeviceCard(
                     onClick = onConnect,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Connect")
+                    Text(device.connectionActionLabel())
                 }
             }
         }
@@ -842,14 +825,9 @@ private fun BleSessionState.canScan(): Boolean =
         this is BleSessionState.Error ||
         this is BleSessionState.ReconnectFailed
 
-private fun BleSessionState.label(
-    confirmedCount: Int,
-    possibleCount: Int,
-    nearbyCount: Int,
-): String = when (this) {
+internal fun BleSessionState.connectionStatusLabel(): String = when (this) {
     BleSessionState.Idle -> "Idle"
-    BleSessionState.Scanning ->
-        "Scanning — ${scanCountLabel(confirmedCount, possibleCount, nearbyCount)}"
+    BleSessionState.Scanning -> "Scanning"
     is BleSessionState.Reconnecting ->
         "Reconnecting to $serial (attempt $attempt of $maxAttempts): $step"
     is BleSessionState.ReconnectFailed ->
@@ -875,32 +853,43 @@ private fun BleSessionState.label(
 }
 
 internal fun scanCountLabel(
-    confirmedCount: Int,
-    possibleCount: Int,
+    karrUnitCount: Int,
     nearbyCount: Int,
-): String = "$confirmedCount confirmed / $possibleCount possible KARR / $nearbyCount nearby"
+): String {
+    val karrUnits = if (karrUnitCount == 1) {
+        "1 KARR unit"
+    } else {
+        "$karrUnitCount KARR units"
+    }
+    return "$karrUnits / $nearbyCount nearby"
+}
 
-internal fun confirmedDevicesForConnection(
+internal fun karrDevicesForConnection(
     devices: List<DiscoveredDevice>,
 ): List<DiscoveredDevice> = devices
     .asSequence()
-    .filter { it.classification.tier == KarrCandidateTier.CONFIRMED_FORMAT }
+    .filter { it.classification.isCandidate }
     .sortedWith(
         compareByDescending<DiscoveredDevice> { it.rssi }
             .thenBy { it.name ?: it.address },
     )
     .toList()
 
-internal fun possibleDevicesForConnection(
-    devices: List<DiscoveredDevice>,
-): List<DiscoveredDevice> = devices
-    .asSequence()
-    .filter { it.classification.tier == KarrCandidateTier.POSSIBLE }
-    .sortedWith(
-        compareByDescending<DiscoveredDevice> { it.rssi }
-            .thenBy { it.name ?: it.address },
-    )
-    .toList()
+internal fun DiscoveredDevice.classificationDescription(): String =
+    when (classification.tier) {
+        KarrCandidateTier.CONFIRMED_FORMAT ->
+            "Confirmed KARR format: ${classification.evidence}"
+        KarrCandidateTier.POSSIBLE ->
+            "Possible KARR match: ${classification.evidence}"
+        KarrCandidateTier.OTHER -> classification.evidence
+    }
+
+internal fun DiscoveredDevice.connectionActionLabel(): String =
+    if (classification.tier == KarrCandidateTier.CONFIRMED_FORMAT) {
+        "Connect"
+    } else {
+        "Probe connection"
+    }
 
 internal fun otherDevicesForConnection(
     devices: List<DiscoveredDevice>,

@@ -16,10 +16,12 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.accessibility.enableAccessibilityChecks
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -33,6 +35,8 @@ import com.karr.key.core.Session
 import com.karr.key.core.UserRole
 import com.karr.key.protocol.KarrDeviceMode
 import com.karr.key.protocol.KarrUnitModel
+import com.karr.key.protocol.QtCommand
+import com.karr.key.protocol.RecoveredDeviceOperation
 import org.junit.Rule
 import org.junit.Test
 import org.junit.Assert.assertEquals
@@ -64,6 +68,87 @@ class ToolsAccessibilityTest {
         composeRule.onAllNodesWithText("Ready").assertCountEquals(0)
         composeRule.enableAccessibilityChecks()
         composeRule.onRoot().tryPerformAccessibilityChecks()
+    }
+
+    @Test
+    fun activeSearchCanBeClearedFromTheSearchField() {
+        setOperationsContent(query = "unlock")
+
+        composeRule.onNodeWithContentDescription("Clear search")
+            .assertIsDisplayed()
+            .performClick()
+
+        composeRule.onAllNodes(hasContentDescription("Clear search")).assertCountEquals(0)
+        composeRule.onNodeWithText("25 of 25 operations").assertIsDisplayed()
+    }
+
+    @Test
+    fun readCardActionIsDisabledUntilConnected() {
+        var openedOperationId: String? = null
+        var executedOperationId: String? = null
+        setOperationsContent(
+            query = "Read unit state",
+            onOpenOperation = { operation -> openedOperationId = operation.id },
+            onExecuteOperation = { operation -> executedOperationId = operation.id },
+        )
+
+        composeRule.onNodeWithTag("operation-action:read-state")
+            .assertIsDisplayed()
+            .assertIsNotEnabled()
+            .assertTextContains("Not connected")
+
+        composeRule.runOnIdle {
+            assertEquals(null, executedOperationId)
+            assertEquals(null, openedOperationId)
+        }
+    }
+
+    @Test
+    fun readCardActionExecutesWithoutOpeningItsDetailPage() {
+        var openedOperationId: String? = null
+        var executedOperationId: String? = null
+        setOperationsContent(
+            deviceAuthenticated = true,
+            unitModel = KarrUnitModel.DR1_CAN,
+            unitMode = KarrDeviceMode.USER,
+            query = "Read unit state",
+            onOpenOperation = { operation -> openedOperationId = operation.id },
+            onExecuteOperation = { operation -> executedOperationId = operation.id },
+        )
+
+        composeRule.onNodeWithTag("operation-action:read-state")
+            .assertIsDisplayed()
+            .assertIsEnabled()
+            .performClick()
+
+        composeRule.runOnIdle {
+            assertEquals("read-state", executedOperationId)
+            assertEquals(null, openedOperationId)
+        }
+    }
+
+    @Test
+    fun commandCardActionExecutesWithoutOpeningItsDetailPage() {
+        var openedOperationId: String? = null
+        var executedOperationId: String? = null
+        setOperationsContent(
+            deviceAuthenticated = true,
+            unitModel = KarrUnitModel.DR1_CAN,
+            unitMode = KarrDeviceMode.USER,
+            query = "Lock and arm",
+            onOpenOperation = { operation -> openedOperationId = operation.id },
+            onExecuteOperation = { operation -> executedOperationId = operation.id },
+        )
+
+        composeRule.onNodeWithTag("operation-action:lock-doors-00")
+            .assertIsDisplayed()
+            .assertIsEnabled()
+            .performClick()
+
+        composeRule.runOnIdle {
+            assertEquals("lock-doors-00", executedOperationId)
+            assertEquals(null, openedOperationId)
+        }
     }
 
     @Test
@@ -147,11 +232,13 @@ class ToolsAccessibilityTest {
 
     @Test
     fun modeRestrictedOperationExplainsRequirementAndRemainsSelectable() {
+        var executedOperation: RecoveredDeviceOperation? = null
         setOperationsContent(
             deviceAuthenticated = true,
             unitModel = KarrUnitModel.DR1_CAN,
             unitMode = KarrDeviceMode.USER,
             query = "bump test",
+            onExecuteOperation = { operation -> executedOperation = operation },
         )
 
         composeRule.onNodeWithTag("operations-catalog").performScrollToNode(
@@ -159,11 +246,15 @@ class ToolsAccessibilityTest {
         )
         composeRule.onNodeWithTag("operation:bump-test-01")
             .assertTextContains("Unit mode")
-            .assertTextContains(
-                "Run bump test is available only in Installer mode; " +
-                    "the connected unit is in User mode.",
-            )
             .assertIsEnabled()
+        composeRule.onNodeWithTag("operation-action:bump-test-01")
+            .assertIsEnabled()
+            .performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(QtCommand.CHANGE_MODE, executedOperation?.command)
+            assertEquals(listOf(KarrDeviceMode.DEALER.code), executedOperation?.payload)
+        }
     }
 
     private fun clickWorkflowFilter(label: String) {
@@ -175,6 +266,8 @@ class ToolsAccessibilityTest {
         unitModel: KarrUnitModel? = null,
         unitMode: KarrDeviceMode? = null,
         query: String = "",
+        onOpenOperation: (RecoveredDeviceOperation) -> Unit = {},
+        onExecuteOperation: (RecoveredDeviceOperation) -> Unit = {},
     ) {
         val roles = UserRole.entries.toSet()
         val session = Session(
@@ -186,18 +279,20 @@ class ToolsAccessibilityTest {
             KarrKeyTheme(darkTheme = false) {
                 Surface {
                     var filters by remember { mutableStateOf(OperationFilters()) }
+                    var currentQuery by remember { mutableStateOf(query) }
                     AdaptiveOperationsScreen(
                         session = session,
                         selectedOperation = null,
                         deviceAuthenticated = deviceAuthenticated,
                         unitModel = unitModel,
                         unitMode = unitMode,
-                        query = query,
+                        query = currentQuery,
                         filters = filters,
                         listState = rememberLazyListState(),
-                        onQueryChanged = {},
+                        onQueryChanged = { currentQuery = it },
                         onFiltersChanged = { filters = it },
-                        onOpenOperation = {},
+                        onOpenOperation = onOpenOperation,
+                        onExecuteOperation = onExecuteOperation,
                         detailContent = { Text(it.label) },
                         modifier = Modifier,
                     )
