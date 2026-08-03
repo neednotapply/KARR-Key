@@ -12,6 +12,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.test.filters.SdkSuppress
 import com.karr.key.ble.BleController
+import com.karr.key.ble.BleScanObservation
 import com.karr.key.ble.BleSessionState
 import com.karr.key.ble.DiscoveredDevice
 import com.karr.key.core.FeatureCatalog
@@ -195,6 +196,7 @@ private val NoOpReadyState = BleSessionState.Ready(
 private object NoOpBleController : BleController {
     override val state = MutableStateFlow<BleSessionState>(NoOpReadyState)
     override val devices = MutableStateFlow<List<DiscoveredDevice>>(emptyList())
+    override val scanObservations = MutableSharedFlow<BleScanObservation>()
     override val notifications = MutableSharedFlow<ByteArray>()
 
     override fun startScan(): Result<Unit> = Result.success(Unit)

@@ -56,12 +56,17 @@ maintained.
 - Safety-sensitive actions require an authenticated BLE session, local role
   authorization, and compatible identified unit model and operating mode.
 - Recovered universal credentials are never compiled into the application.
-- Every visible operation sends one distinct recovered device packet. Scanning, connection,
-  access keys, and transport diagnostics stay in the Device center. Inventory,
-  jobs, accounts, imported records, external artifacts, support links, maps,
-  remote history, transactions, and submissions stay excluded.
-- The application manifest must not request `INTERNET` or
-  `ACCESS_NETWORK_STATE`; `preBuild` enforces this contract.
+- Every visible operation sends one distinct recovered device packet. Scanning,
+  connection, access keys, and transport diagnostics stay in the Device center.
+  Inventory, jobs, accounts, imported records, external artifacts, remote
+  history, transactions, and submissions stay excluded.
+- Map is the only Internet-using app surface. It may request viewed
+  OpenStreetMap tiles and foreground device location, but it must not add a
+  backend, account system, tile prefetch, or remote history.
+- The map renderer requires `ACCESS_NETWORK_STATE` to detect connectivity before
+  it requests raster tiles. `preBuild` checks that this and Map's `INTERNET`
+  permission, foreground location permissions, and Bluetooth scan
+  `neverForLocation` declaration are explicit.
 
 ## BLE and protocol compatibility
 
@@ -258,7 +263,7 @@ Run the complete check before handing off a change:
 CI intentionally skips Git LFS because research artifacts are not build
 inputs.
 
-## Remaining offline compatibility work
+## Remaining local compatibility work
 
 Completing device workflows requires only local evidence and authorized test
 hardware:
@@ -268,6 +273,6 @@ hardware:
 - the newer 32-byte/AES path with unit-scoped provisioning material;
 - production application ID, signing, privacy, and backup configuration.
 
-Do not introduce a network client to fill a compatibility gap. Record the gap,
-return to the preserved artifacts and authorized fixtures, and add byte-exact
-tests before enabling the affected command.
+Do not introduce a non-Map network client to fill a compatibility gap. Record
+the gap, return to the preserved artifacts and authorized fixtures, and add
+byte-exact tests before enabling the affected command.

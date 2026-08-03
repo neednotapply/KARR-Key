@@ -19,6 +19,7 @@ internal enum class TopLevelDestination(
 ) {
     HOME("Home", R.drawable.ic_nav_home),
     OPERATIONS("Operations", R.drawable.ic_nav_installer),
+    MAP("Map", R.drawable.ic_nav_map),
     DEVICE("Device", R.drawable.ic_nav_bluetooth),
 }
 
@@ -34,6 +35,8 @@ internal sealed interface AppRoute : NavKey {
     data object Home : AppRoute
 
     data object Operations : AppRoute
+
+    data object Map : AppRoute
 
     data class Device(val section: DeviceSection = DeviceSection.CONNECTION) : AppRoute
 
@@ -236,12 +239,14 @@ internal class KarrNavigationState private constructor(
 private fun rootRoute(destination: TopLevelDestination): AppRoute = when (destination) {
     TopLevelDestination.HOME -> AppRoute.Home
     TopLevelDestination.OPERATIONS -> AppRoute.Operations
+    TopLevelDestination.MAP -> AppRoute.Map
     TopLevelDestination.DEVICE -> AppRoute.Device()
 }
 
 private fun AppRoute.encode(): String = when (this) {
     AppRoute.Home -> "home"
     AppRoute.Operations -> "operations"
+    AppRoute.Map -> "map"
     is AppRoute.Device -> "device|${section.name}"
     is AppRoute.OperationDetail -> "operation|$operationId"
 }
@@ -251,6 +256,7 @@ private fun AppRoute.Companion.decode(value: String): AppRoute? {
     return when (parts.firstOrNull()) {
         "home" -> AppRoute.Home
         "operations", "tools" -> AppRoute.Operations
+        "map" -> AppRoute.Map
         "device" -> AppRoute.Device(
             section = parts.getOrNull(1)
                 ?.let { encoded -> runCatching { DeviceSection.valueOf(encoded) }.getOrNull() }

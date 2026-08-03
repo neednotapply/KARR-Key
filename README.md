@@ -76,9 +76,10 @@ Select an image to view it at full resolution.
 - Show the difference between a command reaching Bluetooth, the KARR unit
   replying, and the vehicle physically doing something.
 
-The app itself works offline. It has no account system, cloud service,
-tracking, or Android Internet permission. The two links above open in the
-phone's web browser.
+Vehicle operations, Bluetooth authentication, access keys, and history work
+locally with no account system, cloud service, or backend. The Map page uses
+Android foreground location and requests OpenStreetMap tiles on demand, caching
+only tiles the user views.
 
 ## App layout
 
@@ -115,6 +116,17 @@ apps do not use them that way. The Device Operations list keeps its compact
 transition summaries. After a mode operation is selected, its command page shows
 a **Mode effect** section explaining which security or service behavior the target
 mode enables, disables, or temporarily changes.
+
+### Map
+
+Map plots KARR candidate advertisements from active scans using the phone's
+foreground location fix and each advertisement's RSSI. Stronger RSSI produces a
+smaller confidence circle; weaker RSSI and poorer location accuracy produce a
+larger circle. Map uses osmdroid with OpenStreetMap raster tiles and visible OSM
+attribution. It does not use Google Maps or Google Play Services.
+
+Map history is stored locally until the user clears it. Device identifiers and
+coordinates are encrypted with Android Keystore-backed storage.
 
 ### Device
 
@@ -183,10 +195,11 @@ On Linux or macOS, use `./gradlew`. The debug APK is written to
 `app/build/outputs/apk/debug/KARR-Key.apk` and uses package name `com.karr.key`.
 The current app version is `1.0.2` (code 11).
 
-The build checks that the app does not request Internet or network-state
-permission. GitHub Actions also runs the tests, lint, and debug build. A nightly
-prerelease is created only when the main branch has changed since the previous
-release.
+The build checks that Map's Internet and network-state permissions are explicit,
+Bluetooth scan keeps `neverForLocation`, and foreground location permissions
+are explicit. GitHub Actions also runs the tests, lint, and debug build. A
+nightly prerelease is created only when the main branch has changed since the
+previous release.
 
 Stable releases are also produced entirely by GitHub Actions. Pushing a tag in
 the form `vMAJOR.MINOR.PATCH` runs the tests and lint against that exact tagged

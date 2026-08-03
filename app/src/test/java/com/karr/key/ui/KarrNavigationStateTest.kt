@@ -15,6 +15,7 @@ class KarrNavigationStateTest {
     fun topLevelDestinationsOmitTopBarWhileOperationDetailsKeepTheirTitle() {
         assertNull(shellTopBarTitle(AppRoute.Home))
         assertNull(shellTopBarTitle(AppRoute.Operations))
+        assertNull(shellTopBarTitle(AppRoute.Map))
         assertNull(shellTopBarTitle(AppRoute.Device()))
         assertEquals(
             "Read state",
@@ -31,6 +32,7 @@ class KarrNavigationStateTest {
             listOf(
                 TopLevelDestination.HOME,
                 TopLevelDestination.OPERATIONS,
+                TopLevelDestination.MAP,
                 TopLevelDestination.DEVICE,
             ),
             TopLevelDestination.entries,
@@ -110,7 +112,7 @@ class KarrNavigationStateTest {
     }
 
     @Test
-    fun adjacentTopLevelMovesFollowHomeOperationsDeviceOrder() {
+    fun adjacentTopLevelMovesFollowHomeOperationsMapDeviceOrder() {
         val navigation = KarrNavigationState()
 
         assertFalse(navigation.moveTopLevelBy(-1))
@@ -118,10 +120,13 @@ class KarrNavigationStateTest {
         assertEquals(TopLevelDestination.OPERATIONS, navigation.selectedTopLevel)
         assertTrue(navigation.topLevelTransitionForward)
         assertTrue(navigation.moveTopLevelBy(1))
+        assertEquals(TopLevelDestination.MAP, navigation.selectedTopLevel)
+        assertTrue(navigation.topLevelTransitionForward)
+        assertTrue(navigation.moveTopLevelBy(1))
         assertEquals(TopLevelDestination.DEVICE, navigation.selectedTopLevel)
         assertFalse(navigation.moveTopLevelBy(1))
         assertTrue(navigation.moveTopLevelBy(-1))
-        assertEquals(TopLevelDestination.OPERATIONS, navigation.selectedTopLevel)
+        assertEquals(TopLevelDestination.MAP, navigation.selectedTopLevel)
         assertFalse(navigation.topLevelTransitionForward)
     }
 

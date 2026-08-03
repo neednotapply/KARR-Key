@@ -11,13 +11,16 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.karr.key.ble.BlePermissions
 import com.karr.key.data.LocalKeyRepository
+import com.karr.key.data.LocalMapHistoryStore
 import com.karr.key.data.LocalOperationStore
 import com.karr.key.ui.KarrKeyApp
 import com.karr.key.ui.KarrKeyTheme
 
 class MainActivity : ComponentActivity() {
     private lateinit var operationStore: LocalOperationStore
+    private lateinit var mapHistoryStore: LocalMapHistoryStore
     private var permissionResult: ((Boolean) -> Unit)? = null
+    private var locationPermissionResult: ((Boolean) -> Unit)? = null
 
     private val blePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -38,12 +41,23 @@ class MainActivity : ComponentActivity() {
         completePermissionRequest(true)
     }
 
+    private val locationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { results ->
+        locationPermissionResult?.invoke(
+            results[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                results[Manifest.permission.ACCESS_COARSE_LOCATION] == true,
+        )
+        locationPermissionResult = null
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val app = application as KarrApplication
         val repository = LocalKeyRepository()
         operationStore = LocalOperationStore(this)
+        mapHistoryStore = LocalMapHistoryStore(this)
 
         setContent {
             KarrKeyTheme {
@@ -52,7 +66,9 @@ class MainActivity : ComponentActivity() {
                     bleController = app.bleController,
                     deviceKeys = app.deviceKeys,
                     operationStore = operationStore,
+                    mapHistoryStore = mapHistoryStore,
                     requestBlePermissions = ::requestBlePermissions,
+                    requestMapLocationPermissions = ::requestMapLocationPermissions,
                 )
             }
         }
@@ -60,6 +76,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         operationStore.close()
+        mapHistoryStore.close()
         super.onDestroy()
     }
 
@@ -94,5 +111,21 @@ class MainActivity : ComponentActivity() {
     private fun completePermissionRequest(granted: Boolean) {
         permissionResult?.invoke(granted)
         permissionResult = null
+    }
+
+    private fun requestMapLocationPermissions(onResult: (Boolean) -> Unit) {
+        val permissions = arrayOf(
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+        )
+        if (permissions.any {
+                ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+            }
+        ) {
+            onResult(true)
+            return
+        }
+        locationPermissionResult = onResult
+        locationPermissionLauncher.launch(permissions)
     }
 }

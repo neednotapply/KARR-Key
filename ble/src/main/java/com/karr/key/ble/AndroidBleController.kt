@@ -61,6 +61,10 @@ class AndroidBleController(
     private val discovered = ConcurrentHashMap<String, TimedDiscoveredDevice>()
     private val _state = MutableStateFlow<BleSessionState>(BleSessionState.Idle)
     private val _devices = MutableStateFlow<List<DiscoveredDevice>>(emptyList())
+    private val _scanObservations = MutableSharedFlow<BleScanObservation>(
+        replay = 0,
+        extraBufferCapacity = 64,
+    )
     private val _notifications = MutableSharedFlow<ByteArray>(
         replay = 0,
         extraBufferCapacity = 32,
@@ -98,6 +102,8 @@ class AndroidBleController(
 
     override val state: StateFlow<BleSessionState> = _state.asStateFlow()
     override val devices: StateFlow<List<DiscoveredDevice>> = _devices.asStateFlow()
+    override val scanObservations: SharedFlow<BleScanObservation> =
+        _scanObservations.asSharedFlow()
     override val notifications: SharedFlow<ByteArray> = _notifications.asSharedFlow()
 
     init {
@@ -190,9 +196,17 @@ class AndroidBleController(
             connectable = existing?.connectable == true || observedConnectable,
             classification = classification,
         )
+        val nowElapsed = SystemClock.elapsedRealtime()
         discovered[device.address] = TimedDiscoveredDevice(
             device = discoveredDevice,
-            lastSeenElapsedRealtimeMillis = SystemClock.elapsedRealtime(),
+            lastSeenElapsedRealtimeMillis = nowElapsed,
+        )
+        _scanObservations.tryEmit(
+            BleScanObservation(
+                device = discoveredDevice,
+                observedUtcMillis = System.currentTimeMillis(),
+                observedElapsedRealtimeMillis = nowElapsed,
+            ),
         )
         publishDevices()
         val target = reconnectTarget

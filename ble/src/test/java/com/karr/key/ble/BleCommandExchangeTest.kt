@@ -249,6 +249,7 @@ private class FakeBleController(
         BleSessionState.Ready(address = "00:11:22:33:44:55", name = "QT000001"),
     )
     override val devices = MutableStateFlow<List<DiscoveredDevice>>(emptyList())
+    override val scanObservations = MutableSharedFlow<BleScanObservation>()
     override val notifications = MutableSharedFlow<ByteArray>()
     val sentPackets = mutableListOf<ByteArray>()
 

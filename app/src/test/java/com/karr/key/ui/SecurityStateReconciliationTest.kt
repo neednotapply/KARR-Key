@@ -2,6 +2,7 @@ package com.karr.key.ui
 
 import com.karr.key.ble.BleCommandExchange
 import com.karr.key.ble.BleController
+import com.karr.key.ble.BleScanObservation
 import com.karr.key.ble.BleSessionState
 import com.karr.key.ble.DiscoveredDevice
 import com.karr.key.protocol.KarrDeviceMode
@@ -88,6 +89,7 @@ private class ReconciliationBleController(
         BleSessionState.Ready(address = "00:11:22:33:44:55", name = "QT000001"),
     )
     override val devices = MutableStateFlow<List<DiscoveredDevice>>(emptyList())
+    override val scanObservations = MutableSharedFlow<BleScanObservation>()
     override val notifications = MutableSharedFlow<ByteArray>()
     val sentPackets = mutableListOf<ByteArray>()
 

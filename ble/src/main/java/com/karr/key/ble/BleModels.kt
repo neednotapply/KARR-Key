@@ -24,6 +24,12 @@ data class DiscoveredDevice(
             classification.tier == KarrCandidateTier.CONFIRMED_FORMAT
 }
 
+data class BleScanObservation(
+    val device: DiscoveredDevice,
+    val observedUtcMillis: Long,
+    val observedElapsedRealtimeMillis: Long,
+)
+
 enum class BlePhy(val displayName: String) {
     LE_1M("LE 1M"),
     LE_2M("LE 2M"),
@@ -105,6 +111,7 @@ internal fun BleSessionState.withLinkDiagnostics(
 interface BleController {
     val state: StateFlow<BleSessionState>
     val devices: StateFlow<List<DiscoveredDevice>>
+    val scanObservations: SharedFlow<BleScanObservation>
     val notifications: SharedFlow<ByteArray>
 
     fun startScan(): Result<Unit>

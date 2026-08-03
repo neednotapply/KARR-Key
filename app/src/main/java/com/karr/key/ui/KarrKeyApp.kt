@@ -74,6 +74,7 @@ import com.karr.key.ble.BleController
 import com.karr.key.ble.BleSessionState
 import com.karr.key.core.ResearchAccess
 import com.karr.key.core.Session
+import com.karr.key.data.LocalMapHistoryStore
 import com.karr.key.data.LocalOperationStore
 import com.karr.key.data.KeyRepository
 import com.karr.key.protocol.DeviceKeyPurpose
@@ -122,7 +123,9 @@ fun KarrKeyApp(
     bleController: BleController,
     deviceKeys: DeviceKeyProvisioning,
     operationStore: LocalOperationStore,
+    mapHistoryStore: LocalMapHistoryStore,
     requestBlePermissions: (((Boolean) -> Unit) -> Unit),
+    requestMapLocationPermissions: (((Boolean) -> Unit) -> Unit),
 ) {
     var provisioningRevision by remember { mutableIntStateOf(0) }
     val session = remember(repository, deviceKeys, provisioningRevision) {
@@ -168,8 +171,10 @@ fun KarrKeyApp(
         bleController = bleController,
         deviceKeys = deviceKeys,
         operationStore = operationStore,
+        mapHistoryStore = mapHistoryStore,
         onProvisioningChanged = { provisioningRevision++ },
         requestBlePermissions = requestBlePermissions,
+        requestMapLocationPermissions = requestMapLocationPermissions,
         snackbar = snackbar,
         operationsQuery = operationsQuery,
         operationsFilters = operationsFilters,
@@ -191,8 +196,10 @@ private fun KeyShell(
     bleController: BleController,
     deviceKeys: DeviceKeyProvisioning,
     operationStore: LocalOperationStore,
+    mapHistoryStore: LocalMapHistoryStore,
     onProvisioningChanged: () -> Unit,
     requestBlePermissions: (((Boolean) -> Unit) -> Unit),
+    requestMapLocationPermissions: (((Boolean) -> Unit) -> Unit),
     snackbar: SnackbarHostState,
     operationsQuery: String,
     operationsFilters: OperationFilters,
@@ -361,6 +368,16 @@ private fun KeyShell(
                                 onLatestExecutionResultChanged = {
                                     latestOperationExecutionResult = it
                                 },
+                            )
+                        }
+                        entry<AppRoute.Map> {
+                            MapScreen(
+                                controller = bleController,
+                                historyStore = mapHistoryStore,
+                                requestBlePermissions = requestBlePermissions,
+                                requestLocationPermissions = requestMapLocationPermissions,
+                                snackbar = snackbar,
+                                modifier = Modifier.fillMaxSize(),
                             )
                         }
                         entry<AppRoute.Device> { route ->
@@ -840,6 +857,7 @@ internal fun shellTopBarTitle(
 ): String? = when (route) {
     AppRoute.Home,
     AppRoute.Operations,
+    AppRoute.Map,
     is AppRoute.Device,
     -> null
     is AppRoute.OperationDetail -> operationTitle ?: "Operation"

@@ -19,6 +19,7 @@ internal class ForegroundBleController(
 
     override val state: StateFlow<BleSessionState> = delegate.state
     override val devices: StateFlow<List<DiscoveredDevice>> = delegate.devices
+    override val scanObservations = delegate.scanObservations
     override val notifications: SharedFlow<ByteArray> = delegate.notifications
 
     override fun startScan(): Result<Unit> {

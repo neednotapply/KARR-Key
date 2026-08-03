@@ -78,6 +78,8 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.navigation3:navigation3-runtime:1.1.4")
     implementation("androidx.navigation3:navigation3-ui:1.1.4")
+    implementation("org.osmdroid:osmdroid-android:6.1.20")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
 
@@ -97,14 +99,16 @@ val verifyOfflineManifest by tasks.registering {
     doLast {
         val manifestText = manifest.asFile.readText()
         listOf(
-            "android.permission.INTERNET",
-            "android.permission.ACCESS_NETWORK_STATE",
-        ).forEach { permission ->
+            "android.permission.INTERNET" to
+                "Map requires INTERNET for viewed OpenStreetMap tiles.",
+            "android.permission.ACCESS_NETWORK_STATE" to
+                "The map renderer requires ACCESS_NETWORK_STATE before requesting map tiles.",
+        ).forEach { (permission, message) ->
             val declaration = Regex(
                 """<uses-permission\s+[^>]*android:name="$permission"[^>]*/>""",
             ).find(manifestText)?.value
-            check(declaration?.contains("""tools:node="remove"""") == true) {
-                "$permission must have an explicit manifest-merger removal rule."
+            check(declaration != null && !declaration.contains("""tools:node="remove""")) {
+                message
             }
         }
 
@@ -116,14 +120,20 @@ val verifyOfflineManifest by tasks.registering {
                 """android:usesPermissionFlags="neverForLocation""",
             ) == true,
         ) {
-            "BLUETOOTH_SCAN must assert neverForLocation while location access is capped at API 30."
+            "BLUETOOTH_SCAN must assert neverForLocation."
         }
 
-        val fineLocationDeclaration = Regex(
-            """<uses-permission\s+[^>]*android:name="android.permission.ACCESS_FINE_LOCATION"[^>]*/>""",
-        ).find(manifestText)?.value
-        check(fineLocationDeclaration?.contains("""android:maxSdkVersion="30""") == true) {
-            "ACCESS_FINE_LOCATION must remain capped at API 30 for the Bluetooth permission policy."
+        listOf(
+            "android.permission.ACCESS_COARSE_LOCATION",
+            "android.permission.ACCESS_FINE_LOCATION",
+        ).forEach { permission ->
+            check(
+                Regex(
+                    """<uses-permission\s+[^>]*android:name="$permission"[^>]*/>""",
+                ).containsMatchIn(manifestText),
+            ) {
+                "$permission must be explicit because Map requests foreground location."
+            }
         }
     }
 }
