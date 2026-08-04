@@ -28,6 +28,10 @@ data class LocalMapObservation(
     val confidenceRadiusMeters: Double,
 )
 
+data class MapHistoryImportSummary(val inserted: Int, val updated: Int) {
+    val total: Int get() = inserted + updated
+}
+
 class LocalMapHistoryStore(
     context: Context,
     private val cipher: StringCipher = AndroidKeystoreCipher("karr_key_map_history_v1"),
@@ -94,6 +98,51 @@ class LocalMapHistoryStore(
         return observation
     }
 
+    /**
+     * Bulk-imports previously-decoded observations (e.g. from [MapHistoryCsv]) in one
+     * transaction. Device address is encrypted with a randomized IV, so it cannot be matched
+     * via SQL; existing rows are decrypted first and matched in memory by
+     * (deviceAddress, observedUtc) — the same device re-observed at the exact same moment,
+     * which is what a re-imported export or an overlapping WiGLE file produces. A match updates
+     * that row in place instead of inserting a duplicate; anything new is inserted.
+     */
+    fun upsertAll(observations: List<LocalMapObservation>): MapHistoryImportSummary {
+        val existingIdByKey = recent(limit = MAX_LOOKUP_ROWS)
+            .associateTo(mutableMapOf()) { (it.deviceAddress to it.observedUtc) to it.id }
+        val db = writableDatabase
+        var inserted = 0
+        var updated = 0
+        db.beginTransaction()
+        try {
+            observations.forEach { incoming ->
+                val key = incoming.deviceAddress to incoming.observedUtc
+                val existingId = existingIdByKey[key]
+                if (existingId != null) {
+                    db.update(
+                        "map_observations",
+                        incoming.copy(id = existingId).toValues(),
+                        "id = ?",
+                        arrayOf(existingId),
+                    )
+                    updated++
+                } else {
+                    val newId = UUID.randomUUID().toString()
+                    db.insertOrThrow(
+                        "map_observations",
+                        null,
+                        incoming.copy(id = newId).toValues(),
+                    )
+                    existingIdByKey[key] = newId
+                    inserted++
+                }
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        return MapHistoryImportSummary(inserted = inserted, updated = updated)
+    }
+
     fun recent(limit: Int = 1_000): List<LocalMapObservation> {
         require(limit in 1..5_000)
         return readableDatabase.query(
@@ -130,6 +179,16 @@ class LocalMapHistoryStore(
         }
     }
 
+    fun count(): Int {
+        readableDatabase.rawQuery(
+            "SELECT COUNT(*) FROM map_observations",
+            null,
+        ).use { cursor ->
+            cursor.moveToFirst()
+            return cursor.getInt(0)
+        }
+    }
+
     fun clear() {
         writableDatabase.delete("map_observations", null, null)
     }
@@ -156,6 +215,7 @@ class LocalMapHistoryStore(
 
     private companion object {
         const val DATABASE_VERSION = 1
+        const val MAX_LOOKUP_ROWS = 5_000
         val COLUMNS = arrayOf(
             "id",
             "observed_utc",

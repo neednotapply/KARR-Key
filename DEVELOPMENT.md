@@ -255,8 +255,8 @@ Run the complete check before handing off a change:
   `app-debug-androidTest.apk` directly and invoke
   `com.karr.key.test/androidx.test.runner.AndroidJUnitRunner` so the target app
   remains installed afterward.
-- Horizontal swipes change only primary sections. Feature details consume the
-  Android back action to return to their parent section.
+- Top-level sections are switched only from the navigation bar/rail. Feature
+  details consume the Android back action to return to their parent section.
 - Never attach credentials, device keys, raw authentication material,
   vehicle-identifying captures, or arbitrary proprietary binaries.
 

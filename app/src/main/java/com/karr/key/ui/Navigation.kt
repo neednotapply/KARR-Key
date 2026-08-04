@@ -18,14 +18,15 @@ internal enum class TopLevelDestination(
     @param:DrawableRes val iconRes: Int,
 ) {
     HOME("Home", R.drawable.ic_nav_home),
+    DEVICE("Device", R.drawable.ic_nav_bluetooth),
     OPERATIONS("Operations", R.drawable.ic_nav_installer),
     MAP("Map", R.drawable.ic_nav_map),
-    DEVICE("Device", R.drawable.ic_nav_bluetooth),
+    SETTINGS("Settings", R.drawable.ic_nav_settings),
 }
 
-internal enum class DeviceSection(val label: String) {
-    CONNECTION("Connection"),
+internal enum class SettingsSection(val label: String) {
     ACCESS_KEYS("Access keys"),
+    MAP("Map"),
     DIAGNOSTICS("Diagnostics"),
 }
 
@@ -38,7 +39,9 @@ internal sealed interface AppRoute : NavKey {
 
     data object Map : AppRoute
 
-    data class Device(val section: DeviceSection = DeviceSection.CONNECTION) : AppRoute
+    data class Settings(val section: SettingsSection = SettingsSection.ACCESS_KEYS) : AppRoute
+
+    data object Device : AppRoute
 
     data class OperationDetail(val operationId: String) : AppRoute
 }
@@ -87,18 +90,6 @@ internal class KarrNavigationState private constructor(
         }
     }
 
-    fun moveTopLevelBy(offset: Int): Boolean {
-        require(offset == -1 || offset == 1) {
-            "Top-level navigation only supports adjacent moves."
-        }
-        if (currentBackStack.size > 1) return false
-        val destination = TopLevelDestination.entries
-            .getOrNull(selectedTopLevel.ordinal + offset)
-            ?: return false
-        switchTopLevel(destination)
-        return true
-    }
-
     fun openOperations() {
         val stack = stacks.getValue(TopLevelDestination.OPERATIONS)
         stack.clear()
@@ -140,22 +131,32 @@ internal class KarrNavigationState private constructor(
         )
     }
 
-    fun openDevice(section: DeviceSection = DeviceSection.CONNECTION) {
+    fun openDevice() {
         val stack = stacks.getValue(TopLevelDestination.DEVICE)
         stack.clear()
-        stack.add(AppRoute.Device(section))
+        stack.add(AppRoute.Device)
         switchTopLevel(
             destination = TopLevelDestination.DEVICE,
             forwardWhenUnchanged = true,
         )
     }
 
-    fun updateDeviceSection(section: DeviceSection) {
-        val stack = stacks.getValue(TopLevelDestination.DEVICE)
+    fun openSettings(section: SettingsSection = SettingsSection.ACCESS_KEYS) {
+        val stack = stacks.getValue(TopLevelDestination.SETTINGS)
+        stack.clear()
+        stack.add(AppRoute.Settings(section))
+        switchTopLevel(
+            destination = TopLevelDestination.SETTINGS,
+            forwardWhenUnchanged = true,
+        )
+    }
+
+    fun updateSettingsSection(section: SettingsSection) {
+        val stack = stacks.getValue(TopLevelDestination.SETTINGS)
         if (stack.isEmpty()) {
-            stack.add(AppRoute.Device(section))
+            stack.add(AppRoute.Settings(section))
         } else {
-            stack[0] = AppRoute.Device(section)
+            stack[0] = AppRoute.Settings(section)
         }
     }
 
@@ -240,14 +241,16 @@ private fun rootRoute(destination: TopLevelDestination): AppRoute = when (destin
     TopLevelDestination.HOME -> AppRoute.Home
     TopLevelDestination.OPERATIONS -> AppRoute.Operations
     TopLevelDestination.MAP -> AppRoute.Map
-    TopLevelDestination.DEVICE -> AppRoute.Device()
+    TopLevelDestination.SETTINGS -> AppRoute.Settings()
+    TopLevelDestination.DEVICE -> AppRoute.Device
 }
 
 private fun AppRoute.encode(): String = when (this) {
     AppRoute.Home -> "home"
     AppRoute.Operations -> "operations"
     AppRoute.Map -> "map"
-    is AppRoute.Device -> "device|${section.name}"
+    is AppRoute.Settings -> "settings|${section.name}"
+    AppRoute.Device -> "device"
     is AppRoute.OperationDetail -> "operation|$operationId"
 }
 
@@ -257,11 +260,12 @@ private fun AppRoute.Companion.decode(value: String): AppRoute? {
         "home" -> AppRoute.Home
         "operations", "tools" -> AppRoute.Operations
         "map" -> AppRoute.Map
-        "device" -> AppRoute.Device(
+        "settings" -> AppRoute.Settings(
             section = parts.getOrNull(1)
-                ?.let { encoded -> runCatching { DeviceSection.valueOf(encoded) }.getOrNull() }
-                ?: DeviceSection.CONNECTION,
+                ?.let { encoded -> runCatching { SettingsSection.valueOf(encoded) }.getOrNull() }
+                ?: SettingsSection.ACCESS_KEYS,
         )
+        "device" -> AppRoute.Device
         "operation" -> parts.getOrNull(1)
             ?.takeIf(String::isNotBlank)
             ?.let(AppRoute::OperationDetail)

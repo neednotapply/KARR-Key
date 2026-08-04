@@ -88,6 +88,38 @@ only tiles the user views.
 Home briefly explains the security issue, shows the current connection status,
 and links to the research and firmware update instructions.
 
+### Device
+
+Device is where the user adds their research access information, scans for a
+unit, connects, authenticates, and views Bluetooth diagnostics. Saved access
+information is protected by Android Keystore and is never built into the app.
+
+The Android scan is not restricted by a name or service filter. Every delivered
+BLE advertisement is classified using the recovered DR/QT formats, Dealer
+manufacturer frames (including embedded 13-character serials and QT6, QT7,
+DR1, DR2, CIU, and VW-programmer status types), branded names, and the shared
+transparent-UART service. Status-only manufacturer frames must match both the
+recovered model-bit layout and numeric five-character VIN-tail encoding; model
+bits alone are not unique enough. Possible matches are shown separately instead
+of being discarded, but only connectable confirmed-format results can be opened.
+Here, confirmed means the identifier and parser are present in recovered KARR
+source material; it does not by itself mean that model was physically tested.
+The app does not treat a MAC/OUI prefix as KARR proof: BLE addresses may be
+random, and a public prefix identifies the radio/interface vendor rather than
+the product or its owner.
+
+End-to-end operation has been confirmed on real hardware advertising as a `DR`
+unit. Recognition of the other recovered families and formats is source- and
+test-backed, but is not yet physical-hardware confirmation for those models.
+
+The app requests Android's maximum-duty BLE scan mode until the user stops it.
+This increases the chance of receiving a weak advertisement but does not raise
+the KARR unit's transmit power or the phone's receiver sensitivity. The Device
+screen stays awake during the scan because Android can pause an unfiltered scan
+after the screen turns off; the foreground notification provides a Stop action.
+If a connection unexpectedly drops, the app only tries to reconnect to the last
+unit that successfully authenticated.
+
 ### Operations
 
 Operations contains the searchable, filterable list of reads and commands.
@@ -128,38 +160,6 @@ attribution. It does not use Google Maps or Google Play Services.
 Map history is stored locally until the user clears it. Device identifiers and
 coordinates are encrypted with Android Keystore-backed storage.
 
-### Device
-
-Device is where the user adds their research access information, scans for a
-unit, connects, authenticates, and views Bluetooth diagnostics. Saved access
-information is protected by Android Keystore and is never built into the app.
-
-The Android scan is not restricted by a name or service filter. Every delivered
-BLE advertisement is classified using the recovered DR/QT formats, Dealer
-manufacturer frames (including embedded 13-character serials and QT6, QT7,
-DR1, DR2, CIU, and VW-programmer status types), branded names, and the shared
-transparent-UART service. Status-only manufacturer frames must match both the
-recovered model-bit layout and numeric five-character VIN-tail encoding; model
-bits alone are not unique enough. Possible matches are shown separately instead
-of being discarded, but only connectable confirmed-format results can be opened.
-Here, confirmed means the identifier and parser are present in recovered KARR
-source material; it does not by itself mean that model was physically tested.
-The app does not treat a MAC/OUI prefix as KARR proof: BLE addresses may be
-random, and a public prefix identifies the radio/interface vendor rather than
-the product or its owner.
-
-End-to-end operation has been confirmed on real hardware advertising as a `DR`
-unit. Recognition of the other recovered families and formats is source- and
-test-backed, but is not yet physical-hardware confirmation for those models.
-
-The app requests Android's maximum-duty BLE scan mode until the user stops it.
-This increases the chance of receiving a weak advertisement but does not raise
-the KARR unit's transmit power or the phone's receiver sensitivity. The Device
-screen stays awake during the scan because Android can pause an unfiltered scan
-after the screen turns off; the foreground notification provides a Stop action.
-If a connection unexpectedly drops, the app only tries to reconnect to the last
-unit that successfully authenticated.
-
 ## Important limits
 
 - Finding a device over Bluetooth does not prove ownership or permission to
@@ -178,9 +178,9 @@ unit that successfully authenticated.
 
 ## Design and navigation
 
-The interface uses a greyscale light and dark theme. Home, Operations, and
-Device can be selected from the navigation bar or by swiping between them.
-Operation details use the normal Android back action.
+The interface uses a greyscale light and dark theme. Home, Device, Operations,
+and Map are selected from the navigation bar, in that order. Operation details
+use the normal Android back action.
 
 ## Building the app
 

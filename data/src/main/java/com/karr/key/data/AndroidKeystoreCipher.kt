@@ -17,9 +17,19 @@ interface StringCipher {
 class AndroidKeystoreCipher(
     private val alias: String = "karr_key_local_v1",
 ) : StringCipher {
+    // KeyStore.load() and getKey() are binder calls into the keystore daemon;
+    // loading them once per instance instead of per encrypt/decrypt call avoids
+    // repeated IPC round-trips when decrypting many stored values in a row.
+    private val keyStore: KeyStore by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+    }
+    private val secretKey: SecretKey by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        loadOrCreateSecretKey()
+    }
+
     override fun encrypt(plainText: String): String {
         val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, secretKey())
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey)
         val encrypted = cipher.doFinal(plainText.toByteArray(Charsets.UTF_8))
         val result = ByteArray(1 + cipher.iv.size + encrypted.size)
         result[0] = cipher.iv.size.toByte()
@@ -38,12 +48,11 @@ class AndroidKeystoreCipher(
         val iv = stored.copyOfRange(1, 1 + ivSize)
         val encrypted = stored.copyOfRange(1 + ivSize, stored.size)
         val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.DECRYPT_MODE, secretKey(), GCMParameterSpec(128, iv))
+        cipher.init(Cipher.DECRYPT_MODE, secretKey, GCMParameterSpec(128, iv))
         return cipher.doFinal(encrypted).toString(Charsets.UTF_8)
     }
 
-    private fun secretKey(): SecretKey {
-        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+    private fun loadOrCreateSecretKey(): SecretKey {
         (keyStore.getKey(alias, null) as? SecretKey)?.let { return it }
 
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)

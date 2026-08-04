@@ -12,9 +12,7 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Bundle
 import android.os.Looper
-import android.view.View
-import android.widget.FrameLayout
-import androidx.compose.foundation.background
+import android.view.MotionEvent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,9 +20,8 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHostState
@@ -45,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -64,18 +62,16 @@ import java.time.Instant
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.pow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.osmdroid.config.Configuration
-import org.osmdroid.events.MapListener
-import org.osmdroid.events.ScrollEvent
-import org.osmdroid.events.ZoomEvent
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
+import org.osmdroid.views.Projection
+import org.osmdroid.views.overlay.Overlay
 
 @Composable
 internal fun MapScreen(
@@ -89,7 +85,9 @@ internal fun MapScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val state by controller.state.collectAsState()
-    var history by remember(historyStore) { mutableStateOf(historyStore.recent()) }
+    var history by remember(historyStore) {
+        mutableStateOf<List<LocalMapObservation>>(emptyList())
+    }
     var phoneLocation by remember { mutableStateOf<PhoneLocation?>(null) }
     val currentLocation by rememberUpdatedState(phoneLocation)
     var locationGranted by remember {
@@ -99,6 +97,12 @@ internal fun MapScreen(
         FrameworkLocationTracker(context) { location -> phoneLocation = location }
     }
     val estimates = remember(history) { estimateDeviceLocations(history) }
+    var selectedDeviceAddresses by remember { mutableStateOf<Set<String>>(emptySet()) }
+    val selectedEstimates = estimates.filter { it.address in selectedDeviceAddresses }
+
+    LaunchedEffect(historyStore) {
+        history = withContext(Dispatchers.IO) { historyStore.recent() }
+    }
 
     DisposableEffect(locationGranted) {
         if (locationGranted) {
@@ -121,15 +125,17 @@ internal fun MapScreen(
         KarrMapView(
             estimates = estimates,
             phoneLocation = phoneLocation,
+            onEstimatesSelected = { hits ->
+                selectedDeviceAddresses = hits.map { it.address }.toSet()
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .testTag("map-view"),
         )
-        MapControls(
+        MapBottomPanel(
             state = state,
             locationGranted = locationGranted,
-            phoneLocation = phoneLocation,
-            estimateCount = estimates.size,
+            selectedEstimates = selectedEstimates,
             onEnableLocation = {
                 requestLocationPermissions { granted ->
                     locationGranted = granted
@@ -156,19 +162,6 @@ internal fun MapScreen(
                 }
             },
             onStopScan = controller::stopScan,
-            onClear = {
-                scope.launch {
-                    withContext(Dispatchers.IO) { historyStore.clear() }
-                    history = emptyList()
-                    snackbar.showSnackbar("Map history cleared.")
-                }
-            },
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(12.dp),
-        )
-        MapEstimateList(
-            estimates = estimates,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(12.dp),
@@ -177,19 +170,19 @@ internal fun MapScreen(
 }
 
 @Composable
-private fun MapControls(
+private fun MapBottomPanel(
     state: BleSessionState,
     locationGranted: Boolean,
-    phoneLocation: PhoneLocation?,
-    estimateCount: Int,
+    selectedEstimates: List<DeviceMapEstimate>,
     onEnableLocation: () -> Unit,
     onScan: () -> Unit,
     onStopScan: () -> Unit,
-    onClear: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("map-bottom-panel"),
         shape = MaterialTheme.shapes.medium,
         tonalElevation = 4.dp,
         shadowElevation = 2.dp,
@@ -198,17 +191,16 @@ private fun MapControls(
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            if (selectedEstimates.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    selectedEstimates.forEach { estimate ->
+                        EstimateDetail(estimate)
+                    }
+                }
+                HorizontalDivider()
+            }
             Text(
-                text = "Map",
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(
-                text = mapStatus(locationGranted, phoneLocation, estimateCount),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Text(
-                text = "\u00a9 OpenStreetMap contributors",
+                text = "© OpenStreetMap contributors",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.labelSmall,
             )
@@ -216,11 +208,10 @@ private fun MapControls(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Button(
-                    onClick = onEnableLocation,
-                    enabled = !locationGranted,
-                ) {
-                    Text("Enable location")
+                if (!locationGranted) {
+                    Button(onClick = onEnableLocation) {
+                        Text("Enable location")
+                    }
                 }
                 Button(
                     onClick = onScan,
@@ -234,65 +225,37 @@ private fun MapControls(
                 ) {
                     Text("Stop")
                 }
-                OutlinedButton(
-                    onClick = onClear,
-                    enabled = estimateCount > 0,
-                ) {
-                    Text("Clear map history")
-                }
             }
         }
     }
 }
 
 @Composable
-private fun MapEstimateList(
-    estimates: List<DeviceMapEstimate>,
+private fun EstimateDetail(
+    estimate: DeviceMapEstimate,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        tonalElevation = 4.dp,
-        shadowElevation = 2.dp,
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("map-selected-estimate"),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color.Transparent)
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            if (estimates.isEmpty()) {
-                item {
-                    Text(
-                        "No mapped KARR candidates yet.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            } else {
-                items(estimates, key = { it.address }) { estimate ->
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(
-                            estimate.label,
-                            style = MaterialTheme.typography.labelLarge,
-                        )
-                        Text(
-                            "${estimate.address}  RSSI ${estimate.rssi} dBm  " +
-                                "radius ${estimate.radiusMeters.toInt()} m",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        Text(
-                            estimate.evidence,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                }
-            }
-        }
+        Text(
+            estimate.label,
+            style = MaterialTheme.typography.labelLarge,
+        )
+        Text(
+            "${estimate.address}  RSSI ${estimate.rssi} dBm  " +
+                "radius ${estimate.radiusMeters.toInt()} m",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            estimate.evidence,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
 
@@ -300,15 +263,17 @@ private fun MapEstimateList(
 private fun KarrMapView(
     estimates: List<DeviceMapEstimate>,
     phoneLocation: PhoneLocation?,
+    onEstimatesSelected: (List<DeviceMapEstimate>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
+    val density = LocalDensity.current
+    val minTouchRadiusPx = with(density) { MIN_TOUCH_TARGET_RADIUS.toPx() }
 
     AndroidView(
         modifier = modifier,
         factory = { viewContext ->
             configureOsmMap(viewContext)
-            val frame = FrameLayout(viewContext)
             val mapView = MapView(viewContext).apply {
                 setBackgroundColor(Color(0xffe5e7eb).toArgb())
                 setTileSource(TileSourceFactory.MAPNIK)
@@ -322,68 +287,42 @@ private fun KarrMapView(
                 setMaxZoomLevel(OSM_MAX_ZOOM)
                 controller.setZoom(DEFAULT_ZOOM)
             }
-            val overlay = ConfidenceOverlayView(viewContext)
+            val overlay = ConfidenceOverlay()
+            mapView.overlays.add(overlay)
             val createdHost = MapHost(
                 mapView = mapView,
                 overlay = overlay,
                 lifecycle = lifecycleOwner.lifecycle,
             )
-            overlay.map = mapView
-            mapView.addMapListener(
-                object : MapListener {
-                    override fun onScroll(event: ScrollEvent?): Boolean {
-                        overlay.invalidate()
-                        return false
-                    }
-
-                    override fun onZoom(event: ZoomEvent?): Boolean {
-                        overlay.invalidate()
-                        return false
-                    }
-                },
-            )
-            frame.tag = createdHost
-            frame.addView(
-                mapView,
-                FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                ),
-            )
-            frame.addView(
-                overlay,
-                FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                ),
-            )
+            mapView.tag = createdHost
             phoneLocation?.let { location ->
                 mapView.controller.setCenter(
                     GeoPoint(location.latitude, location.longitude),
                 )
                 createdHost.centeredOnce = true
             }
-            frame
+            mapView
         },
-        update = { frame ->
-            val currentHost = frame.tag as MapHost
+        update = { mapView ->
+            val currentHost = mapView.tag as MapHost
             currentHost.overlay.estimates = estimates
             currentHost.overlay.phoneLocation = phoneLocation
+            currentHost.overlay.minTouchRadiusPx = minTouchRadiusPx
+            currentHost.overlay.onEstimatesTapped = onEstimatesSelected
             if (!currentHost.centeredOnce) {
                 val location = phoneLocation
                 if (location != null) {
-                    currentHost.mapView.controller.setZoom(DEFAULT_ZOOM)
-                    currentHost.mapView.controller.setCenter(
+                    mapView.controller.setZoom(DEFAULT_ZOOM)
+                    mapView.controller.setCenter(
                         GeoPoint(location.latitude, location.longitude),
                     )
                     currentHost.centeredOnce = true
                 }
             }
-            currentHost.mapView.invalidate()
-            currentHost.overlay.invalidate()
+            mapView.invalidate()
         },
-        onRelease = { frame ->
-            (frame.tag as MapHost).release()
+        onRelease = { mapView ->
+            (mapView.tag as MapHost).release()
         },
     )
 }
@@ -409,7 +348,7 @@ private fun configureOsmMap(context: Context) {
 
 private class MapHost(
     val mapView: MapView,
-    val overlay: ConfidenceOverlayView,
+    val overlay: ConfidenceOverlay,
     private val lifecycle: Lifecycle,
 ) {
     var centeredOnce: Boolean = false
@@ -436,6 +375,7 @@ private class MapHost(
     fun release() {
         lifecycle.removeObserver(observer)
         pause()
+        overlay.onDetach(mapView)
         mapView.onDetach()
     }
 
@@ -454,10 +394,11 @@ private class MapHost(
     }
 }
 
-private class ConfidenceOverlayView(context: Context) : View(context) {
-    var map: MapView? = null
+private class ConfidenceOverlay : Overlay() {
     var estimates: List<DeviceMapEstimate> = emptyList()
     var phoneLocation: PhoneLocation? = null
+    var minTouchRadiusPx: Float = 0f
+    var onEstimatesTapped: ((List<DeviceMapEstimate>) -> Unit)? = null
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
@@ -480,8 +421,9 @@ private class ConfidenceOverlayView(context: Context) : View(context) {
         strokeWidth = 1.5f
     }
 
-    override fun onDraw(canvas: Canvas) {
-        val projection = map?.projection ?: return
+    override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
+        if (shadow) return
+        val projection = mapView.projection
         phoneLocation?.let { location ->
             val point = projection.toPixels(
                 GeoPoint(location.latitude, location.longitude),
@@ -495,19 +437,7 @@ private class ConfidenceOverlayView(context: Context) : View(context) {
                 GeoPoint(estimate.latitude, estimate.longitude),
                 Point(),
             )
-            val longitudeMeters = max(
-                1.0,
-                METERS_PER_DEGREE_LATITUDE *
-                    cos(Math.toRadians(estimate.latitude)).coerceAtLeast(0.01),
-            )
-            val edge = projection.toPixels(
-                GeoPoint(
-                    estimate.latitude,
-                    estimate.longitude + estimate.radiusMeters / longitudeMeters,
-                ),
-                Point(),
-            )
-            val radiusPx = abs(edge.x - centerPoint.x).coerceAtLeast(12).toFloat()
+            val radiusPx = projectedRadiusPx(projection, estimate, centerPoint)
             val color = if (estimate.tier == MapCandidateTier.CONFIRMED_FORMAT) {
                 Color(0xff0f766e)
             } else {
@@ -535,6 +465,43 @@ private class ConfidenceOverlayView(context: Context) : View(context) {
             )
         }
     }
+
+    override fun onSingleTapConfirmed(e: MotionEvent, mapView: MapView): Boolean {
+        val projection = mapView.projection
+        val hits = estimates.filter { estimate ->
+            val centerPoint = projection.toPixels(
+                GeoPoint(estimate.latitude, estimate.longitude),
+                Point(),
+            )
+            val radiusPx = projectedRadiusPx(projection, estimate, centerPoint)
+            val touchRadiusPx = max(radiusPx, minTouchRadiusPx)
+            val dx = e.x - centerPoint.x
+            val dy = e.y - centerPoint.y
+            (dx * dx + dy * dy) <= touchRadiusPx * touchRadiusPx
+        }
+        onEstimatesTapped?.invoke(hits)
+        return hits.isNotEmpty()
+    }
+}
+
+private fun projectedRadiusPx(
+    projection: Projection,
+    estimate: DeviceMapEstimate,
+    centerPoint: Point,
+): Float {
+    val longitudeMeters = max(
+        1.0,
+        METERS_PER_DEGREE_LATITUDE *
+            cos(Math.toRadians(estimate.latitude)).coerceAtLeast(0.01),
+    )
+    val edge = projection.toPixels(
+        GeoPoint(
+            estimate.latitude,
+            estimate.longitude + estimate.radiusMeters / longitudeMeters,
+        ),
+        Point(),
+    )
+    return abs(edge.x - centerPoint.x).coerceAtLeast(12).toFloat()
 }
 
 internal data class PhoneLocation(
@@ -696,17 +663,6 @@ private data class WeightedLocation(
         )
 }
 
-private fun mapStatus(
-    locationGranted: Boolean,
-    phoneLocation: PhoneLocation?,
-    estimateCount: Int,
-): String = when {
-    !locationGranted -> "Location is required before scan samples can be mapped."
-    phoneLocation == null -> "Waiting for a local GPS or network location fix."
-    estimateCount == 1 -> "1 KARR candidate mapped from local history."
-    else -> "$estimateCount KARR candidates mapped from local history."
-}
-
 private fun Context.hasForegroundLocationPermission(): Boolean =
     ContextCompat.checkSelfPermission(
         this,
@@ -746,4 +702,5 @@ private const val MAX_RANGE_METERS = 120.0
 private const val MIN_CONFIDENCE_RADIUS_METERS = 5.0
 private const val MAX_CONFIDENCE_RADIUS_METERS = 250.0
 private const val METERS_PER_DEGREE_LATITUDE = 111_320.0
+private val MIN_TOUCH_TARGET_RADIUS = 24.dp
 private var osmMapConfigured = false

@@ -8,7 +8,6 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -77,6 +76,7 @@ import com.karr.key.core.Session
 import com.karr.key.data.LocalMapHistoryStore
 import com.karr.key.data.LocalOperationStore
 import com.karr.key.data.KeyRepository
+import com.karr.key.data.MapHistoryImportSummary
 import com.karr.key.protocol.DeviceKeyPurpose
 import com.karr.key.protocol.DeviceKeyProvisioning
 import com.karr.key.protocol.KarrDeviceMode
@@ -126,6 +126,8 @@ fun KarrKeyApp(
     mapHistoryStore: LocalMapHistoryStore,
     requestBlePermissions: (((Boolean) -> Unit) -> Unit),
     requestMapLocationPermissions: (((Boolean) -> Unit) -> Unit),
+    requestMapHistoryExport: (((Result<Int>) -> Unit) -> Unit),
+    requestMapHistoryImport: (((Result<MapHistoryImportSummary>) -> Unit) -> Unit),
 ) {
     var provisioningRevision by remember { mutableIntStateOf(0) }
     val session = remember(repository, deviceKeys, provisioningRevision) {
@@ -175,6 +177,8 @@ fun KarrKeyApp(
         onProvisioningChanged = { provisioningRevision++ },
         requestBlePermissions = requestBlePermissions,
         requestMapLocationPermissions = requestMapLocationPermissions,
+        requestMapHistoryExport = requestMapHistoryExport,
+        requestMapHistoryImport = requestMapHistoryImport,
         snackbar = snackbar,
         operationsQuery = operationsQuery,
         operationsFilters = operationsFilters,
@@ -200,6 +204,8 @@ private fun KeyShell(
     onProvisioningChanged: () -> Unit,
     requestBlePermissions: (((Boolean) -> Unit) -> Unit),
     requestMapLocationPermissions: (((Boolean) -> Unit) -> Unit),
+    requestMapHistoryExport: (((Result<Int>) -> Unit) -> Unit),
+    requestMapHistoryImport: (((Result<MapHistoryImportSummary>) -> Unit) -> Unit),
     snackbar: SnackbarHostState,
     operationsQuery: String,
     operationsFilters: OperationFilters,
@@ -215,7 +221,6 @@ private fun KeyShell(
         route = navigation.currentRoute,
         operationTitle = currentOperation?.label,
     )
-    val topLevelSwipeEnabled = navigation.currentRoute !is AppRoute.OperationDetail
     var latestOperationExecutionResult by remember {
         mutableStateOf<OperationExecutionResult?>(null)
     }
@@ -273,26 +278,7 @@ private fun KeyShell(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
-                    .consumeWindowInsets(innerPadding)
-                    .pointerInput(topLevelSwipeEnabled) {
-                        if (!topLevelSwipeEnabled) return@pointerInput
-                        var totalHorizontalDrag = 0f
-                        detectHorizontalDragGestures(
-                            onDragStart = { totalHorizontalDrag = 0f },
-                            onHorizontalDrag = { _, dragAmount ->
-                                totalHorizontalDrag += dragAmount
-                            },
-                            onDragEnd = {
-                                when {
-                                    totalHorizontalDrag <= -TOP_LEVEL_SWIPE_THRESHOLD.toPx() ->
-                                        navigation.moveTopLevelBy(1)
-                                    totalHorizontalDrag >= TOP_LEVEL_SWIPE_THRESHOLD.toPx() ->
-                                        navigation.moveTopLevelBy(-1)
-                                }
-                            },
-                            onDragCancel = { totalHorizontalDrag = 0f },
-                        )
-                    },
+                    .consumeWindowInsets(innerPadding),
             ) {
                 NavDisplay(
                     backStack = navigation.currentBackStack,
@@ -315,7 +301,7 @@ private fun KeyShell(
                                 bleState = bleState,
                                 deviceAuthenticated = deviceAuthenticated,
                                 onOpenDevice = {
-                                    navigation.openDevice(DeviceSection.CONNECTION)
+                                    navigation.openDevice()
                                     if (bleController.state.value.shouldStartHomeScan()) {
                                         requestBlePermissions { granted ->
                                             if (granted) {
@@ -343,7 +329,7 @@ private fun KeyShell(
                                     }
                                 },
                                 onOpenAccessKeys = {
-                                    navigation.openDevice(DeviceSection.ACCESS_KEYS)
+                                    navigation.openSettings(SettingsSection.ACCESS_KEYS)
                                 },
                             )
                         }
@@ -380,13 +366,23 @@ private fun KeyShell(
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
-                        entry<AppRoute.Device> { route ->
-                            DeviceCenterScreen(
+                        entry<AppRoute.Settings> { route ->
+                            SettingsScreen(
                                 controller = bleController,
                                 deviceKeys = deviceKeys,
+                                mapHistoryStore = mapHistoryStore,
                                 section = route.section,
-                                onSectionSelected = navigation::updateDeviceSection,
+                                onSectionSelected = navigation::updateSettingsSection,
                                 onProvisioningChanged = onProvisioningChanged,
+                                requestMapHistoryExport = requestMapHistoryExport,
+                                requestMapHistoryImport = requestMapHistoryImport,
+                                snackbar = snackbar,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                        entry<AppRoute.Device> {
+                            DeviceCenterScreen(
+                                controller = bleController,
                                 requestPermissions = requestBlePermissions,
                                 snackbar = snackbar,
                                 modifier = Modifier.fillMaxSize(),
@@ -858,7 +854,8 @@ internal fun shellTopBarTitle(
     AppRoute.Home,
     AppRoute.Operations,
     AppRoute.Map,
-    is AppRoute.Device,
+    is AppRoute.Settings,
+    AppRoute.Device,
     -> null
     is AppRoute.OperationDetail -> operationTitle ?: "Operation"
 }
@@ -874,5 +871,4 @@ private fun horizontalPageSlide(forward: Boolean): ContentTransform {
     )
 }
 
-private val TOP_LEVEL_SWIPE_THRESHOLD = 72.dp
 private const val PAGE_SLIDE_DURATION_MILLIS = 300

@@ -16,7 +16,8 @@ class KarrNavigationStateTest {
         assertNull(shellTopBarTitle(AppRoute.Home))
         assertNull(shellTopBarTitle(AppRoute.Operations))
         assertNull(shellTopBarTitle(AppRoute.Map))
-        assertNull(shellTopBarTitle(AppRoute.Device()))
+        assertNull(shellTopBarTitle(AppRoute.Settings()))
+        assertNull(shellTopBarTitle(AppRoute.Device))
         assertEquals(
             "Read state",
             shellTopBarTitle(
@@ -31,9 +32,10 @@ class KarrNavigationStateTest {
         assertEquals(
             listOf(
                 TopLevelDestination.HOME,
+                TopLevelDestination.DEVICE,
                 TopLevelDestination.OPERATIONS,
                 TopLevelDestination.MAP,
-                TopLevelDestination.DEVICE,
+                TopLevelDestination.SETTINGS,
             ),
             TopLevelDestination.entries,
         )
@@ -57,7 +59,7 @@ class KarrNavigationStateTest {
     @Test
     fun successfulConnectionFromDeviceOpensOperationsOnce() {
         val navigation = KarrNavigationState()
-        navigation.openDevice(DeviceSection.DIAGNOSTICS)
+        navigation.openDevice()
 
         assertTrue(
             navigation.openOperationsAfterSuccessfulConnection(
@@ -108,39 +110,24 @@ class KarrNavigationStateTest {
                 isAuthenticated = false,
             ),
         )
-        assertEquals(AppRoute.Device(), navigation.currentRoute)
+        assertEquals(AppRoute.Device, navigation.currentRoute)
     }
 
     @Test
-    fun adjacentTopLevelMovesFollowHomeOperationsMapDeviceOrder() {
+    fun selectingTopLevelDestinationsSetsTransitionDirectionByOrdinal() {
         val navigation = KarrNavigationState()
 
-        assertFalse(navigation.moveTopLevelBy(-1))
-        assertTrue(navigation.moveTopLevelBy(1))
-        assertEquals(TopLevelDestination.OPERATIONS, navigation.selectedTopLevel)
-        assertTrue(navigation.topLevelTransitionForward)
-        assertTrue(navigation.moveTopLevelBy(1))
-        assertEquals(TopLevelDestination.MAP, navigation.selectedTopLevel)
-        assertTrue(navigation.topLevelTransitionForward)
-        assertTrue(navigation.moveTopLevelBy(1))
+        navigation.selectTopLevel(TopLevelDestination.DEVICE)
         assertEquals(TopLevelDestination.DEVICE, navigation.selectedTopLevel)
-        assertFalse(navigation.moveTopLevelBy(1))
-        assertTrue(navigation.moveTopLevelBy(-1))
+        assertTrue(navigation.topLevelTransitionForward)
+
+        navigation.selectTopLevel(TopLevelDestination.MAP)
         assertEquals(TopLevelDestination.MAP, navigation.selectedTopLevel)
+        assertTrue(navigation.topLevelTransitionForward)
+
+        navigation.selectTopLevel(TopLevelDestination.HOME)
+        assertEquals(TopLevelDestination.HOME, navigation.selectedTopLevel)
         assertFalse(navigation.topLevelTransitionForward)
-    }
-
-    @Test
-    fun topLevelMoveDoesNotLeaveAnOpenOperationDetail() {
-        val navigation = KarrNavigationState()
-        val operation = RecoveredWorkflowCatalog.operations.first()
-        navigation.openOperation(operation)
-
-        assertFalse(navigation.moveTopLevelBy(1))
-        assertEquals(
-            AppRoute.OperationDetail(operation.id),
-            navigation.currentRoute,
-        )
     }
 
     @Test
@@ -149,7 +136,7 @@ class KarrNavigationStateTest {
         val operation = RecoveredWorkflowCatalog.operations.first()
         navigation.openOperation(operation)
 
-        navigation.openDevice(DeviceSection.DIAGNOSTICS)
+        navigation.openDevice()
         navigation.selectTopLevel(TopLevelDestination.OPERATIONS)
 
         assertEquals(
