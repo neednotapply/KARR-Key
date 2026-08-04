@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Canvas
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.Point
 import android.location.Location
@@ -13,6 +14,7 @@ import android.location.LocationManager
 import android.os.Bundle
 import android.os.Looper
 import android.view.MotionEvent
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -443,13 +445,16 @@ private fun KarrMapView(
     val lifecycleOwner = LocalLifecycleOwner.current
     val density = LocalDensity.current
     val minTouchRadiusPx = with(density) { MIN_TOUCH_TARGET_RADIUS.toPx() }
+    val darkTheme = isSystemInDarkTheme()
 
     AndroidView(
         modifier = modifier,
         factory = { viewContext ->
             configureOsmMap(viewContext)
             val mapView = MapView(viewContext).apply {
-                setBackgroundColor(Color(0xffe5e7eb).toArgb())
+                setBackgroundColor(
+                    if (darkTheme) Color(0xff1b1b1b).toArgb() else Color(0xffe5e7eb).toArgb(),
+                )
                 setTileSource(TileSourceFactory.MAPNIK)
                 setUseDataConnection(true)
                 setMultiTouchControls(true)
@@ -460,6 +465,7 @@ private fun KarrMapView(
                 setMinZoomLevel(OSM_MIN_ZOOM)
                 setMaxZoomLevel(OSM_MAX_ZOOM)
                 controller.setZoom(DEFAULT_ZOOM)
+                mapOverlay.setColorFilter(if (darkTheme) OSM_DARK_MODE_COLOR_FILTER else null)
             }
             val overlay = ConfidenceOverlay()
             mapView.overlays.add(overlay)
@@ -479,6 +485,7 @@ private fun KarrMapView(
         },
         update = { mapView ->
             val currentHost = mapView.tag as MapHost
+            mapView.mapOverlay.setColorFilter(if (darkTheme) OSM_DARK_MODE_COLOR_FILTER else null)
             currentHost.overlay.estimates = estimates
             currentHost.overlay.phoneLocation = phoneLocation
             currentHost.overlay.minTouchRadiusPx = minTouchRadiusPx
@@ -881,6 +888,18 @@ private const val OSM_TILE_CACHE_TRIM_BYTES = 40L * 1024L * 1024L
 private const val OSM_MIN_ZOOM = 0.0
 private const val OSM_MAX_ZOOM = 19.0
 private const val DEFAULT_ZOOM = 17.0
+
+// Inverts luminance, then rotates hue 180° to undo the resulting color shift (the same
+// invert()+hue-rotate(180deg) trick browsers use for auto dark mode), so OSM's light raster
+// tiles render as a dark map without needing a separate dark tile server or API key.
+private val OSM_DARK_MODE_COLOR_FILTER = ColorMatrixColorFilter(
+    floatArrayOf(
+        0.574f, -1.430f, -0.144f, 0f, 255f,
+        -0.426f, -0.430f, -0.144f, 0f, 255f,
+        -0.426f, -1.430f, 0.856f, 0f, 255f,
+        0f, 0f, 0f, 1f, 0f,
+    ),
+)
 private const val SEARCH_FOCUS_ZOOM = 18.0
 private val LAST_SEEN_FORMAT: DateTimeFormatter =
     DateTimeFormatter.ofPattern("MMM d, yyyy HH:mm").withZone(ZoneId.systemDefault())
