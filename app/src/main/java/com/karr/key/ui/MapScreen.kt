@@ -257,7 +257,21 @@ private fun MapBottomPanel(
                     onClick = if (state is BleSessionState.Scanning) onStopScan else onScan,
                     enabled = state is BleSessionState.Scanning || state.canMapScan(),
                 ) {
-                    Text(if (state is BleSessionState.Scanning) "Stop" else "Scan")
+                    Icon(
+                        painter = painterResource(
+                            if (state is BleSessionState.Scanning) {
+                                R.drawable.ic_stop
+                            } else {
+                                R.drawable.ic_signal
+                            },
+                        ),
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        text = if (state is BleSessionState.Scanning) "Stop" else "Scan",
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
                 }
                 OutlinedButton(
                     onClick = onSearchDevices,

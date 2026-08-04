@@ -6,9 +6,11 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
@@ -22,11 +24,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import com.karr.key.R
 import com.karr.key.ble.BleController
 import com.karr.key.ble.BleSessionState
 import com.karr.key.ble.DiscoveredDevice
@@ -156,7 +160,21 @@ private fun ConnectionSection(
                             },
                             enabled = state is BleSessionState.Scanning || state.canScan(),
                         ) {
-                            Text(if (state is BleSessionState.Scanning) "Stop" else "Scan")
+                            Icon(
+                                painter = painterResource(
+                                    if (state is BleSessionState.Scanning) {
+                                        R.drawable.ic_stop
+                                    } else {
+                                        R.drawable.ic_signal
+                                    },
+                                ),
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text(
+                                text = if (state is BleSessionState.Scanning) "Stop" else "Scan",
+                                modifier = Modifier.padding(start = 6.dp),
+                            )
                         }
                         if (state is BleSessionState.ReconnectFailed) {
                             OutlinedButton(onClick = onRetryReconnect) {
@@ -167,8 +185,13 @@ private fun ConnectionSection(
                             onClick = onDisconnect,
                             enabled = state.canDisconnect(),
                         ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_block),
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
                             Text(
-                                if (
+                                text = if (
                                     state is BleSessionState.Reconnecting ||
                                     state is BleSessionState.ReconnectFailed
                                 ) {
@@ -176,6 +199,7 @@ private fun ConnectionSection(
                                 } else {
                                     "Disconnect"
                                 },
+                                modifier = Modifier.padding(start = 6.dp),
                             )
                         }
                     }
