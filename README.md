@@ -122,9 +122,10 @@ The app does not treat a MAC/OUI prefix as KARR proof: BLE addresses may be
 random, and a public prefix identifies the radio/interface vendor rather than
 the product or its owner.
 
-End-to-end operation has been confirmed on real hardware advertising as a `DR`
-unit. Recognition of the other recovered families and formats is source- and
-test-backed, but is not yet physical-hardware confirmation for those models.
+End-to-end operation has been confirmed on real hardware advertising as `DR`
+and `QT` units. Recognition of the other recovered families and formats is
+source- and test-backed, but is not yet physical-hardware confirmation for
+those models.
 
 The app requests Android's maximum-duty BLE scan mode until the user stops it.
 This increases the chance of receiving a weak advertisement but does not raise

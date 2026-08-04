@@ -182,7 +182,7 @@ internal fun MapScreen(
                 phoneLocation?.let { location ->
                     focusRequest = MapFocusRequest(
                         point = GeoPoint(location.latitude, location.longitude),
-                        zoom = null,
+                        zoom = DEFAULT_ZOOM,
                         nonce = (focusRequest?.nonce ?: 0) + 1,
                     )
                 }
@@ -280,8 +280,12 @@ private fun MapBottomPanel(
                 ) {
                     Icon(
                         painter = painterResource(R.drawable.ic_recenter),
-                        contentDescription = "Recenter on my location",
+                        contentDescription = null,
                         modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        text = "Recenter",
+                        modifier = Modifier.padding(start = 6.dp),
                     )
                 }
             }
