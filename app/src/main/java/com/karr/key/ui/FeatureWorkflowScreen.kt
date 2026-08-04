@@ -591,7 +591,7 @@ fun DeviceOperationScreen(
                             )
                         }
                     } else {
-                        OutlinedButton(
+                        Button(
                             onClick = { execute(action) },
                             enabled =
                                 decision == AuthorizationDecision.Allowed &&

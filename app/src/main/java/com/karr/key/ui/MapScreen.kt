@@ -19,14 +19,22 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -44,12 +52,14 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.karr.key.R
 import com.karr.key.ble.BleController
 import com.karr.key.ble.BleScanObservation
 import com.karr.key.ble.BleSessionState
@@ -59,6 +69,8 @@ import com.karr.key.data.LocalMapObservation
 import com.karr.key.data.MapCandidateTier
 import java.io.File
 import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.max
@@ -99,6 +111,8 @@ internal fun MapScreen(
     val estimates = remember(history) { estimateDeviceLocations(history) }
     var selectedDeviceAddresses by remember { mutableStateOf<Set<String>>(emptySet()) }
     val selectedEstimates = estimates.filter { it.address in selectedDeviceAddresses }
+    var showDeviceSearch by remember { mutableStateOf(false) }
+    var focusRequest by remember { mutableStateOf<MapFocusRequest?>(null) }
 
     LaunchedEffect(historyStore) {
         history = withContext(Dispatchers.IO) { historyStore.recent() }
@@ -125,6 +139,7 @@ internal fun MapScreen(
         KarrMapView(
             estimates = estimates,
             phoneLocation = phoneLocation,
+            focusRequest = focusRequest,
             onEstimatesSelected = { hits ->
                 selectedDeviceAddresses = hits.map { it.address }.toSet()
             },
@@ -162,9 +177,36 @@ internal fun MapScreen(
                 }
             },
             onStopScan = controller::stopScan,
+            onSearchDevices = { showDeviceSearch = true },
+            onRecenter = {
+                phoneLocation?.let { location ->
+                    focusRequest = MapFocusRequest(
+                        point = GeoPoint(location.latitude, location.longitude),
+                        zoom = null,
+                        nonce = (focusRequest?.nonce ?: 0) + 1,
+                    )
+                }
+            },
+            canRecenter = phoneLocation != null,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(12.dp),
+        )
+    }
+
+    if (showDeviceSearch) {
+        DeviceSearchDialog(
+            estimates = estimates,
+            onDismiss = { showDeviceSearch = false },
+            onSelect = { estimate ->
+                selectedDeviceAddresses = setOf(estimate.address)
+                focusRequest = MapFocusRequest(
+                    point = GeoPoint(estimate.latitude, estimate.longitude),
+                    zoom = SEARCH_FOCUS_ZOOM,
+                    nonce = (focusRequest?.nonce ?: 0) + 1,
+                )
+                showDeviceSearch = false
+            },
         )
     }
 }
@@ -177,6 +219,9 @@ private fun MapBottomPanel(
     onEnableLocation: () -> Unit,
     onScan: () -> Unit,
     onStopScan: () -> Unit,
+    onSearchDevices: () -> Unit,
+    onRecenter: () -> Unit,
+    canRecenter: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -199,11 +244,6 @@ private fun MapBottomPanel(
                 }
                 HorizontalDivider()
             }
-            Text(
-                text = "© OpenStreetMap contributors",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.labelSmall,
-            )
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -214,20 +254,127 @@ private fun MapBottomPanel(
                     }
                 }
                 Button(
-                    onClick = onScan,
-                    enabled = state.canMapScan(),
+                    onClick = if (state is BleSessionState.Scanning) onStopScan else onScan,
+                    enabled = state is BleSessionState.Scanning || state.canMapScan(),
                 ) {
-                    Text("Scan")
+                    Text(if (state is BleSessionState.Scanning) "Stop" else "Scan")
                 }
                 OutlinedButton(
-                    onClick = onStopScan,
-                    enabled = state is BleSessionState.Scanning,
+                    onClick = onSearchDevices,
+                    modifier = Modifier.testTag("map-search-devices"),
                 ) {
-                    Text("Stop")
+                    Icon(
+                        painter = painterResource(R.drawable.ic_search),
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        text = "Search",
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
+                }
+                OutlinedButton(
+                    onClick = onRecenter,
+                    enabled = canRecenter,
+                    modifier = Modifier.testTag("map-recenter"),
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_recenter),
+                        contentDescription = "Recenter on my location",
+                        modifier = Modifier.size(18.dp),
+                    )
                 }
             }
+            Text(
+                text = "© OpenStreetMap contributors",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall,
+            )
         }
     }
+}
+
+@Composable
+private fun DeviceSearchDialog(
+    estimates: List<DeviceMapEstimate>,
+    onDismiss: () -> Unit,
+    onSelect: (DeviceMapEstimate) -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    val results = remember(estimates, query) {
+        estimates
+            .filter { it.label.contains(query, ignoreCase = true) }
+            .sortedByDescending(DeviceMapEstimate::lastSeenUtc)
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Search devices") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Device name") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("map-search-field"),
+                )
+                if (results.isEmpty()) {
+                    Text(
+                        if (query.isBlank()) {
+                            "No stored devices yet."
+                        } else {
+                            "No stored devices match \"$query\"."
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 320.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        items(results, key = DeviceMapEstimate::address) { estimate ->
+                            Surface(
+                                onClick = { onSelect(estimate) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("map-search-result:${estimate.address}"),
+                                tonalElevation = 1.dp,
+                                shape = MaterialTheme.shapes.small,
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Text(
+                                        estimate.label,
+                                        style = MaterialTheme.typography.labelLarge,
+                                    )
+                                    Text(
+                                        estimate.address,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                    Text(
+                                        "Last seen ${formatLastSeen(estimate.lastSeenUtc)}",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        },
+    )
 }
 
 @Composable
@@ -256,13 +403,22 @@ private fun EstimateDetail(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall,
         )
+        Text(
+            "Last seen ${formatLastSeen(estimate.lastSeenUtc)}",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
+
+private fun formatLastSeen(instant: Instant): String =
+    LAST_SEEN_FORMAT.format(instant)
 
 @Composable
 private fun KarrMapView(
     estimates: List<DeviceMapEstimate>,
     phoneLocation: PhoneLocation?,
+    focusRequest: MapFocusRequest?,
     onEstimatesSelected: (List<DeviceMapEstimate>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -319,6 +475,14 @@ private fun KarrMapView(
                     currentHost.centeredOnce = true
                 }
             }
+            focusRequest?.let { request ->
+                if (request.nonce != currentHost.appliedFocusNonce) {
+                    request.zoom?.let(mapView.controller::setZoom)
+                    mapView.controller.setCenter(request.point)
+                    currentHost.appliedFocusNonce = request.nonce
+                    currentHost.centeredOnce = true
+                }
+            }
             mapView.invalidate()
         },
         onRelease = { mapView ->
@@ -352,6 +516,7 @@ private class MapHost(
     private val lifecycle: Lifecycle,
 ) {
     var centeredOnce: Boolean = false
+    var appliedFocusNonce: Int = 0
 
     private var resumed = false
     private val observer = LifecycleEventObserver { _, event ->
@@ -524,6 +689,11 @@ internal data class DeviceMapEstimate(
     val lastSeenUtc: Instant,
 )
 
+// nonce distinguishes repeat requests to focus the same point, since a data-class equality
+// check alone wouldn't trigger a re-center when the same device is searched twice in a row.
+// A null zoom leaves the map's current zoom level untouched (used by recenter-on-me).
+private data class MapFocusRequest(val point: GeoPoint, val zoom: Double?, val nonce: Int)
+
 private class FrameworkLocationTracker(
     context: Context,
     private val onLocation: (PhoneLocation) -> Unit,
@@ -620,8 +790,10 @@ internal fun confidenceRadiusMeters(
 internal fun estimateDeviceLocations(
     observations: List<LocalMapObservation>,
 ): List<DeviceMapEstimate> = observations
-    .groupBy(LocalMapObservation::deviceAddress)
-    .map { (_, group) ->
+    // MAC casing varies by source (live BLE scans report uppercase; imported WiGLE CSVs are
+    // often lowercase), so group case-insensitively or the same device shows up as two pins.
+    .groupBy { it.deviceAddress.uppercase() }
+    .map { (normalizedAddress, group) ->
         val sorted = group.sortedByDescending(LocalMapObservation::observedUtc)
         val weighted = sorted.fold(WeightedLocation()) { accumulator, observation ->
             val confidence = max(observation.confidenceRadiusMeters, 1.0)
@@ -631,7 +803,7 @@ internal fun estimateDeviceLocations(
         }
         val latest = sorted.first()
         DeviceMapEstimate(
-            address = latest.deviceAddress,
+            address = normalizedAddress,
             label = latest.deviceName ?: "Unnamed KARR candidate",
             tier = latest.classificationTier,
             evidence = latest.classificationEvidence,
@@ -688,9 +860,12 @@ private const val MAP_USER_AGENT =
     "KARR-Key/1.0.2 (+https://github.com/neednotapply/KARR-Key)"
 private const val OSM_TILE_CACHE_BYTES = 50L * 1024L * 1024L
 private const val OSM_TILE_CACHE_TRIM_BYTES = 40L * 1024L * 1024L
-private const val OSM_MIN_ZOOM = 14.0
+private const val OSM_MIN_ZOOM = 0.0
 private const val OSM_MAX_ZOOM = 19.0
 private const val DEFAULT_ZOOM = 17.0
+private const val SEARCH_FOCUS_ZOOM = 18.0
+private val LAST_SEEN_FORMAT: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("MMM d, yyyy HH:mm").withZone(ZoneId.systemDefault())
 private const val LOCATION_INTERVAL_MILLIS = 1_000L
 private const val LOCATION_DISTANCE_METERS = 1f
 private const val LOCATION_FRESHNESS_MILLIS = 30_000L

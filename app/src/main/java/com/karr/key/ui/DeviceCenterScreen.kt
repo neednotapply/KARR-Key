@@ -149,16 +149,14 @@ private fun ConnectionSection(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Button(
-                            onClick = onScan,
-                            enabled = state.canScan(),
+                            onClick = if (state is BleSessionState.Scanning) {
+                                onStopScan
+                            } else {
+                                onScan
+                            },
+                            enabled = state is BleSessionState.Scanning || state.canScan(),
                         ) {
-                            Text("Scan")
-                        }
-                        OutlinedButton(
-                            onClick = onStopScan,
-                            enabled = state is BleSessionState.Scanning,
-                        ) {
-                            Text("Stop")
+                            Text(if (state is BleSessionState.Scanning) "Stop" else "Scan")
                         }
                         if (state is BleSessionState.ReconnectFailed) {
                             OutlinedButton(onClick = onRetryReconnect) {

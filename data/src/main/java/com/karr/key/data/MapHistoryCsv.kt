@@ -63,7 +63,9 @@ object MapHistoryCsv {
             val type = column("Type") ?: continue
             if (!type.equals("BLE", ignoreCase = true)) continue
 
-            val address = column("MAC") ?: continue
+            // Normalize casing: WiGLE exports commonly use lowercase MACs while live BLE
+            // scans report uppercase, and matching/grouping downstream is case-sensitive.
+            val address = column("MAC")?.uppercase() ?: continue
             val rssi = column("RSSI")?.toIntOrNull() ?: continue
             val latitude = column("CurrentLatitude")?.toDoubleOrNull() ?: continue
             val longitude = column("CurrentLongitude")?.toDoubleOrNull() ?: continue

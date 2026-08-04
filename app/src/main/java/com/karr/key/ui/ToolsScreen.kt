@@ -25,7 +25,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -411,7 +410,6 @@ private fun OperationListRow(
         unitModel = unitModel,
         unitMode = unitMode,
     )
-    val isCommand = executionAccess.action.mutating
     val modeSwitchOffer = modeSwitchOffer(
         session = session,
         blockedAction = executionAccess.action,
@@ -459,76 +457,39 @@ private fun OperationListRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
-                    if (isCommand) {
-                        Button(
-                            onClick = { onExecute(actionTarget) },
-                            enabled = actionEnabled,
-                            modifier = Modifier
-                                .width(144.dp)
-                                .height(32.dp)
-                                .testTag("operation-action:${operation.id}")
-                                .then(
-                                    actionStateDescription?.let { description ->
-                                        Modifier.semantics {
-                                            stateDescription = description
-                                        }
-                                    } ?: Modifier,
-                                ),
-                            contentPadding = PaddingValues(horizontal = 14.dp),
-                        ) {
-                            if (showBlockedIcon) {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_status_lock),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                            }
-                            Text(
-                                text = actionLabel,
-                                modifier = if (showBlockedIcon) {
-                                    Modifier.padding(start = 6.dp)
-                                } else {
-                                    Modifier
-                                },
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                    Button(
+                        onClick = { onExecute(actionTarget) },
+                        enabled = actionEnabled,
+                        modifier = Modifier
+                            .width(144.dp)
+                            .height(32.dp)
+                            .testTag("operation-action:${operation.id}")
+                            .then(
+                                actionStateDescription?.let { description ->
+                                    Modifier.semantics {
+                                        stateDescription = description
+                                    }
+                                } ?: Modifier,
+                            ),
+                        contentPadding = PaddingValues(horizontal = 14.dp),
+                    ) {
+                        if (showBlockedIcon) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_status_lock),
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
                             )
                         }
-                    } else {
-                        OutlinedButton(
-                            onClick = { onExecute(actionTarget) },
-                            enabled = actionEnabled,
-                            modifier = Modifier
-                                .width(144.dp)
-                                .height(32.dp)
-                                .testTag("operation-action:${operation.id}")
-                                .then(
-                                    actionStateDescription?.let { description ->
-                                        Modifier.semantics {
-                                            stateDescription = description
-                                        }
-                                    } ?: Modifier,
-                                ),
-                            contentPadding = PaddingValues(horizontal = 14.dp),
-                        ) {
-                            if (showBlockedIcon) {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_status_lock),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                            }
-                            Text(
-                                text = actionLabel,
-                                modifier = if (showBlockedIcon) {
-                                    Modifier.padding(start = 6.dp)
-                                } else {
-                                    Modifier
-                                },
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
+                        Text(
+                            text = actionLabel,
+                            modifier = if (showBlockedIcon) {
+                                Modifier.padding(start = 6.dp)
+                            } else {
+                                Modifier
+                            },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 }
             }

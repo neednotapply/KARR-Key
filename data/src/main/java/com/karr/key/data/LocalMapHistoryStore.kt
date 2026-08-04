@@ -82,7 +82,7 @@ class LocalMapHistoryStore(
         val observation = LocalMapObservation(
             id = UUID.randomUUID().toString(),
             observedUtc = observedUtc,
-            deviceAddress = deviceAddress,
+            deviceAddress = deviceAddress.uppercase(),
             deviceName = deviceName,
             classificationTier = classificationTier,
             classificationEvidence = classificationEvidence,
@@ -114,7 +114,10 @@ class LocalMapHistoryStore(
         var updated = 0
         db.beginTransaction()
         try {
-            observations.forEach { incoming ->
+            observations.forEach { raw ->
+                // Normalize casing so a lowercase WiGLE-import MAC matches an existing
+                // uppercase live-scan record for the same device instead of duplicating it.
+                val incoming = raw.copy(deviceAddress = raw.deviceAddress.uppercase())
                 val key = incoming.deviceAddress to incoming.observedUtc
                 val existingId = existingIdByKey[key]
                 if (existingId != null) {
