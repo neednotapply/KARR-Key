@@ -592,13 +592,27 @@ internal fun DashboardScreen(
                                     onOpenDevice
                                 },
                             ) {
+                                if (session.roles.isNotEmpty() && !deviceAuthenticated) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_signal),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
                                 Text(
                                     text = if (session.roles.isEmpty()) {
                                         "Set up access"
                                     } else if (deviceAuthenticated) {
                                         "View device"
                                     } else {
-                                        "Connect device"
+                                        "Scan"
+                                    },
+                                    modifier = if (
+                                        session.roles.isNotEmpty() && !deviceAuthenticated
+                                    ) {
+                                        Modifier.padding(start = 6.dp)
+                                    } else {
+                                        Modifier
                                     },
                                     maxLines = 1,
                                     style = MaterialTheme.typography.labelLarge,
