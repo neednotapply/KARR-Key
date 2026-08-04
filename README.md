@@ -18,8 +18,7 @@ not include recovered passwords or universal device keys.
 ## Screenshots
 
 These real-device screenshots were captured from KARR Key 1.0.3 on a Pixel 6a.
-Select an image to view it at full resolution. The map screenshot is zoomed
-out to a regional view to avoid showing the tester's precise location.
+Select an image to view it at full resolution.
 
 <table>
   <tr>
