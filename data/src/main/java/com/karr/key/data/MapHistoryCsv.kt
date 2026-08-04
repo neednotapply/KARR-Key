@@ -184,7 +184,7 @@ object MapHistoryCsv {
     private val TIMESTAMP_FORMAT: DateTimeFormatter =
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneOffset.UTC)
     private const val LINE_BREAK = "\r\n"
-    private const val APP_INFO_LINE = "WigleWifi-1.4,appRelease=1.0.2,model=KARR Key," +
+    private const val APP_INFO_LINE = "WigleWifi-1.4,appRelease=1.0.3,model=KARR Key," +
         "release=1,device=karr-key,display=karr-key,board=karr-key,brand=NeedNotApply"
     private val HEADER_COLUMNS = listOf(
         "MAC", "SSID", "AuthMode", "FirstSeen", "Channel", "RSSI",

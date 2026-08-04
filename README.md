@@ -193,7 +193,7 @@ Developers need JDK 17, Android SDK 36, and either `local.properties` or
 
 On Linux or macOS, use `./gradlew`. The debug APK is written to
 `app/build/outputs/apk/debug/KARR-Key.apk` and uses package name `com.karr.key`.
-The current app version is `1.0.2` (code 11).
+The current app version is `1.0.3` (code 12).
 
 The build checks that Map's Internet and network-state permissions are explicit,
 Bluetooth scan keeps `neverForLocation`, and foreground location permissions

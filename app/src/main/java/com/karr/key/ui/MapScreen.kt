@@ -857,7 +857,7 @@ private fun Int.withAlpha(alpha: Int): Int =
     (this and 0x00ffffff) or (alpha.coerceIn(0, 255) shl 24)
 
 private const val MAP_USER_AGENT =
-    "KARR-Key/1.0.2 (+https://github.com/neednotapply/KARR-Key)"
+    "KARR-Key/1.0.3 (+https://github.com/neednotapply/KARR-Key)"
 private const val OSM_TILE_CACHE_BYTES = 50L * 1024L * 1024L
 private const val OSM_TILE_CACHE_TRIM_BYTES = 40L * 1024L * 1024L
 private const val OSM_MIN_ZOOM = 0.0
