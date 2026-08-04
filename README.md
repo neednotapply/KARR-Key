@@ -17,8 +17,9 @@ not include recovered passwords or universal device keys.
 
 ## Screenshots
 
-These real-device screenshots were captured from KARR Key 1.0.1 on a Pixel 6a.
-Select an image to view it at full resolution.
+These real-device screenshots were captured from KARR Key 1.0.3 on a Pixel 6a.
+Select an image to view it at full resolution. The map screenshot is zoomed
+out to a regional view to avoid showing the tester's precise location.
 
 <table>
   <tr>
@@ -29,24 +30,38 @@ Select an image to view it at full resolution.
       <br><sub>Home and research overview</sub>
     </td>
     <td align="center">
+      <a href="docs/screenshots/device.png">
+        <img src="docs/screenshots/device.png" width="320" alt="KARR Key Device connection screen">
+      </a>
+      <br><sub>Bluetooth connection and scan controls</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
       <a href="docs/screenshots/operations.png">
         <img src="docs/screenshots/operations.png" width="320" alt="KARR Key Operations screen">
       </a>
       <br><sub>Searchable operations catalog</sub>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <a href="docs/screenshots/operation-detail.png">
         <img src="docs/screenshots/operation-detail.png" width="320" alt="KARR Key operation detail screen">
       </a>
       <br><sub>Authentication-gated operation detail</sub>
     </td>
+  </tr>
+  <tr>
     <td align="center">
-      <a href="docs/screenshots/device.png">
-        <img src="docs/screenshots/device.png" width="320" alt="KARR Key Device connection screen">
+      <a href="docs/screenshots/map.png">
+        <img src="docs/screenshots/map.png" width="320" alt="KARR Key Map screen">
       </a>
-      <br><sub>Bluetooth connection and scan controls</sub>
+      <br><sub>Discovered-device map with search and recenter</sub>
+    </td>
+    <td align="center">
+      <a href="docs/screenshots/settings.png">
+        <img src="docs/screenshots/settings.png" width="320" alt="KARR Key Settings screen">
+      </a>
+      <br><sub>Access keys, map data, and diagnostics settings</sub>
     </td>
   </tr>
 </table>
@@ -155,10 +170,24 @@ Map plots KARR candidate advertisements from active scans using the phone's
 foreground location fix and each advertisement's RSSI. Stronger RSSI produces a
 smaller confidence circle; weaker RSSI and poorer location accuracy produce a
 larger circle. Map uses osmdroid with OpenStreetMap raster tiles and visible OSM
-attribution. It does not use Google Maps or Google Play Services.
+attribution, and supports the full OSM zoom range. It does not use Google Maps
+or Google Play Services.
 
-Map history is stored locally until the user clears it. Device identifiers and
-coordinates are encrypted with Android Keystore-backed storage.
+A **Search** button finds a previously discovered device by name, showing when
+it was last seen and jumping the map to it when selected. A **Recenter** button
+returns the map to the phone's current location without changing the zoom
+level. Map history is stored locally until the user clears it; device
+identifiers and coordinates are encrypted with Android Keystore-backed storage.
+
+### Settings
+
+Settings has three tabs. **Access keys** manages the Customer and
+Dealer/Installer research access information used to authenticate with a unit,
+each independently clearable. **Map** shows how many map observations are
+stored, clears that history, and imports or exports it as a WiGLE-compatible
+CSV; importing a foreign WiGLE file only keeps devices that match KARR's
+discovery logic. **Diagnostics** runs a self-test and previews the most recent
+decoded Bluetooth notification.
 
 ## Important limits
 
@@ -179,8 +208,8 @@ coordinates are encrypted with Android Keystore-backed storage.
 ## Design and navigation
 
 The interface uses a greyscale light and dark theme. Home, Device, Operations,
-and Map are selected from the navigation bar, in that order. Operation details
-use the normal Android back action.
+Map, and Settings are selected from the navigation bar, in that order.
+Operation details use the normal Android back action.
 
 ## Building the app
 
