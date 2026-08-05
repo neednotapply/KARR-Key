@@ -11,6 +11,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.karr.key.ble.BlePermissions
+import com.karr.key.data.LocalDeviceReadStore
 import com.karr.key.data.LocalKeyRepository
 import com.karr.key.data.LocalMapHistoryStore
 import com.karr.key.data.LocalOperationStore
@@ -35,6 +36,7 @@ import kotlinx.coroutines.withContext
 class MainActivity : ComponentActivity() {
     private lateinit var operationStore: LocalOperationStore
     private lateinit var mapHistoryStore: LocalMapHistoryStore
+    private lateinit var deviceReadStore: LocalDeviceReadStore
     private val activityScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
     private var permissionResult: ((Boolean) -> Unit)? = null
     private var locationPermissionResult: ((Boolean) -> Unit)? = null
@@ -52,7 +54,8 @@ class MainActivity : ComponentActivity() {
                 runCatching {
                     withContext(Dispatchers.IO) {
                         val observations = mapHistoryStore.recent(limit = MAP_EXPORT_LIMIT)
-                        val csv = MapHistoryCsv.encode(observations)
+                        val reads = deviceReadStore.allGroupedByAddress()
+                        val csv = MapHistoryCsv.encode(observations, reads)
                         contentResolver.openOutputStream(uri)?.use { stream ->
                             stream.write(csv.toByteArray(Charsets.UTF_8))
                         } ?: error("Unable to open the destination file.")
@@ -76,10 +79,11 @@ class MainActivity : ComponentActivity() {
                         // A real WiGLE export of a well-scanned area can be hundreds of
                         // thousands of lines; stream it instead of reading the whole file
                         // into one String, or large imports run the process out of heap.
-                        val observations = openCsvReader(uri).use { reader ->
-                            MapHistoryCsv.decode(reader.lineSequence())
+                        val content = openCsvReader(uri).use { reader ->
+                            MapHistoryCsv.decodeContent(reader.lineSequence())
                         }
-                        mapHistoryStore.upsertAll(observations)
+                        deviceReadStore.upsertAll(content.readsByAddress)
+                        mapHistoryStore.upsertAll(content.observations)
                     }
                 },
             )
@@ -122,6 +126,7 @@ class MainActivity : ComponentActivity() {
         val repository = LocalKeyRepository()
         operationStore = LocalOperationStore(this)
         mapHistoryStore = LocalMapHistoryStore(this)
+        deviceReadStore = LocalDeviceReadStore(this)
 
         setContent {
             KarrKeyTheme {
@@ -131,6 +136,7 @@ class MainActivity : ComponentActivity() {
                     deviceKeys = app.deviceKeys,
                     operationStore = operationStore,
                     mapHistoryStore = mapHistoryStore,
+                    deviceReadStore = deviceReadStore,
                     requestBlePermissions = ::requestBlePermissions,
                     requestMapLocationPermissions = ::requestMapLocationPermissions,
                     requestMapHistoryExport = ::requestMapHistoryExport,
@@ -144,6 +150,7 @@ class MainActivity : ComponentActivity() {
         activityScope.cancel()
         operationStore.close()
         mapHistoryStore.close()
+        deviceReadStore.close()
         super.onDestroy()
     }
 

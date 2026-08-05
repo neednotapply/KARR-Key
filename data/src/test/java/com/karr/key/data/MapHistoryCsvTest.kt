@@ -18,7 +18,7 @@ class MapHistoryCsvTest {
             "\"MAC\",\"SSID\",\"AuthMode\",\"FirstSeen\",\"Channel\",\"RSSI\"," +
                 "\"CurrentLatitude\",\"CurrentLongitude\",\"AltitudeMeters\",\"AccuracyMeters\"," +
                 "\"Type\",\"KarrTier\",\"KarrEvidence\",\"EstimatedRangeMeters\"," +
-                "\"ConfidenceRadiusMeters\",\"LocationProvider\"",
+                "\"ConfidenceRadiusMeters\",\"LocationProvider\",\"KarrReadData\"",
             lines[1],
         )
         assertTrue(lines[2].contains("\"BLE\""))
@@ -188,6 +188,38 @@ class MapHistoryCsvTest {
         val decoded = MapHistoryCsv.decode(csv)
 
         assertEquals(karrAddresses.toSet(), decoded.map { it.deviceAddress }.toSet())
+    }
+
+    @Test
+    fun readDataRoundTripsAndOnlyAttachesToTheLatestRowPerDevice() {
+        val older = sampleObservation().copy(observedUtc = Instant.parse("2024-05-01T10:00:00Z"))
+        val newer = sampleObservation().copy(observedUtc = Instant.parse("2024-05-01T12:00:00Z"))
+        val reads = mapOf(
+            "44:B7:D0:29:A5:4D" to listOf(
+                DeviceReadRecord(
+                    command = "READ_STATE",
+                    heading = "Vehicle state",
+                    lines = listOf("Ignition: Off", "Security: Armed"),
+                    unitModel = "DR1_CAN",
+                    capturedUtc = Instant.parse("2024-05-01T12:01:00Z"),
+                ),
+            ),
+        )
+
+        val csv = MapHistoryCsv.encode(listOf(older, newer), reads)
+
+        // The blob rides only on the newest observation row, not on every sighting.
+        assertEquals(1, csv.trim().lines().count { it.contains("READ_STATE") })
+
+        val content = MapHistoryCsv.decodeContent(csv)
+        assertEquals(2, content.observations.size)
+        assertEquals(reads, content.readsByAddress)
+    }
+
+    @Test
+    fun decodeContentHasNoReadDataForAPlainWigleExport() {
+        val content = MapHistoryCsv.decodeContent(MapHistoryCsv.encode(listOf(sampleObservation())))
+        assertTrue(content.readsByAddress.isEmpty())
     }
 
     private fun sampleObservation() = LocalMapObservation(

@@ -14,6 +14,7 @@ import android.location.LocationManager
 import android.os.Bundle
 import android.os.Looper
 import android.view.MotionEvent
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -66,6 +67,8 @@ import com.karr.key.ble.BleController
 import com.karr.key.ble.BleScanObservation
 import com.karr.key.ble.BleSessionState
 import com.karr.key.ble.KarrCandidateTier
+import com.karr.key.data.DeviceReadRecord
+import com.karr.key.data.LocalDeviceReadStore
 import com.karr.key.data.LocalMapHistoryStore
 import com.karr.key.data.LocalMapObservation
 import com.karr.key.data.MapCandidateTier
@@ -91,6 +94,7 @@ import org.osmdroid.views.overlay.Overlay
 internal fun MapScreen(
     controller: BleController,
     historyStore: LocalMapHistoryStore,
+    deviceReadStore: LocalDeviceReadStore,
     requestBlePermissions: (((Boolean) -> Unit) -> Unit),
     requestLocationPermissions: (((Boolean) -> Unit) -> Unit),
     snackbar: SnackbarHostState,
@@ -101,6 +105,9 @@ internal fun MapScreen(
     val state by controller.state.collectAsState()
     var history by remember(historyStore) {
         mutableStateOf<List<LocalMapObservation>>(emptyList())
+    }
+    var readsByAddress by remember(deviceReadStore) {
+        mutableStateOf<Map<String, List<DeviceReadRecord>>>(emptyMap())
     }
     var phoneLocation by remember { mutableStateOf<PhoneLocation?>(null) }
     val currentLocation by rememberUpdatedState(phoneLocation)
@@ -114,7 +121,22 @@ internal fun MapScreen(
     var selectedDeviceAddresses by remember { mutableStateOf<Set<String>>(emptySet()) }
     val selectedEstimates = estimates.filter { it.address in selectedDeviceAddresses }
     var showDeviceSearch by remember { mutableStateOf(false) }
+    var readDetailAddress by remember { mutableStateOf<String?>(null) }
     var focusRequest by remember { mutableStateOf<MapFocusRequest?>(null) }
+
+    // Refreshes the stored READ snapshots; called on entry and after each new read completes so a
+    // freshly-read unit shows its data without leaving the Map.
+    suspend fun refreshReads() {
+        readsByAddress = withContext(Dispatchers.IO) { deviceReadStore.allGroupedByAddress() }
+    }
+
+    LaunchedEffect(deviceReadStore) { refreshReads() }
+    LaunchedEffect(deviceReadStore, state) {
+        // A read only lands while connected; re-pull when the session returns to a settled state.
+        if (state is BleSessionState.Ready || state is BleSessionState.Idle) {
+            refreshReads()
+        }
+    }
 
     LaunchedEffect(historyStore) {
         history = withContext(Dispatchers.IO) { historyStore.recent() }
@@ -153,6 +175,8 @@ internal fun MapScreen(
             state = state,
             locationGranted = locationGranted,
             selectedEstimates = selectedEstimates,
+            readsByAddress = readsByAddress,
+            onOpenReadData = { address -> readDetailAddress = address },
             onEnableLocation = {
                 requestLocationPermissions { granted ->
                     locationGranted = granted
@@ -211,6 +235,20 @@ internal fun MapScreen(
             },
         )
     }
+
+    readDetailAddress?.let { address ->
+        val reads = readsByAddress[address].orEmpty()
+        if (reads.isEmpty()) {
+            readDetailAddress = null
+        } else {
+            UnitReadDataDialog(
+                label = estimates.firstOrNull { it.address == address }?.label ?: address,
+                address = address,
+                reads = reads,
+                onDismiss = { readDetailAddress = null },
+            )
+        }
+    }
 }
 
 @Composable
@@ -218,6 +256,8 @@ private fun MapBottomPanel(
     state: BleSessionState,
     locationGranted: Boolean,
     selectedEstimates: List<DeviceMapEstimate>,
+    readsByAddress: Map<String, List<DeviceReadRecord>>,
+    onOpenReadData: (String) -> Unit,
     onEnableLocation: () -> Unit,
     onScan: () -> Unit,
     onStopScan: () -> Unit,
@@ -241,7 +281,16 @@ private fun MapBottomPanel(
             if (selectedEstimates.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     selectedEstimates.forEach { estimate ->
-                        EstimateDetail(estimate)
+                        val hasReads = readsByAddress[estimate.address]?.isNotEmpty() == true
+                        EstimateDetail(
+                            estimate = estimate,
+                            hasReadData = hasReads,
+                            onClick = if (hasReads) {
+                                { onOpenReadData(estimate.address) }
+                            } else {
+                                null
+                            },
+                        )
                     }
                 }
                 HorizontalDivider()
@@ -400,12 +449,16 @@ private fun DeviceSearchDialog(
 @Composable
 private fun EstimateDetail(
     estimate: DeviceMapEstimate,
+    hasReadData: Boolean,
+    onClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
+    val rowModifier = modifier
+        .fillMaxWidth()
+        .testTag("map-selected-estimate:${estimate.address}")
+        .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
     Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .testTag("map-selected-estimate"),
+        modifier = rowModifier,
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Text(
@@ -428,7 +481,72 @@ private fun EstimateDetail(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall,
         )
+        if (hasReadData) {
+            Text(
+                "View unit data ›",
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.testTag("map-view-unit-data:${estimate.address}"),
+            )
+        }
     }
+}
+
+@Composable
+private fun UnitReadDataDialog(
+    label: String,
+    address: String,
+    reads: List<DeviceReadRecord>,
+    onDismiss: () -> Unit,
+) {
+    val ordered = remember(reads) { reads.sortedByDescending(DeviceReadRecord::capturedUtc) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(label) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    address,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 380.dp)
+                        .testTag("map-unit-read-data"),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    items(ordered, key = DeviceReadRecord::command) { record ->
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                record.heading,
+                                style = MaterialTheme.typography.labelLarge,
+                            )
+                            record.lines.forEach { line ->
+                                Text(
+                                    line,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            Text(
+                                "Read ${formatLastSeen(record.capturedUtc)}",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        },
+    )
 }
 
 private fun formatLastSeen(instant: Instant): String =

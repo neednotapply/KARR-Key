@@ -18,6 +18,7 @@ import com.karr.key.ble.DiscoveredDevice
 import com.karr.key.core.FeatureCatalog
 import com.karr.key.core.Session
 import com.karr.key.core.UserRole
+import com.karr.key.data.LocalDeviceReadStore
 import com.karr.key.data.LocalOperationStore
 import com.karr.key.protocol.KarrDeviceMode
 import com.karr.key.protocol.KarrUnitModel
@@ -60,6 +61,7 @@ class ImmobilizerRecoveryAccessibilityTest {
                         unitMode = KarrDeviceMode.INSTALLER,
                         controller = NoOpBleController,
                         operationStore = LocalOperationStore(composeRule.activity),
+                        deviceReadStore = LocalDeviceReadStore(composeRule.activity),
                         snackbar = SnackbarHostState(),
                         onOpenOperation = { recovery -> openedOperationId = recovery.id },
                     )
@@ -108,6 +110,7 @@ class ImmobilizerRecoveryAccessibilityTest {
                         unitMode = KarrDeviceMode.DEALER,
                         controller = NoOpBleController,
                         operationStore = LocalOperationStore(composeRule.activity),
+                        deviceReadStore = LocalDeviceReadStore(composeRule.activity),
                         snackbar = SnackbarHostState(),
                         onOpenOperation = {},
                     )
@@ -164,6 +167,7 @@ class ImmobilizerRecoveryAccessibilityTest {
                         unitMode = null,
                         controller = NoOpBleController,
                         operationStore = LocalOperationStore(composeRule.activity),
+                        deviceReadStore = LocalDeviceReadStore(composeRule.activity),
                         snackbar = SnackbarHostState(),
                         onOpenOperation = {},
                     )

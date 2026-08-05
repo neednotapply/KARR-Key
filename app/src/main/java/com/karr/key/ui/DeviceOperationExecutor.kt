@@ -12,6 +12,7 @@ import com.karr.key.core.AuthorizationDecision
 import com.karr.key.core.RolePolicy
 import com.karr.key.core.Session
 import com.karr.key.core.displayName
+import com.karr.key.data.LocalDeviceReadStore
 import com.karr.key.data.LocalOperationState
 import com.karr.key.data.LocalOperationStore
 import com.karr.key.protocol.KarrDeviceMode
@@ -44,6 +45,32 @@ data class OperationExecutionResult(
     val decodedResponse: QtDecodedResponse?,
     val rawResponse: String?,
 )
+
+/**
+ * Persists a successful READ's decoded result against the currently-connected unit so it can later
+ * be surfaced on the Map. No-op for mutating commands, undecodable responses, or when the unit is
+ * no longer connected. Shared by both read-execution paths (the operations-list quick run and the
+ * operation detail screen).
+ */
+internal suspend fun LocalDeviceReadStore.recordReadIfApplicable(
+    controller: BleController,
+    command: QtCommand,
+    mutating: Boolean,
+    decoded: QtDecodedResponse?,
+    fallbackUnitModel: KarrUnitModel?,
+) {
+    if (mutating || decoded == null) return
+    val ready = controller.state.value as? BleSessionState.Ready ?: return
+    withContext(Dispatchers.IO) {
+        record(
+            deviceAddress = ready.address,
+            command = command.name,
+            heading = decoded.heading,
+            lines = decoded.lines,
+            unitModel = (decoded.unitModel ?: fallbackUnitModel)?.displayName,
+        )
+    }
+}
 
 internal data class OperationExecutionAccess(
     val action: RecoveredDeviceAction,
@@ -97,6 +124,7 @@ internal fun RecoveredDeviceOperation.executionAccess(
 internal class DeviceOperationExecutor(
     private val controller: BleController,
     private val operationStore: LocalOperationStore,
+    private val deviceReadStore: LocalDeviceReadStore,
     private val snackbar: SnackbarHostState,
 ) {
     private val exchange = BleCommandExchange(controller)
@@ -401,6 +429,13 @@ internal class DeviceOperationExecutor(
             is BleCommandExchangeResult.Acknowledged -> {
                 val decoded = QtResponseDecoder.decode(result.response, unitModel)
                 callbacks.onDecodedResponse(decoded)
+                deviceReadStore.recordReadIfApplicable(
+                    controller = controller,
+                    command = executableAction.command,
+                    mutating = executableAction.mutating,
+                    decoded = decoded,
+                    fallbackUnitModel = unitModel,
+                )
                 callbacks.onRawResponse(
                     result.response.rawResponseText(result.rawFrame),
                 )

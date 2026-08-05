@@ -36,6 +36,7 @@ import com.karr.key.core.AuthorizationDecision
 import com.karr.key.core.RolePolicy
 import com.karr.key.core.Session
 import com.karr.key.core.displayName
+import com.karr.key.data.LocalDeviceReadStore
 import com.karr.key.data.LocalOperationState
 import com.karr.key.data.LocalOperationStore
 import com.karr.key.protocol.KarrDeviceMode
@@ -69,6 +70,7 @@ fun DeviceOperationScreen(
     unitMode: KarrDeviceMode?,
     controller: BleController,
     operationStore: LocalOperationStore,
+    deviceReadStore: LocalDeviceReadStore,
     snackbar: SnackbarHostState,
     onOpenOperation: (RecoveredDeviceOperation) -> Unit,
     initialExecutionResult: OperationExecutionResult? = null,
@@ -394,6 +396,13 @@ fun DeviceOperationScreen(
                             unitModel = unitModel,
                         )
                         lastResponse = result.response.rawResponseText(result.rawFrame)
+                        deviceReadStore.recordReadIfApplicable(
+                            controller = controller,
+                            command = executableAction.command,
+                            mutating = executableAction.mutating,
+                            decoded = decodedResponse,
+                            fallbackUnitModel = unitModel,
+                        )
                         updateOperation(
                             operationId = operation?.id,
                             state = LocalOperationState.SUCCEEDED,

@@ -73,6 +73,7 @@ import com.karr.key.ble.BleController
 import com.karr.key.ble.BleSessionState
 import com.karr.key.core.ResearchAccess
 import com.karr.key.core.Session
+import com.karr.key.data.LocalDeviceReadStore
 import com.karr.key.data.LocalMapHistoryStore
 import com.karr.key.data.LocalOperationStore
 import com.karr.key.data.KeyRepository
@@ -124,6 +125,7 @@ fun KarrKeyApp(
     deviceKeys: DeviceKeyProvisioning,
     operationStore: LocalOperationStore,
     mapHistoryStore: LocalMapHistoryStore,
+    deviceReadStore: LocalDeviceReadStore,
     requestBlePermissions: (((Boolean) -> Unit) -> Unit),
     requestMapLocationPermissions: (((Boolean) -> Unit) -> Unit),
     requestMapHistoryExport: (((Result<Int>) -> Unit) -> Unit),
@@ -174,6 +176,7 @@ fun KarrKeyApp(
         deviceKeys = deviceKeys,
         operationStore = operationStore,
         mapHistoryStore = mapHistoryStore,
+        deviceReadStore = deviceReadStore,
         onProvisioningChanged = { provisioningRevision++ },
         requestBlePermissions = requestBlePermissions,
         requestMapLocationPermissions = requestMapLocationPermissions,
@@ -201,6 +204,7 @@ private fun KeyShell(
     deviceKeys: DeviceKeyProvisioning,
     operationStore: LocalOperationStore,
     mapHistoryStore: LocalMapHistoryStore,
+    deviceReadStore: LocalDeviceReadStore,
     onProvisioningChanged: () -> Unit,
     requestBlePermissions: (((Boolean) -> Unit) -> Unit),
     requestMapLocationPermissions: (((Boolean) -> Unit) -> Unit),
@@ -343,6 +347,7 @@ private fun KeyShell(
                                 unitMode = unitMode,
                                 controller = bleController,
                                 operationStore = operationStore,
+                                deviceReadStore = deviceReadStore,
                                 snackbar = snackbar,
                                 navigation = navigation,
                                 query = operationsQuery,
@@ -360,6 +365,7 @@ private fun KeyShell(
                             MapScreen(
                                 controller = bleController,
                                 historyStore = mapHistoryStore,
+                                deviceReadStore = deviceReadStore,
                                 requestBlePermissions = requestBlePermissions,
                                 requestLocationPermissions = requestMapLocationPermissions,
                                 snackbar = snackbar,
@@ -371,6 +377,7 @@ private fun KeyShell(
                                 controller = bleController,
                                 deviceKeys = deviceKeys,
                                 mapHistoryStore = mapHistoryStore,
+                                deviceReadStore = deviceReadStore,
                                 section = route.section,
                                 onSectionSelected = navigation::updateSettingsSection,
                                 onProvisioningChanged = onProvisioningChanged,
@@ -403,6 +410,7 @@ private fun KeyShell(
                                     unitMode = unitMode,
                                     controller = bleController,
                                     operationStore = operationStore,
+                                    deviceReadStore = deviceReadStore,
                                     snackbar = snackbar,
                                     navigation = navigation,
                                     query = operationsQuery,
@@ -435,6 +443,7 @@ private fun OperationsRouteContent(
     unitMode: KarrDeviceMode?,
     controller: BleController,
     operationStore: LocalOperationStore,
+    deviceReadStore: LocalDeviceReadStore,
     snackbar: SnackbarHostState,
     navigation: KarrNavigationState,
     query: String,
@@ -446,10 +455,11 @@ private fun OperationsRouteContent(
     onLatestExecutionResultChanged: (OperationExecutionResult) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    val executor = remember(controller, operationStore, snackbar) {
+    val executor = remember(controller, operationStore, deviceReadStore, snackbar) {
         DeviceOperationExecutor(
             controller = controller,
             operationStore = operationStore,
+            deviceReadStore = deviceReadStore,
             snackbar = snackbar,
         )
     }
@@ -518,6 +528,7 @@ private fun OperationsRouteContent(
                 unitMode = unitMode,
                 controller = controller,
                 operationStore = operationStore,
+                deviceReadStore = deviceReadStore,
                 snackbar = snackbar,
                 onOpenOperation = navigation::openOperation,
                 initialExecutionResult = latestExecutionResult,

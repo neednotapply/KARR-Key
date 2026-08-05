@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import com.karr.key.ble.BleController
 import com.karr.key.ble.BleSessionState
 import com.karr.key.ble.KarrGatt
+import com.karr.key.data.LocalDeviceReadStore
 import com.karr.key.data.LocalMapHistoryStore
 import com.karr.key.data.MapHistoryImportSummary
 import com.karr.key.protocol.DeviceKeyProvisioning
@@ -58,6 +59,7 @@ internal fun SettingsScreen(
     controller: BleController,
     deviceKeys: DeviceKeyProvisioning,
     mapHistoryStore: LocalMapHistoryStore,
+    deviceReadStore: LocalDeviceReadStore,
     section: SettingsSection,
     onSectionSelected: (SettingsSection) -> Unit,
     onProvisioningChanged: () -> Unit,
@@ -254,7 +256,10 @@ internal fun SettingsScreen(
                 historyCount = historyCount,
                 onClear = {
                     scope.launch {
-                        withContext(Dispatchers.IO) { mapHistoryStore.clear() }
+                        withContext(Dispatchers.IO) {
+                            mapHistoryStore.clear()
+                            deviceReadStore.clear()
+                        }
                         historyCount = 0
                         snackbar.showSnackbar("Map history cleared.")
                     }

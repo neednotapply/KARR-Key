@@ -19,16 +19,44 @@ import kotlin.math.pow
  * each BLE row is re-classified from its advertised name with [CompatibleKarrDevice] and
  * dropped unless it matches a recovered KARR identifier.
  */
+/** Everything recovered from a map-history CSV: the observations plus any per-device READ data. */
+data class MapHistoryCsvContent(
+    val observations: List<LocalMapObservation>,
+    val readsByAddress: Map<String, List<DeviceReadRecord>>,
+)
+
 object MapHistoryCsv {
-    fun encode(observations: List<LocalMapObservation>): String {
+    /**
+     * Encodes [observations], optionally attaching each device's latest READ snapshot from
+     * [readsByAddress]. The snapshot JSON is written into the trailing `KarrReadData` column on
+     * only that device's most-recent observation row, so the (potentially large) blob appears once
+     * per device instead of being duplicated across every sighting.
+     */
+    fun encode(
+        observations: List<LocalMapObservation>,
+        readsByAddress: Map<String, List<DeviceReadRecord>> = emptyMap(),
+    ): String {
+        val carrierIndices = latestObservationIndexPerAddress(observations, readsByAddress.keys)
         val builder = StringBuilder()
         builder.append(APP_INFO_LINE).append(LINE_BREAK)
         builder.append(HEADER_COLUMNS.joinToString(",") { it.csvField() }).append(LINE_BREAK)
-        observations.forEach { observation -> builder.append(observation.toCsvRow()).append(LINE_BREAK) }
+        observations.forEachIndexed { index, observation ->
+            val reads = if (index in carrierIndices) {
+                readsByAddress[observation.deviceAddress.uppercase()].orEmpty()
+            } else {
+                emptyList()
+            }
+            builder.append(observation.toCsvRow(reads)).append(LINE_BREAK)
+        }
         return builder.toString()
     }
 
-    fun decode(csv: String): List<LocalMapObservation> = decode(csv.lineSequence())
+    fun decode(csv: String): List<LocalMapObservation> = decodeContent(csv).observations
+
+    fun decode(lines: Sequence<String>): List<LocalMapObservation> =
+        decodeContent(lines).observations
+
+    fun decodeContent(csv: String): MapHistoryCsvContent = decodeContent(csv.lineSequence())
 
     /**
      * Streams [lines] one at a time instead of materializing the whole file (a real WiGLE
@@ -37,10 +65,11 @@ object MapHistoryCsv {
      * immediately. Callers reading from a file should pass a lazy [Sequence], e.g.
      * `BufferedReader.lineSequence()` while the reader is still open.
      */
-    fun decode(lines: Sequence<String>): List<LocalMapObservation> {
+    fun decodeContent(lines: Sequence<String>): MapHistoryCsvContent {
         val iterator = lines.iterator()
         var columnIndex: Map<String, Int>? = null
         val results = mutableListOf<LocalMapObservation>()
+        val readsByAddress = mutableMapOf<String, List<DeviceReadRecord>>()
 
         while (iterator.hasNext()) {
             val line = iterator.next().trimEnd('\r')
@@ -108,11 +137,20 @@ object MapHistoryCsv {
                     confidenceRadiusMeters = confidenceRadius,
                 ),
             )
+
+            // Only our own exports carry a KarrReadData snapshot, on the device's latest row.
+            // WiGLE and other tools simply ignore the extra column.
+            column("KarrReadData")?.let { encoded ->
+                val reads = DeviceReadCodec.decode(encoded)
+                if (reads.isNotEmpty()) {
+                    readsByAddress[address] = reads
+                }
+            }
         }
-        return results
+        return MapHistoryCsvContent(observations = results, readsByAddress = readsByAddress)
     }
 
-    private fun LocalMapObservation.toCsvRow(): String = listOf(
+    private fun LocalMapObservation.toCsvRow(reads: List<DeviceReadRecord>): String = listOf(
         deviceAddress,
         deviceName ?: "",
         "[BLE]",
@@ -129,7 +167,32 @@ object MapHistoryCsv {
         estimatedRangeMeters.toString(),
         confidenceRadiusMeters.toString(),
         locationProvider,
+        if (reads.isEmpty()) "" else DeviceReadCodec.encode(reads),
     ).joinToString(",") { it.csvField() }
+
+    /**
+     * Indices of the newest observation per address among those in [addresses] — the rows that
+     * should carry the READ snapshot. Empty when there is no READ data to attach.
+     */
+    private fun latestObservationIndexPerAddress(
+        observations: List<LocalMapObservation>,
+        addresses: Set<String>,
+    ): Set<Int> {
+        if (addresses.isEmpty()) return emptySet()
+        val wanted = addresses.map { it.uppercase() }.toSet()
+        val bestIndexByAddress = HashMap<String, Int>()
+        observations.forEachIndexed { index, observation ->
+            val address = observation.deviceAddress.uppercase()
+            if (address !in wanted) return@forEachIndexed
+            val current = bestIndexByAddress[address]
+            if (current == null ||
+                observation.observedUtc.isAfter(observations[current].observedUtc)
+            ) {
+                bestIndexByAddress[address] = index
+            }
+        }
+        return bestIndexByAddress.values.toSet()
+    }
 
     private fun KarrCandidateTier.toMapCandidateTier(): MapCandidateTier? = when (this) {
         KarrCandidateTier.CONFIRMED_FORMAT -> MapCandidateTier.CONFIRMED_FORMAT
@@ -190,7 +253,7 @@ object MapHistoryCsv {
         "MAC", "SSID", "AuthMode", "FirstSeen", "Channel", "RSSI",
         "CurrentLatitude", "CurrentLongitude", "AltitudeMeters", "AccuracyMeters", "Type",
         "KarrTier", "KarrEvidence", "EstimatedRangeMeters", "ConfidenceRadiusMeters",
-        "LocationProvider",
+        "LocationProvider", "KarrReadData",
     )
     private const val DEFAULT_ACCURACY_METERS = 50f
     private const val MIN_CONFIDENCE_RADIUS_METERS = 5.0
