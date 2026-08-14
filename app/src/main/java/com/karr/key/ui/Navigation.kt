@@ -153,10 +153,56 @@ internal class KarrNavigationState private constructor(
 
     fun updateSettingsSection(section: SettingsSection) {
         val stack = stacks.getValue(TopLevelDestination.SETTINGS)
+        val current = (stack.lastOrNull() as? AppRoute.Settings)?.section
+        if (current != null && section != current) {
+            topLevelTransitionForward = section.ordinal > current.ordinal
+        }
         if (stack.isEmpty()) {
             stack.add(AppRoute.Settings(section))
         } else {
             stack[0] = AppRoute.Settings(section)
+        }
+    }
+
+    /**
+     * Advances one step in the swipe-navigation order: through Settings' own sub-sections while
+     * Settings is active, otherwise to the next top-level destination. A no-op past the last
+     * section of the last top-level destination. Callers are expected to withhold this while
+     * [selectedTopLevel] is [TopLevelDestination.MAP], so swiping never leaves the Map screen.
+     */
+    fun swipeForward() {
+        if (selectedTopLevel == TopLevelDestination.SETTINGS) {
+            val current = (currentRoute as? AppRoute.Settings)?.section
+                ?: SettingsSection.ACCESS_KEYS
+            val nextOrdinal = current.ordinal + 1
+            if (nextOrdinal < SettingsSection.entries.size) {
+                updateSettingsSection(SettingsSection.entries[nextOrdinal])
+            }
+            return
+        }
+        val nextOrdinal = selectedTopLevel.ordinal + 1
+        if (nextOrdinal < TopLevelDestination.entries.size) {
+            selectTopLevel(TopLevelDestination.entries[nextOrdinal])
+        }
+    }
+
+    /**
+     * The reverse of [swipeForward]. Backing out of Settings' first sub-section falls through to
+     * the previous top-level destination (Map), which swiping into is allowed even though
+     * swiping back out of Map itself is not.
+     */
+    fun swipeBackward() {
+        if (selectedTopLevel == TopLevelDestination.SETTINGS) {
+            val current = (currentRoute as? AppRoute.Settings)?.section
+                ?: SettingsSection.ACCESS_KEYS
+            if (current.ordinal > 0) {
+                updateSettingsSection(SettingsSection.entries[current.ordinal - 1])
+                return
+            }
+        }
+        val previousOrdinal = selectedTopLevel.ordinal - 1
+        if (previousOrdinal >= 0) {
+            selectTopLevel(TopLevelDestination.entries[previousOrdinal])
         }
     }
 

@@ -137,6 +137,7 @@ class MainActivity : ComponentActivity() {
                     operationStore = operationStore,
                     mapHistoryStore = mapHistoryStore,
                     deviceReadStore = deviceReadStore,
+                    autoConnectReadPreferences = app.autoConnectReadPreferences,
                     requestBlePermissions = ::requestBlePermissions,
                     requestMapLocationPermissions = ::requestMapLocationPermissions,
                     requestMapHistoryExport = ::requestMapHistoryExport,

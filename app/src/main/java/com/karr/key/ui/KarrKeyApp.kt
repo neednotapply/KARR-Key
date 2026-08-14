@@ -1,5 +1,6 @@
 package com.karr.key.ui
 
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.core.tween
@@ -7,6 +8,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
@@ -56,6 +58,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -69,10 +72,13 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.ui.NavDisplay
 import com.karr.key.R
+import com.karr.key.ble.BleCommandExchange
+import com.karr.key.ble.BleCommandExchangeResult
 import com.karr.key.ble.BleController
 import com.karr.key.ble.BleSessionState
 import com.karr.key.core.ResearchAccess
 import com.karr.key.core.Session
+import com.karr.key.data.AutoConnectReadPreferences
 import com.karr.key.data.LocalDeviceReadStore
 import com.karr.key.data.LocalMapHistoryStore
 import com.karr.key.data.LocalOperationStore
@@ -82,9 +88,11 @@ import com.karr.key.protocol.DeviceKeyPurpose
 import com.karr.key.protocol.DeviceKeyProvisioning
 import com.karr.key.protocol.KarrDeviceMode
 import com.karr.key.protocol.KarrUnitModel
+import com.karr.key.protocol.QtResponseDecoder
 import com.karr.key.protocol.RecoveredDeviceOperation
 import com.karr.key.protocol.RecoveredWorkflowCatalog
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 private const val KARR_FIRMWARE_UPDATE_URL =
@@ -126,6 +134,7 @@ fun KarrKeyApp(
     operationStore: LocalOperationStore,
     mapHistoryStore: LocalMapHistoryStore,
     deviceReadStore: LocalDeviceReadStore,
+    autoConnectReadPreferences: AutoConnectReadPreferences,
     requestBlePermissions: (((Boolean) -> Unit) -> Unit),
     requestMapLocationPermissions: (((Boolean) -> Unit) -> Unit),
     requestMapHistoryExport: (((Result<Int>) -> Unit) -> Unit),
@@ -156,13 +165,97 @@ fun KarrKeyApp(
         mutableStateOf(OperationFilters())
     }
     val operationsListState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    var autoConnectReadEnabled by remember {
+        mutableStateOf(autoConnectReadPreferences.enabled)
+    }
+    val autoReadExchange = remember(bleController) { BleCommandExchange(bleController) }
+    val readAllSettingsOperation = remember {
+        RecoveredWorkflowCatalog.operationById("read-settings")
+    }
+    // Per-device cooldown so the sweep doesn't immediately reconnect to the unit it just read
+    // (still the nearest/strongest signal right after disconnecting) instead of moving on to
+    // others nearby. Keyed by normalized address, valued by SystemClock.elapsedRealtime().
+    val autoSweepCooldownUntil = remember { mutableMapOf<String, Long>() }
 
     LaunchedEffect(deviceAuthenticated) {
-        navigation.openOperationsAfterSuccessfulConnection(
-            wasAuthenticated = wasDeviceAuthenticated,
-            isAuthenticated = deviceAuthenticated,
-        )
+        // Auto-connect/read drives the app hands-free, so it shouldn't also get yanked over to
+        // Operations on every connection the way a manual Device-screen connect does.
+        if (!autoConnectReadEnabled) {
+            navigation.openOperationsAfterSuccessfulConnection(
+                wasAuthenticated = wasDeviceAuthenticated,
+                isAuthenticated = deviceAuthenticated,
+            )
+        }
         wasDeviceAuthenticated = deviceAuthenticated
+    }
+
+    // Lives here rather than on the Device screen so it keeps sweeping regardless of which tab
+    // is currently visible, instead of being cancelled the moment the user navigates away.
+    LaunchedEffect(autoConnectReadEnabled, bleController) {
+        if (!autoConnectReadEnabled) return@LaunchedEffect
+        bleController.scanObservations.collect { observation ->
+            val device = observation.device
+            if (!device.confirmedConnectionEligible) return@collect
+            if (bleController.state.value !is BleSessionState.Scanning) return@collect
+            val cooldownUntil = autoSweepCooldownUntil[device.address.uppercase()]
+            if (cooldownUntil != null && SystemClock.elapsedRealtime() < cooldownUntil) {
+                return@collect
+            }
+            bleController.connect(device.address).onFailure { failure ->
+                scope.launch {
+                    snackbar.showSnackbar(failure.message ?: "Auto-connect failed.")
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(autoConnectReadEnabled, bleController) {
+        if (!autoConnectReadEnabled) return@LaunchedEffect
+        val operation = readAllSettingsOperation ?: return@LaunchedEffect
+        var lastReadAddress: String? = null
+        bleController.state.collect { current ->
+            val ready = current as? BleSessionState.Ready ?: return@collect
+            if (ready.address == lastReadAddress) return@collect
+            lastReadAddress = ready.address
+            // Talks to the unit directly instead of going through DeviceOperationExecutor: that
+            // path awaits snackbar dismissal (several seconds each, and they queue up behind any
+            // other snackbar in flight), which stalled disconnect()/startScan() long enough that
+            // the sweep looked stuck online rather than moving on to the next device.
+            val access = operation.executionAccess(
+                session = session,
+                deviceAuthenticated = true,
+                unitModel = ready.unitModel,
+                unitMode = ready.unitMode,
+            )
+            if (access.blockingReason == null) {
+                val action = access.action
+                val result = autoReadExchange.sendAndAwait(
+                    packet = action.packet(),
+                    expectedCommand = action.command,
+                )
+                if (result is BleCommandExchangeResult.Acknowledged) {
+                    val decoded = QtResponseDecoder.decode(result.response, ready.unitModel)
+                    deviceReadStore.recordReadIfApplicable(
+                        controller = bleController,
+                        command = action.command,
+                        mutating = action.mutating,
+                        decoded = decoded,
+                        fallbackUnitModel = ready.unitModel,
+                    )
+                }
+            }
+            // Applied regardless of whether the read itself succeeded, so a device that fails
+            // or times out doesn't get retried on every single sweep pass either.
+            autoSweepCooldownUntil[ready.address.uppercase()] =
+                SystemClock.elapsedRealtime() + AUTO_SWEEP_COOLDOWN_MILLIS
+            bleController.disconnect()
+            bleController.startScan().onFailure { failure ->
+                scope.launch {
+                    snackbar.showSnackbar(failure.message ?: "Could not resume scanning.")
+                }
+            }
+        }
     }
 
     KeyShell(
@@ -177,6 +270,11 @@ fun KarrKeyApp(
         operationStore = operationStore,
         mapHistoryStore = mapHistoryStore,
         deviceReadStore = deviceReadStore,
+        autoConnectReadEnabled = autoConnectReadEnabled,
+        onAutoConnectReadEnabledChanged = { enabled ->
+            autoConnectReadEnabled = enabled
+            autoConnectReadPreferences.enabled = enabled
+        },
         onProvisioningChanged = { provisioningRevision++ },
         requestBlePermissions = requestBlePermissions,
         requestMapLocationPermissions = requestMapLocationPermissions,
@@ -205,6 +303,8 @@ private fun KeyShell(
     operationStore: LocalOperationStore,
     mapHistoryStore: LocalMapHistoryStore,
     deviceReadStore: LocalDeviceReadStore,
+    autoConnectReadEnabled: Boolean,
+    onAutoConnectReadEnabledChanged: (Boolean) -> Unit,
     onProvisioningChanged: () -> Unit,
     requestBlePermissions: (((Boolean) -> Unit) -> Unit),
     requestMapLocationPermissions: (((Boolean) -> Unit) -> Unit),
@@ -282,7 +382,8 @@ private fun KeyShell(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
-                    .consumeWindowInsets(innerPadding),
+                    .consumeWindowInsets(innerPadding)
+                    .then(swipeNavigationModifier(navigation)),
             ) {
                 NavDisplay(
                     backStack = navigation.currentBackStack,
@@ -390,6 +491,8 @@ private fun KeyShell(
                         entry<AppRoute.Device> {
                             DeviceCenterScreen(
                                 controller = bleController,
+                                autoConnectReadEnabled = autoConnectReadEnabled,
+                                onAutoConnectReadEnabledChanged = onAutoConnectReadEnabledChanged,
                                 requestPermissions = requestBlePermissions,
                                 snackbar = snackbar,
                                 modifier = Modifier.fillMaxSize(),
@@ -605,7 +708,7 @@ internal fun DashboardScreen(
                             ) {
                                 if (session.roles.isNotEmpty() && !deviceAuthenticated) {
                                     Icon(
-                                        painter = painterResource(R.drawable.ic_signal),
+                                        painter = painterResource(R.drawable.ic_wifi),
                                         contentDescription = null,
                                         modifier = Modifier.size(18.dp),
                                     )
@@ -885,6 +988,30 @@ internal fun shellTopBarTitle(
     is AppRoute.OperationDetail -> operationTitle ?: "Operation"
 }
 
+// Map owns horizontal drag for panning/zooming, so no gesture is installed at all while it's the
+// active tab — that's what keeps swiping able to enter Map but never leave it by drag.
+@Composable
+private fun swipeNavigationModifier(navigation: KarrNavigationState): Modifier {
+    if (navigation.selectedTopLevel == TopLevelDestination.MAP) return Modifier
+    val thresholdPx = with(LocalDensity.current) { SWIPE_NAVIGATION_THRESHOLD.toPx() }
+    return Modifier.pointerInput(navigation.selectedTopLevel, navigation.currentRoute) {
+        var totalDrag = 0f
+        detectHorizontalDragGestures(
+            onDragStart = { totalDrag = 0f },
+            onHorizontalDrag = { change, dragAmount ->
+                totalDrag += dragAmount
+                change.consume()
+            },
+            onDragEnd = {
+                when {
+                    totalDrag <= -thresholdPx -> navigation.swipeForward()
+                    totalDrag >= thresholdPx -> navigation.swipeBackward()
+                }
+            },
+        )
+    }
+}
+
 private fun horizontalPageSlide(forward: Boolean): ContentTransform {
     val direction = if (forward) 1 else -1
     return slideInHorizontally(
@@ -897,3 +1024,5 @@ private fun horizontalPageSlide(forward: Boolean): ContentTransform {
 }
 
 private const val PAGE_SLIDE_DURATION_MILLIS = 300
+private val SWIPE_NAVIGATION_THRESHOLD = 56.dp
+private const val AUTO_SWEEP_COOLDOWN_MILLIS = 5 * 60 * 1_000L
