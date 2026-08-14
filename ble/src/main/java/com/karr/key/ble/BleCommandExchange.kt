@@ -1,7 +1,9 @@
 package com.karr.key.ble
 
+import com.karr.key.core.KarrTrace
 import com.karr.key.protocol.PacketParseResult
 import com.karr.key.protocol.QtCommand
+import com.karr.key.protocol.QtErrorCode
 import com.karr.key.protocol.QtPacket
 import com.karr.key.protocol.QtProtocolCodec
 import kotlinx.coroutines.CoroutineStart
@@ -60,25 +62,41 @@ class BleCommandExchange(
             }
         }
 
+        KarrTrace.log(KarrTrace.CMD) {
+            "send ${expectedCommand.name}, awaiting response"
+        }
         val sendResult = runCatching {
             controller.send(packet).getOrThrow()
         }
         if (sendResult.isFailure) {
             response.cancel()
-            return@coroutineScope BleCommandExchangeResult.TransportFailure(
-                sendResult.exceptionOrNull()?.message ?: "The BLE write failed.",
-            )
+            val message = sendResult.exceptionOrNull()?.message ?: "The BLE write failed."
+            KarrTrace.warn(KarrTrace.CMD, "${expectedCommand.name} transport failure: $message")
+            return@coroutineScope BleCommandExchangeResult.TransportFailure(message)
         }
 
         onGattAccepted()
         val incoming = response.await()
-            ?: return@coroutineScope BleCommandExchangeResult.TimedOut
+        if (incoming == null) {
+            KarrTrace.warn(KarrTrace.CMD, "${expectedCommand.name} timed out")
+            return@coroutineScope BleCommandExchangeResult.TimedOut
+        }
         if (incoming.packet.command == QtCommand.ACK_ERROR) {
+            KarrTrace.log(KarrTrace.CMD) {
+                val error = QtErrorCode.fromAckError(incoming.packet)
+                "${expectedCommand.name} rejected: ACK_ERROR " +
+                    (error?.displayName ?: "code ${incoming.packet.payload.firstOrNull()?.toInt()?.and(0xFF)}")
+            }
             BleCommandExchangeResult.Rejected(
                 response = incoming.packet,
                 rawFrame = incoming.rawFrame,
             )
         } else {
+            KarrTrace.log(KarrTrace.CMD) {
+                val resp = incoming.packet.command?.name ?: "cmd=${incoming.packet.commandCode}"
+                "${expectedCommand.name} acknowledged: $resp " +
+                    "payload=${KarrTrace.hex(incoming.packet.payload)}"
+            }
             BleCommandExchangeResult.Acknowledged(
                 response = incoming.packet,
                 rawFrame = incoming.rawFrame,

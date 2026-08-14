@@ -17,6 +17,7 @@ import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.os.Build
 import android.os.SystemClock
+import com.karr.key.core.KarrTrace
 import com.karr.key.protocol.AuthenticationAction
 import com.karr.key.protocol.DeviceAuthenticator
 import com.karr.key.protocol.KarrAuthenticationSession
@@ -118,6 +119,13 @@ class AndroidBleController(
                 pruneStaleDevices(SystemClock.elapsedRealtime())
             }
         }
+        if (KarrTrace.enabled) {
+            callbackScope.launch {
+                _state.collect { current ->
+                    KarrTrace.log(KarrTrace.BLE) { "state = $current" }
+                }
+            }
+        }
     }
 
     private val scanCallback = object : ScanCallback() {
@@ -196,6 +204,15 @@ class AndroidBleController(
             connectable = existing?.connectable == true || observedConnectable,
             classification = classification,
         )
+        if (KarrTrace.enabled &&
+            (existing == null || existingClassification?.tier != classification.tier)
+        ) {
+            KarrTrace.log(KarrTrace.BLE) {
+                "scan ${device.address} name=${displayName ?: "?"} rssi=${result.rssi} " +
+                    "tier=${classification.tier} connectable=${discoveredDevice.connectable} " +
+                    "services=${advertisedServices.size} mfr=${manufacturerData.size}"
+            }
+        }
         val nowElapsed = SystemClock.elapsedRealtime()
         discovered[device.address] = TimedDiscoveredDevice(
             device = discoveredDevice,
@@ -860,6 +877,10 @@ class AndroidBleController(
             } else {
                 BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
             }
+            KarrTrace.log(KarrTrace.BLE) {
+                "TX ${KarrTrace.describeOutgoing(packet)} " +
+                    "(${if (supportsResponse) "with-response" else "no-response"})"
+            }
             val completion = CompletableDeferred<GattWriteResult>()
             pendingWrite = completion
             try {
@@ -949,6 +970,12 @@ class AndroidBleController(
     ) {
         val copy = value.copyOf()
         val parsed = QtProtocolCodec.parse(copy)
+        KarrTrace.log(KarrTrace.BLE) {
+            val label = (parsed as? PacketParseResult.Success)?.let { success ->
+                success.packet.command?.name ?: "cmd=${success.packet.commandCode}"
+            } ?: "unparsed"
+            "RX $label ${KarrTrace.hex(copy)}"
+        }
         if (parsed is PacketParseResult.Success) {
             _state.value = _state.value.withReadModeObservation(parsed.packet)
         }
@@ -975,6 +1002,12 @@ class AndroidBleController(
             unitSerial = name.orEmpty(),
             packet = parsed.packet,
         )
+        if (action !is AuthenticationAction.None) {
+            KarrTrace.log(KarrTrace.AUTH) {
+                val incoming = parsed.packet.command?.name ?: "cmd=${parsed.packet.commandCode}"
+                "$incoming (${parsed.packet.payload.size}B) -> ${action::class.simpleName}"
+            }
+        }
         when (action) {
             AuthenticationAction.None -> Unit
             is AuthenticationAction.Send -> {
@@ -1030,6 +1063,11 @@ class AndroidBleController(
                     reconnectTarget = null
                     reconnectAttemptResult?.complete(ReconnectAttemptResult.Authenticated)
                 }
+                KarrTrace.log(KarrTrace.AUTH) {
+                    "AUTH_SUCCESS ${name ?: address} " +
+                        "model=${action.unitModel?.displayName ?: "unknown"} " +
+                        "mode=${action.unitMode.name}"
+                }
                 _state.value = BleSessionState.Ready(
                     address = address,
                     name = name,
@@ -1039,6 +1077,7 @@ class AndroidBleController(
                 )
             }
             is AuthenticationAction.Failed -> {
+                KarrTrace.warn(KarrTrace.AUTH, "AUTH failed: ${action.reason}")
                 failAndClose(
                     message = action.reason,
                     callbackGatt = event.gatt,

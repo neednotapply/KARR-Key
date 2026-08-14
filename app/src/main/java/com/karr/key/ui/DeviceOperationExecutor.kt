@@ -3,6 +3,7 @@ package com.karr.key.ui
 import androidx.compose.material3.SnackbarHostState
 import com.karr.key.ble.BleCommandExchange
 import com.karr.key.ble.BleCommandExchangeResult
+import com.karr.key.core.KarrTrace
 import com.karr.key.ble.BleController
 import com.karr.key.ble.BleModeChangeExchange
 import com.karr.key.ble.BleModeChangeResult
@@ -144,7 +145,13 @@ internal class DeviceOperationExecutor(
             unitModel = unitModel,
             unitMode = unitMode,
         )
+        KarrTrace.log(KarrTrace.POLICY) {
+            "execute ${access.action.command.name} " +
+                "model=${unitModel?.displayName ?: "?"} mode=${unitMode?.name ?: "?"} " +
+                "authenticated=$deviceAuthenticated"
+        }
         access.blockingReason?.let { reason ->
+            KarrTrace.log(KarrTrace.POLICY) { "blocked ${access.action.command.name}: $reason" }
             callbacks.onStatus(reason)
             snackbar.showSnackbar(reason)
             return
@@ -428,6 +435,14 @@ internal class DeviceOperationExecutor(
         ) {
             is BleCommandExchangeResult.Acknowledged -> {
                 val decoded = QtResponseDecoder.decode(result.response, unitModel)
+                KarrTrace.log(KarrTrace.PROTO) {
+                    if (decoded != null) {
+                        "decoded ${executableAction.command.name}: ${decoded.heading} | " +
+                            decoded.lines.joinToString(" ; ")
+                    } else {
+                        "decoded ${executableAction.command.name}: no decoder, raw only"
+                    }
+                }
                 callbacks.onDecodedResponse(decoded)
                 deviceReadStore.recordReadIfApplicable(
                     controller = controller,

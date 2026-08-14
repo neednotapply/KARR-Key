@@ -1,8 +1,10 @@
 package com.karr.key
 
 import android.app.Application
+import android.content.pm.ApplicationInfo
 import com.karr.key.ble.AndroidBleController
 import com.karr.key.ble.BleController
+import com.karr.key.core.KarrTrace
 import com.karr.key.data.AutoConnectReadPreferences
 import com.karr.key.data.EncryptedDeviceKeyStore
 import com.karr.key.data.EncryptedLocalValueStore
@@ -20,6 +22,9 @@ class KarrApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // Debuggable builds only: the live trace never runs in a release APK.
+        KarrTrace.enabled =
+            (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
         deviceKeys = EncryptedDeviceKeyStore(
             EncryptedLocalValueStore(this),
         )
