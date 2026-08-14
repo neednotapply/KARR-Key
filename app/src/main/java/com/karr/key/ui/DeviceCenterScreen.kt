@@ -3,6 +3,7 @@ package com.karr.key.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -15,6 +16,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -23,6 +25,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -40,6 +43,8 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun DeviceCenterScreen(
     controller: BleController,
+    autoConnectReadEnabled: Boolean,
+    onAutoConnectReadEnabledChanged: (Boolean) -> Unit,
     requestPermissions: (((Boolean) -> Unit) -> Unit),
     snackbar: SnackbarHostState,
     modifier: Modifier = Modifier,
@@ -77,6 +82,8 @@ internal fun DeviceCenterScreen(
         karrUnitCount = karrUnitCount,
         showOtherDevices = showOtherDevices,
         onShowOtherDevicesChanged = { showOtherDevices = it },
+        autoConnectReadEnabled = autoConnectReadEnabled,
+        onAutoConnectReadEnabledChanged = onAutoConnectReadEnabledChanged,
         onScan = startScan,
         onStopScan = controller::stopScan,
         onDisconnect = controller::disconnect,
@@ -111,6 +118,8 @@ private fun ConnectionSection(
     karrUnitCount: Int,
     showOtherDevices: Boolean,
     onShowOtherDevicesChanged: (Boolean) -> Unit,
+    autoConnectReadEnabled: Boolean,
+    onAutoConnectReadEnabledChanged: (Boolean) -> Unit,
     onScan: () -> Unit,
     onStopScan: () -> Unit,
     onDisconnect: () -> Unit,
@@ -165,7 +174,7 @@ private fun ConnectionSection(
                                     if (state is BleSessionState.Scanning) {
                                         R.drawable.ic_stop
                                     } else {
-                                        R.drawable.ic_signal
+                                        R.drawable.ic_wifi
                                     },
                                 ),
                                 contentDescription = null,
@@ -203,6 +212,38 @@ private fun ConnectionSection(
                             )
                         }
                     }
+                }
+            }
+        }
+        item {
+            OutlinedCard(Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            "Auto-connect & read",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            "While scanning, automatically connects to the next confirmed " +
+                                "KARR unit found, reads all unit settings once connected, " +
+                                "then disconnects and resumes scanning for the next unit.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = autoConnectReadEnabled,
+                        onCheckedChange = onAutoConnectReadEnabledChanged,
+                    )
                 }
             }
         }
