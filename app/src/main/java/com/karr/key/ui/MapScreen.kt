@@ -89,6 +89,7 @@ import java.io.File
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.cos
@@ -144,6 +145,10 @@ internal fun MapScreen(
     var estimates by remember { mutableStateOf<List<DeviceMapEstimate>>(emptyList()) }
     var selectedDeviceAddresses by remember { mutableStateOf<Set<String>>(emptySet()) }
     val selectedEstimates = estimates.filter { it.address in selectedDeviceAddresses }
+    // The unit whose reported-GPS line is currently revealed. Set by tapping the coords in that
+    // unit's card; cleared by any other action (selecting a unit, a map button) so the line is
+    // transient and only shows for the location you just asked to view.
+    var revealedReportedAddress by remember { mutableStateOf<String?>(null) }
     var showDeviceSearch by remember { mutableStateOf(false) }
     var readDetailAddress by remember { mutableStateOf<String?>(null) }
     var focusRequest by remember { mutableStateOf<MapFocusRequest?>(null) }
@@ -241,8 +246,10 @@ internal fun MapScreen(
             phoneLocation = phoneLocation,
             focusRequest = focusRequest,
             mapOrientationDegrees = if (headingUp) (360f - deviceHeadingDegrees) % 360f else 0f,
+            revealedReportedAddress = revealedReportedAddress,
             onEstimatesSelected = { hits, expand ->
                 selectedDeviceAddresses = hits.map { it.address }.toSet()
+                revealedReportedAddress = null
                 KarrTrace.log(KarrTrace.MAP) {
                     "tap -> ${hits.size} device(s): ${hits.joinToString { it.label }}" +
                         if (expand) " (expand cluster)" else ""
@@ -286,9 +293,23 @@ internal fun MapScreen(
             selectedEstimates = selectedEstimates,
             readsByAddress = readsByAddress,
             onOpenReadData = { address -> readDetailAddress = address },
+            onReportedCoordsClick = { estimate ->
+                estimate.reportedPosition?.let { reported ->
+                    revealedReportedAddress = estimate.address
+                    focusRequest = MapFocusRequest(
+                        point = reported,
+                        zoom = null,
+                        nonce = (focusRequest?.nonce ?: 0) + 1,
+                    )
+                }
+            },
             headingUp = headingUp,
-            onToggleHeadingUp = { headingUp = !headingUp },
+            onToggleHeadingUp = {
+                headingUp = !headingUp
+                revealedReportedAddress = null
+            },
             onEnableLocation = {
+                revealedReportedAddress = null
                 requestLocationPermissions { granted ->
                     locationGranted = granted
                     if (!granted) {
@@ -299,6 +320,7 @@ internal fun MapScreen(
                 }
             },
             onScan = {
+                revealedReportedAddress = null
                 requestBlePermissions { granted ->
                     if (granted) {
                         controller.startScan().onFailure { failure ->
@@ -313,9 +335,16 @@ internal fun MapScreen(
                     }
                 }
             },
-            onStopScan = controller::stopScan,
-            onSearchDevices = { showDeviceSearch = true },
+            onStopScan = {
+                revealedReportedAddress = null
+                controller.stopScan()
+            },
+            onSearchDevices = {
+                revealedReportedAddress = null
+                showDeviceSearch = true
+            },
             onRecenter = {
+                revealedReportedAddress = null
                 phoneLocation?.let { location ->
                     focusRequest = MapFocusRequest(
                         point = GeoPoint(location.latitude, location.longitude),
@@ -337,6 +366,7 @@ internal fun MapScreen(
             onDismiss = { showDeviceSearch = false },
             onSelect = { estimate ->
                 selectedDeviceAddresses = setOf(estimate.address)
+                revealedReportedAddress = null
                 focusRequest = MapFocusRequest(
                     point = GeoPoint(estimate.latitude, estimate.longitude),
                     zoom = SEARCH_FOCUS_ZOOM,
@@ -369,6 +399,7 @@ private fun MapBottomPanel(
     selectedEstimates: List<DeviceMapEstimate>,
     readsByAddress: Map<String, List<DeviceReadRecord>>,
     onOpenReadData: (String) -> Unit,
+    onReportedCoordsClick: (DeviceMapEstimate) -> Unit,
     onEnableLocation: () -> Unit,
     onScan: () -> Unit,
     onStopScan: () -> Unit,
@@ -400,6 +431,11 @@ private fun MapBottomPanel(
                             hasReadData = hasReads,
                             onClick = if (hasReads) {
                                 { onOpenReadData(estimate.address) }
+                            } else {
+                                null
+                            },
+                            onReportedCoordsClick = if (estimate.reportedPosition != null) {
+                                { onReportedCoordsClick(estimate) }
                             } else {
                                 null
                             },
@@ -575,6 +611,7 @@ private fun EstimateDetail(
     estimate: DeviceMapEstimate,
     hasReadData: Boolean,
     onClick: (() -> Unit)?,
+    onReportedCoordsClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     val rowModifier = modifier
@@ -611,6 +648,24 @@ private fun EstimateDetail(
                 color = MaterialTheme.colorScheme.primary,
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.testTag("map-view-unit-data:${estimate.address}"),
+            )
+        }
+        estimate.reportedPosition?.let { reported ->
+            Text(
+                "Reported GPS ${
+                    String.format(Locale.US, "%.5f, %.5f", reported.latitude, reported.longitude)
+                } ›",
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier
+                    .testTag("map-reported-gps:${estimate.address}")
+                    .then(
+                        if (onReportedCoordsClick != null) {
+                            Modifier.clickable(onClick = onReportedCoordsClick)
+                        } else {
+                            Modifier
+                        },
+                    ),
             )
         }
     }
@@ -682,6 +737,7 @@ private fun KarrMapView(
     phoneLocation: PhoneLocation?,
     focusRequest: MapFocusRequest?,
     mapOrientationDegrees: Float,
+    revealedReportedAddress: String?,
     onEstimatesSelected: (List<DeviceMapEstimate>, Boolean) -> Unit,
     onReportedPositionTapped: (GeoPoint) -> Unit,
     modifier: Modifier = Modifier,
@@ -740,6 +796,7 @@ private fun KarrMapView(
             currentHost.overlay.darkTheme = darkTheme
             currentHost.overlay.clusterCellPx = clusterCellPx
             currentHost.overlay.clusterRadiusPx = clusterRadiusPx
+            currentHost.overlay.revealedReportedAddress = revealedReportedAddress
             currentHost.overlay.onEstimatesTapped = onEstimatesSelected
             currentHost.overlay.onReportedPositionTapped = onReportedPositionTapped
             if (!currentHost.centeredOnce) {
@@ -854,6 +911,8 @@ private class ConfidenceOverlay : Overlay() {
     var clusterRadiusPx: Float = 0f
     var onEstimatesTapped: ((List<DeviceMapEstimate>, Boolean) -> Unit)? = null
     var onReportedPositionTapped: ((GeoPoint) -> Unit)? = null
+    // Address of the unit whose reported-GPS line + marker are currently revealed; null draws none.
+    var revealedReportedAddress: String? = null
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
@@ -913,7 +972,9 @@ private class ConfidenceOverlay : Overlay() {
         clusterEstimates(mapView, projection).forEach { cluster ->
             val singleton = cluster.members.singleOrNull()
             if (singleton != null) {
-                drawReportedAnnotation(canvas, projection, singleton.first, singleton.second, reportedColor)
+                if (singleton.first.address == revealedReportedAddress) {
+                    drawReportedAnnotation(canvas, projection, singleton.first, singleton.second, reportedColor)
+                }
                 drawSingleEstimate(canvas, projection, singleton.first, singleton.second)
             } else {
                 drawCluster(canvas, cluster)
@@ -1040,11 +1101,12 @@ private class ConfidenceOverlay : Overlay() {
         val projection = mapView.projection
         val clusters = clusterEstimates(mapView, projection)
 
-        // Tapping a unit's reported-GPS marker jumps the map to that recently-reported location.
-        // Checked first so the small annotation marker wins over a unit circle behind it.
+        // Tapping the revealed unit's reported-GPS marker re-centers the map on it. Only the
+        // revealed unit draws a marker, so only it is hit-tested. Checked first so the small
+        // annotation marker wins over a unit circle behind it.
         val reportedHit = clusters
             .asSequence()
-            .filter { it.members.size == 1 }
+            .filter { it.members.size == 1 && it.members.first().first.address == revealedReportedAddress }
             .mapNotNull { it.members.first().first.reportedPosition }
             .firstOrNull { reported ->
                 val point = projection.toPixels(reported, Point())
