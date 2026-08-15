@@ -76,6 +76,7 @@ import com.karr.key.ble.BleCommandExchange
 import com.karr.key.ble.BleCommandExchangeResult
 import com.karr.key.ble.BleController
 import com.karr.key.ble.BleSessionState
+import com.karr.key.core.KarrTrace
 import com.karr.key.core.ResearchAccess
 import com.karr.key.core.Session
 import com.karr.key.data.AutoConnectReadPreferences
@@ -170,8 +171,11 @@ fun KarrKeyApp(
         mutableStateOf(autoConnectReadPreferences.enabled)
     }
     val autoReadExchange = remember(bleController) { BleCommandExchange(bleController) }
+    // The catalog derives operation ids from the command name (READ_ALL_SETTINGS ->
+    // "read-all-settings"), NOT from the action's own id string, so the old "read-settings"
+    // silently resolved to null and the whole read/disconnect/re-scan effect no-opped.
     val readAllSettingsOperation = remember {
-        RecoveredWorkflowCatalog.operationById("read-settings")
+        RecoveredWorkflowCatalog.operationById("read-all-settings")
     }
     // Per-device cooldown so the sweep doesn't immediately reconnect to the unit it just read
     // (still the nearest/strongest signal right after disconnecting) instead of moving on to
@@ -200,9 +204,17 @@ fun KarrKeyApp(
             if (bleController.state.value !is BleSessionState.Scanning) return@collect
             val cooldownUntil = autoSweepCooldownUntil[device.address.uppercase()]
             if (cooldownUntil != null && SystemClock.elapsedRealtime() < cooldownUntil) {
+                KarrTrace.log(KarrTrace.SWEEP) {
+                    val remaining = (cooldownUntil - SystemClock.elapsedRealtime()) / 1000
+                    "skip ${device.name ?: device.address} (cooldown ${remaining}s)"
+                }
                 return@collect
             }
+            KarrTrace.log(KarrTrace.SWEEP) {
+                "connect ${device.name ?: device.address} rssi=${device.rssi}"
+            }
             bleController.connect(device.address).onFailure { failure ->
+                KarrTrace.warn(KarrTrace.SWEEP, "connect ${device.address} rejected: ${failure.message}")
                 scope.launch {
                     snackbar.showSnackbar(failure.message ?: "Auto-connect failed.")
                 }
@@ -212,47 +224,101 @@ fun KarrKeyApp(
 
     LaunchedEffect(autoConnectReadEnabled, bleController) {
         if (!autoConnectReadEnabled) return@LaunchedEffect
-        val operation = readAllSettingsOperation ?: return@LaunchedEffect
-        var lastReadAddress: String? = null
+        val operation = readAllSettingsOperation
+        if (operation == null) {
+            KarrTrace.warn(KarrTrace.SWEEP, "read operation unavailable; sweep cannot read")
+            return@LaunchedEffect
+        }
+        // Address of the unit currently being connected/authenticated, so a failure that lands
+        // before Ready (an updated unit refusing the UART link is the common case) can be cooled
+        // down and skipped instead of stalling or tight-looping the sweep.
+        var pendingAddress: String? = null
+        // Ready is re-emitted several times per connection (link-diagnostic and READ_MODE heartbeat
+        // updates each copy it), so guard against duplicate reads within one connection. Reset when
+        // the session leaves Ready, so revisiting a unit on a later sweep reads it again.
+        var handledCurrentReady = false
         bleController.state.collect { current ->
-            val ready = current as? BleSessionState.Ready ?: return@collect
-            if (ready.address == lastReadAddress) return@collect
-            lastReadAddress = ready.address
-            // Talks to the unit directly instead of going through DeviceOperationExecutor: that
-            // path awaits snackbar dismissal (several seconds each, and they queue up behind any
-            // other snackbar in flight), which stalled disconnect()/startScan() long enough that
-            // the sweep looked stuck online rather than moving on to the next device.
-            val access = operation.executionAccess(
-                session = session,
-                deviceAuthenticated = true,
-                unitModel = ready.unitModel,
-                unitMode = ready.unitMode,
-            )
-            if (access.blockingReason == null) {
-                val action = access.action
-                val result = autoReadExchange.sendAndAwait(
-                    packet = action.packet(),
-                    expectedCommand = action.command,
-                )
-                if (result is BleCommandExchangeResult.Acknowledged) {
-                    val decoded = QtResponseDecoder.decode(result.response, ready.unitModel)
-                    deviceReadStore.recordReadIfApplicable(
-                        controller = bleController,
-                        command = action.command,
-                        mutating = action.mutating,
-                        decoded = decoded,
-                        fallbackUnitModel = ready.unitModel,
-                    )
+            when (current) {
+                is BleSessionState.Connecting -> {
+                    pendingAddress = current.address
+                    handledCurrentReady = false
                 }
-            }
-            // Applied regardless of whether the read itself succeeded, so a device that fails
-            // or times out doesn't get retried on every single sweep pass either.
-            autoSweepCooldownUntil[ready.address.uppercase()] =
-                SystemClock.elapsedRealtime() + AUTO_SWEEP_COOLDOWN_MILLIS
-            bleController.disconnect()
-            bleController.startScan().onFailure { failure ->
-                scope.launch {
-                    snackbar.showSnackbar(failure.message ?: "Could not resume scanning.")
+                is BleSessionState.DiscoveringUart -> pendingAddress = current.address
+                is BleSessionState.UartSubscribed -> pendingAddress = current.address
+                is BleSessionState.AuthenticationRequired -> pendingAddress = current.address
+                is BleSessionState.Authenticating -> pendingAddress = current.address
+                is BleSessionState.Ready -> {
+                    if (handledCurrentReady) return@collect
+                    handledCurrentReady = true
+                    pendingAddress = null
+                    val ready = current
+                    KarrTrace.log(KarrTrace.SWEEP) {
+                        "ready ${ready.name ?: ready.address} " +
+                            "model=${ready.unitModel?.displayName ?: "?"} " +
+                            "mode=${ready.unitMode?.name ?: "?"}; reading"
+                    }
+                    // Talks to the unit directly instead of going through DeviceOperationExecutor:
+                    // that path awaits snackbar dismissal (several seconds each, queued behind any
+                    // snackbar in flight), which stalled disconnect()/startScan() long enough that
+                    // the sweep looked stuck online rather than moving on to the next device.
+                    val access = operation.executionAccess(
+                        session = session,
+                        deviceAuthenticated = true,
+                        unitModel = ready.unitModel,
+                        unitMode = ready.unitMode,
+                    )
+                    if (access.blockingReason == null) {
+                        val action = access.action
+                        val result = autoReadExchange.sendAndAwait(
+                            packet = action.packet(),
+                            expectedCommand = action.command,
+                        )
+                        if (result is BleCommandExchangeResult.Acknowledged) {
+                            val decoded = QtResponseDecoder.decode(result.response, ready.unitModel)
+                            deviceReadStore.recordReadIfApplicable(
+                                controller = bleController,
+                                command = action.command,
+                                mutating = action.mutating,
+                                decoded = decoded,
+                                fallbackUnitModel = ready.unitModel,
+                            )
+                        }
+                    } else {
+                        KarrTrace.log(KarrTrace.SWEEP) {
+                            "read skipped for ${ready.address}: ${access.blockingReason}"
+                        }
+                    }
+                    // Applied regardless of read outcome, so a device that fails or times out isn't
+                    // retried every pass, and with two-plus units the sweep rotates between them.
+                    autoSweepCooldownUntil[ready.address.uppercase()] =
+                        SystemClock.elapsedRealtime() + AUTO_SWEEP_COOLDOWN_MILLIS
+                    KarrTrace.log(KarrTrace.SWEEP) { "disconnect ${ready.address}; resume scan" }
+                    bleController.disconnect()
+                    bleController.startScan().onFailure { failure ->
+                        scope.launch {
+                            snackbar.showSnackbar(failure.message ?: "Could not resume scanning.")
+                        }
+                    }
+                }
+                is BleSessionState.Error -> {
+                    // Pre-Ready connect/UART failure. No cooldown was set above, so cool down the
+                    // attempted unit and resume scanning: one refusing unit must not stall the sweep
+                    // or get retried on a tight loop.
+                    val failed = pendingAddress
+                    pendingAddress = null
+                    handledCurrentReady = false
+                    if (failed != null) {
+                        autoSweepCooldownUntil[failed.uppercase()] =
+                            SystemClock.elapsedRealtime() + AUTO_SWEEP_COOLDOWN_MILLIS
+                    }
+                    KarrTrace.warn(
+                        KarrTrace.SWEEP,
+                        "error on ${failed ?: "unknown"}: ${current.message}; cooldown + resume scan",
+                    )
+                    bleController.startScan()
+                }
+                else -> {
+                    handledCurrentReady = false
                 }
             }
         }
@@ -1025,4 +1091,6 @@ private fun horizontalPageSlide(forward: Boolean): ContentTransform {
 
 private const val PAGE_SLIDE_DURATION_MILLIS = 300
 private val SWIPE_NAVIGATION_THRESHOLD = 56.dp
-private const val AUTO_SWEEP_COOLDOWN_MILLIS = 5 * 60 * 1_000L
+// Re-read/rotate interval per unit. 20s keeps read-speed testing responsive on one or two units
+// while still rotating past a just-read unit to others in range; raise it for field surveying.
+private const val AUTO_SWEEP_COOLDOWN_MILLIS = 20 * 1_000L

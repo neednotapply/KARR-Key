@@ -77,6 +77,7 @@ import com.karr.key.ble.BleController
 import com.karr.key.ble.BleScanObservation
 import com.karr.key.ble.BleSessionState
 import com.karr.key.ble.KarrCandidateTier
+import com.karr.key.core.KarrTrace
 import com.karr.key.data.DeviceReadRecord
 import com.karr.key.data.LocalDeviceReadStore
 import com.karr.key.data.LocalMapHistoryStore
@@ -209,7 +210,21 @@ internal fun MapScreen(
                 history.filter { it.deviceAddress.uppercase() == normalizedAddress },
             ).firstOrNull()
             if (updated != null) {
-                estimates = estimates.filterNot { it.address == normalizedAddress } + updated
+                // Keep the list nearest-first as live sightings arrive, rather than appending each
+                // update to the end: a change near the user should surface at the top, matching the
+                // nearest-first order the initial history load establishes.
+                val here = currentLocation
+                val merged = estimates.filterNot { it.address == normalizedAddress } + updated
+                estimates = if (here != null) {
+                    merged.sortedBy { approxDistanceSqMeters(here.latitude, here.longitude, it) }
+                } else {
+                    merged
+                }
+                KarrTrace.log(KarrTrace.MAP) {
+                    val rank = estimates.indexOfFirst { it.address == normalizedAddress } + 1
+                    "live ${updated.label} rssi=${updated.rssi} -> rank $rank/${estimates.size}" +
+                        if (here == null) " (no fix, unsorted)" else " nearest-first"
+                }
             }
         }
     }

@@ -30,6 +30,8 @@ object KarrTrace {
     const val AUTH = "KARR/Auth"
     const val PROTO = "KARR/Proto"
     const val POLICY = "KARR/Policy"
+    const val SWEEP = "KARR/Sweep"
+    const val MAP = "KARR/Map"
 
     /** Command code for `PROVIDE_AUTH`; duplicated here to keep [core] free of a
      * protocol dependency. Kept in sync with `QtCommand.PROVIDE_AUTH`. */
