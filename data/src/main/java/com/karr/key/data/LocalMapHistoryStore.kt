@@ -12,14 +12,11 @@ enum class MapCandidateTier {
     POSSIBLE,
 }
 
-/** locationProvider marker for an observation whose coordinates are the unit's own reported GPS
- * (from an extended READ_STATE), rather than the phone's location. The map plots these exactly. */
+/** locationProvider marker for observations carrying a unit's own reported GPS (extended
+ * READ_STATE). Those fixes proved to be stale last-known positions on hardware, so the map now
+ * filters them out and locates from phone-side RSSI; the tag remains so any already-stored rows
+ * stay identifiable and excluded. */
 const val VEHICLE_GPS_PROVIDER = "vehicle-gps"
-
-// A unit-reported fix is exact, so it carries a tight accuracy/confidence rather than the RSSI
-// range estimate used for phone-side sightings.
-private const val VEHICLE_GPS_ACCURACY_METERS = 1f
-private const val VEHICLE_GPS_RADIUS_METERS = 2.0
 
 data class LocalMapObservation(
     val id: String,
@@ -113,29 +110,6 @@ class LocalMapHistoryStore(
         writableDatabase.insertOrThrow("map_observations", null, observation.toValues())
         return observation
     }
-
-    /** Records a unit's own reported GPS (from an extended READ_STATE) as an exact-position
-     * observation. Tagged [VEHICLE_GPS_PROVIDER] with a tight confidence radius so the map plots
-     * the unit precisely instead of trilaterating from phone-side RSSI. */
-    fun addVehicleReportedPosition(
-        deviceAddress: String,
-        deviceName: String?,
-        latitude: Double,
-        longitude: Double,
-    ): LocalMapObservation = add(
-        observedUtc = Instant.now(),
-        deviceAddress = deviceAddress,
-        deviceName = deviceName,
-        classificationTier = MapCandidateTier.CONFIRMED_FORMAT,
-        classificationEvidence = "Unit-reported GPS position",
-        rssi = 0,
-        phoneLatitude = latitude,
-        phoneLongitude = longitude,
-        phoneAccuracyMeters = VEHICLE_GPS_ACCURACY_METERS,
-        locationProvider = VEHICLE_GPS_PROVIDER,
-        estimatedRangeMeters = 0.0,
-        confidenceRadiusMeters = VEHICLE_GPS_RADIUS_METERS,
-    )
 
     /**
      * Bulk-imports previously-decoded observations (e.g. from [MapHistoryCsv]) in one

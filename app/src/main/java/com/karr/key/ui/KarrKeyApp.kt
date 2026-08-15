@@ -331,22 +331,11 @@ fun KarrKeyApp(
                                 decoded = decoded,
                                 fallbackUnitModel = ready.unitModel,
                             )
-                            // If the unit reported its own GPS (extended READ_STATE), plot it exactly
-                            // — a drive-by yields the vehicle's true coordinates, not an RSSI guess.
-                            decoded?.vehiclePosition?.let { position ->
-                                withContext(Dispatchers.IO) {
-                                    mapHistoryStore.addVehicleReportedPosition(
-                                        deviceAddress = ready.address,
-                                        deviceName = ready.name,
-                                        latitude = position.latitude,
-                                        longitude = position.longitude,
-                                    )
-                                }
-                                KarrTrace.log(KarrTrace.MAP) {
-                                    "unit-reported GPS ${ready.name ?: ready.address} -> " +
-                                        "${position.latitude}, ${position.longitude}"
-                                }
-                            }
+                            // NOTE: READ_STATE also carries the unit's self-reported GPS, but on
+                            // hardware it proved to be a stale last-known fix (static across reads,
+                            // ~1 km from the unit's real position), so it is NOT plotted — the map
+                            // locates from phone-side RSSI instead. The reported position is still
+                            // visible in the stored read data for reference.
                         }
                     } else {
                         KarrTrace.log(KarrTrace.SWEEP) {

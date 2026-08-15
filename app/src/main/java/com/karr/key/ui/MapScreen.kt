@@ -1220,44 +1220,33 @@ internal fun estimateDeviceLocations(
     // often lowercase), so group case-insensitively or the same device shows up as two pins.
     .groupBy { it.deviceAddress.uppercase() }
     .map { (normalizedAddress, group) ->
-        val sorted = group.sortedByDescending(LocalMapObservation::observedUtc)
-        val latest = sorted.first()
-        // If the unit reported its own GPS (extended READ_STATE), plot exactly there: the unit's
-        // own fix beats the RSSI-weighted approximation from phone vantage points. Newest wins.
-        val vehicleFix = sorted.firstOrNull { it.locationProvider == VEHICLE_GPS_PROVIDER }
-        if (vehicleFix != null) {
-            DeviceMapEstimate(
-                address = normalizedAddress,
-                label = latest.deviceName ?: "Unnamed KARR candidate",
-                tier = latest.classificationTier,
-                evidence = "Unit-reported GPS position",
-                latitude = vehicleFix.phoneLatitude,
-                longitude = vehicleFix.phoneLongitude,
-                radiusMeters = vehicleFix.confidenceRadiusMeters
-                    .coerceAtLeast(MIN_CONFIDENCE_RADIUS_METERS),
-                rssi = latest.rssi,
-                lastSeenUtc = latest.observedUtc,
-            )
-        } else {
-            val weighted = sorted.fold(WeightedLocation()) { accumulator, observation ->
-                val confidence = max(observation.confidenceRadiusMeters, 1.0)
-                val signalWeight = (observation.rssi + 100).coerceIn(1, 80).toDouble()
-                val weight = signalWeight / (confidence * confidence)
-                accumulator.add(observation, weight)
-            }
-            DeviceMapEstimate(
-                address = normalizedAddress,
-                label = latest.deviceName ?: "Unnamed KARR candidate",
-                tier = latest.classificationTier,
-                evidence = latest.classificationEvidence,
-                latitude = weighted.latitude,
-                longitude = weighted.longitude,
-                radiusMeters = sorted.minOf(LocalMapObservation::confidenceRadiusMeters)
-                    .coerceAtLeast(MIN_CONFIDENCE_RADIUS_METERS),
-                rssi = latest.rssi,
-                lastSeenUtc = latest.observedUtc,
-            )
+        // A unit's self-reported GPS (extended READ_STATE) proved on hardware to be a stale
+        // last-known fix — static across reads and ~1 km from the unit's real position — so ignore
+        // those observations and locate from phone-side RSSI, which reflects where we actually saw
+        // the unit. Fall back to the raw group only if a unit somehow has no phone-side sighting.
+        val sorted = group
+            .filterNot { it.locationProvider == VEHICLE_GPS_PROVIDER }
+            .ifEmpty { group }
+            .sortedByDescending(LocalMapObservation::observedUtc)
+        val weighted = sorted.fold(WeightedLocation()) { accumulator, observation ->
+            val confidence = max(observation.confidenceRadiusMeters, 1.0)
+            val signalWeight = (observation.rssi + 100).coerceIn(1, 80).toDouble()
+            val weight = signalWeight / (confidence * confidence)
+            accumulator.add(observation, weight)
         }
+        val latest = sorted.first()
+        DeviceMapEstimate(
+            address = normalizedAddress,
+            label = latest.deviceName ?: "Unnamed KARR candidate",
+            tier = latest.classificationTier,
+            evidence = latest.classificationEvidence,
+            latitude = weighted.latitude,
+            longitude = weighted.longitude,
+            radiusMeters = sorted.minOf(LocalMapObservation::confidenceRadiusMeters)
+                .coerceAtLeast(MIN_CONFIDENCE_RADIUS_METERS),
+            rssi = latest.rssi,
+            lastSeenUtc = latest.observedUtc,
+        )
     }
     .sortedByDescending(DeviceMapEstimate::lastSeenUtc)
 
