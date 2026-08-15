@@ -174,11 +174,11 @@ fun KarrKeyApp(
         mutableStateOf(autoConnectReadPreferences.enabled)
     }
     val autoReadExchange = remember(bleController) { BleCommandExchange(bleController) }
-    // The catalog derives operation ids from the command name (READ_ALL_SETTINGS ->
-    // "read-all-settings"), NOT from the action's own id string, so the old "read-settings"
-    // silently resolved to null and the whole read/disconnect/re-scan effect no-opped.
-    val readAllSettingsOperation = remember {
-        RecoveredWorkflowCatalog.operationById("read-all-settings")
+    // Auto-read uses READ_STATE so a drive-by captures the unit's own reported GPS from its
+    // extended state, letting the map plot it exactly. The catalog derives operation ids from the
+    // command name (READ_STATE -> "read-state"), NOT from the action's own id string.
+    val readStateOperation = remember {
+        RecoveredWorkflowCatalog.operationById("read-state")
     }
     // Per-device cooldown so the sweep doesn't immediately reconnect to the unit it just read
     // (still the nearest/strongest signal right after disconnecting) instead of moving on to
@@ -273,7 +273,7 @@ fun KarrKeyApp(
 
     LaunchedEffect(autoConnectReadEnabled, bleController) {
         if (!autoConnectReadEnabled) return@LaunchedEffect
-        val operation = readAllSettingsOperation
+        val operation = readStateOperation
         if (operation == null) {
             KarrTrace.warn(KarrTrace.SWEEP, "read operation unavailable; sweep cannot read")
             return@LaunchedEffect
@@ -331,6 +331,22 @@ fun KarrKeyApp(
                                 decoded = decoded,
                                 fallbackUnitModel = ready.unitModel,
                             )
+                            // If the unit reported its own GPS (extended READ_STATE), plot it exactly
+                            // — a drive-by yields the vehicle's true coordinates, not an RSSI guess.
+                            decoded?.vehiclePosition?.let { position ->
+                                withContext(Dispatchers.IO) {
+                                    mapHistoryStore.addVehicleReportedPosition(
+                                        deviceAddress = ready.address,
+                                        deviceName = ready.name,
+                                        latitude = position.latitude,
+                                        longitude = position.longitude,
+                                    )
+                                }
+                                KarrTrace.log(KarrTrace.MAP) {
+                                    "unit-reported GPS ${ready.name ?: ready.address} -> " +
+                                        "${position.latitude}, ${position.longitude}"
+                                }
+                            }
                         }
                     } else {
                         KarrTrace.log(KarrTrace.SWEEP) {

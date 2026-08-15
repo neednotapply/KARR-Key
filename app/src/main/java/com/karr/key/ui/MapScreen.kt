@@ -83,6 +83,7 @@ import com.karr.key.data.LocalDeviceReadStore
 import com.karr.key.data.LocalMapHistoryStore
 import com.karr.key.data.LocalMapObservation
 import com.karr.key.data.MapCandidateTier
+import com.karr.key.data.VEHICLE_GPS_PROVIDER
 import java.io.File
 import java.time.Instant
 import java.time.ZoneId
@@ -1220,25 +1221,43 @@ internal fun estimateDeviceLocations(
     .groupBy { it.deviceAddress.uppercase() }
     .map { (normalizedAddress, group) ->
         val sorted = group.sortedByDescending(LocalMapObservation::observedUtc)
-        val weighted = sorted.fold(WeightedLocation()) { accumulator, observation ->
-            val confidence = max(observation.confidenceRadiusMeters, 1.0)
-            val signalWeight = (observation.rssi + 100).coerceIn(1, 80).toDouble()
-            val weight = signalWeight / (confidence * confidence)
-            accumulator.add(observation, weight)
-        }
         val latest = sorted.first()
-        DeviceMapEstimate(
-            address = normalizedAddress,
-            label = latest.deviceName ?: "Unnamed KARR candidate",
-            tier = latest.classificationTier,
-            evidence = latest.classificationEvidence,
-            latitude = weighted.latitude,
-            longitude = weighted.longitude,
-            radiusMeters = sorted.minOf(LocalMapObservation::confidenceRadiusMeters)
-                .coerceAtLeast(MIN_CONFIDENCE_RADIUS_METERS),
-            rssi = latest.rssi,
-            lastSeenUtc = latest.observedUtc,
-        )
+        // If the unit reported its own GPS (extended READ_STATE), plot exactly there: the unit's
+        // own fix beats the RSSI-weighted approximation from phone vantage points. Newest wins.
+        val vehicleFix = sorted.firstOrNull { it.locationProvider == VEHICLE_GPS_PROVIDER }
+        if (vehicleFix != null) {
+            DeviceMapEstimate(
+                address = normalizedAddress,
+                label = latest.deviceName ?: "Unnamed KARR candidate",
+                tier = latest.classificationTier,
+                evidence = "Unit-reported GPS position",
+                latitude = vehicleFix.phoneLatitude,
+                longitude = vehicleFix.phoneLongitude,
+                radiusMeters = vehicleFix.confidenceRadiusMeters
+                    .coerceAtLeast(MIN_CONFIDENCE_RADIUS_METERS),
+                rssi = latest.rssi,
+                lastSeenUtc = latest.observedUtc,
+            )
+        } else {
+            val weighted = sorted.fold(WeightedLocation()) { accumulator, observation ->
+                val confidence = max(observation.confidenceRadiusMeters, 1.0)
+                val signalWeight = (observation.rssi + 100).coerceIn(1, 80).toDouble()
+                val weight = signalWeight / (confidence * confidence)
+                accumulator.add(observation, weight)
+            }
+            DeviceMapEstimate(
+                address = normalizedAddress,
+                label = latest.deviceName ?: "Unnamed KARR candidate",
+                tier = latest.classificationTier,
+                evidence = latest.classificationEvidence,
+                latitude = weighted.latitude,
+                longitude = weighted.longitude,
+                radiusMeters = sorted.minOf(LocalMapObservation::confidenceRadiusMeters)
+                    .coerceAtLeast(MIN_CONFIDENCE_RADIUS_METERS),
+                rssi = latest.rssi,
+                lastSeenUtc = latest.observedUtc,
+            )
+        }
     }
     .sortedByDescending(DeviceMapEstimate::lastSeenUtc)
 

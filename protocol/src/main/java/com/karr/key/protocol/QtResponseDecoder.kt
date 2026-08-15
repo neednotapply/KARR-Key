@@ -7,6 +7,13 @@ data class QtDecodedResponse(
     val lines: List<String>,
     val securityState: QtSecurityState? = null,
     val unitModel: KarrUnitModel? = null,
+    val vehiclePosition: VehiclePosition? = null,
+)
+
+/** A unit's self-reported GPS position, decoded from an extended READ_STATE response. */
+data class VehiclePosition(
+    val latitude: Double,
+    val longitude: Double,
 )
 
 enum class QtSecurityState(val displayName: String) {
@@ -305,6 +312,7 @@ object QtResponseDecoder {
         val primary = payload[0].unsigned()
         val secondary = payload.getOrNull(1)?.unsigned()
         val securityState = secondary?.toSecurityState(ARMED_MASK)
+        val vehiclePosition = decodeVehiclePosition(payload)
         val lines = buildList {
             add("Ignition: ${openClosed(primary, IGNITION_MASK, "On", "Off")}")
             add("Security: ${securityState?.displayName ?: "Not returned"}")
@@ -327,32 +335,44 @@ object QtResponseDecoder {
                 add("Battery: ${formatMillivolts(millivolts)}")
             }
 
-            if (payload.size == EXTENDED_STATE_BYTES) {
-                val latitudeRaw = payload.u32LittleEndian(STATE_LATITUDE_OFFSET)
-                val longitudeRaw = payload.u32LittleEndian(STATE_LONGITUDE_OFFSET)
-                if (latitudeRaw != null && longitudeRaw != null) {
-                    val latitude = latitudeRaw / COORDINATE_SCALE - LATITUDE_OFFSET
-                    val longitude = longitudeRaw / COORDINATE_SCALE - LONGITUDE_OFFSET
-                    if (latitude in -90.0..90.0 && longitude in -180.0..180.0) {
-                        add(
-                            "Position: ${
-                                String.format(
-                                    Locale.US,
-                                    "%.6f, %.6f",
-                                    latitude,
-                                    longitude,
-                                )
-                            }",
+            vehiclePosition?.let { position ->
+                add(
+                    "Position: ${
+                        String.format(
+                            Locale.US,
+                            "%.6f, %.6f",
+                            position.latitude,
+                            position.longitude,
                         )
-                    }
-                }
+                    }",
+                )
             }
         }
         return QtDecodedResponse(
             heading = "Vehicle state",
             lines = lines,
             securityState = securityState,
+            vehiclePosition = vehiclePosition,
         )
+    }
+
+    /**
+     * Decodes the unit's self-reported GPS from the extended-position layout, or null when the
+     * response is the short state format or the coordinates are out of range. Offsets and the
+     * 1e6 fixed-point scaling mirror the recovered extended READ_STATE payload.
+     */
+    private fun decodeVehiclePosition(payload: ByteArray): VehiclePosition? {
+        if (payload.size != EXTENDED_STATE_BYTES) {
+            return null
+        }
+        val latitudeRaw = payload.u32LittleEndian(STATE_LATITUDE_OFFSET) ?: return null
+        val longitudeRaw = payload.u32LittleEndian(STATE_LONGITUDE_OFFSET) ?: return null
+        val latitude = latitudeRaw / COORDINATE_SCALE - LATITUDE_OFFSET
+        val longitude = longitudeRaw / COORDINATE_SCALE - LONGITUDE_OFFSET
+        if (latitude !in -90.0..90.0 || longitude !in -180.0..180.0) {
+            return null
+        }
+        return VehiclePosition(latitude, longitude)
     }
 
     private fun decodeFirmware(payload: ByteArray): QtDecodedResponse {

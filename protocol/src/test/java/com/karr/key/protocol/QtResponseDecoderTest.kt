@@ -38,6 +38,23 @@ class QtResponseDecoderTest {
         assertTrue(decoded.lines.contains("Front passenger door: Closed"))
         assertTrue(decoded.lines.contains("Battery: 12.454 V"))
         assertTrue(decoded.lines.contains("Position: 36.686112, -121.804468"))
+        val position = decoded.vehiclePosition
+        assertNotNull(position)
+        assertEquals(36.686112, position!!.latitude, 1e-6)
+        assertEquals(-121.804468, position.longitude, 1e-6)
+    }
+
+    @Test
+    fun shortVehicleStateHasNoReportedPosition() {
+        // The short (non-extended) state format carries no GPS, so no position is exposed.
+        val decoded = decode(
+            command = QtCommand.READ_STATE,
+            payload = bytes(0x01, 0x00, 0xA6, 0x30),
+        )
+
+        assertEquals("Vehicle state", decoded.heading)
+        assertNull(decoded.vehiclePosition)
+        assertTrue(decoded.lines.none { line -> line.startsWith("Position:") })
     }
 
     @Test
