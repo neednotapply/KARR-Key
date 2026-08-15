@@ -199,15 +199,34 @@ fun KarrKeyApp(
         }
         onDispose { recorderLocationTracker.stop() }
     }
+    // Throttle writes: a unit seen several times a second while parked would otherwise bloat the DB,
+    // and the map decrypts every stored row on open (6 keystore ops per row), so unchecked growth
+    // makes the map slow to populate. Record a unit again only once the phone has moved a little or
+    // enough time has passed — a dense track while driving, sparse while stationary.
+    val lastMapRecord = remember { mutableMapOf<String, RecorderMark>() }
     LaunchedEffect(bleController, mapHistoryStore) {
         bleController.scanObservations.collect { observation ->
             val location = recorderLocation ?: return@collect
             if (!location.isFresh()) return@collect
             val stored = observation.toLocalMapObservation(location) ?: return@collect
+            val now = SystemClock.elapsedRealtime()
+            val last = lastMapRecord[stored.deviceAddress]
+            if (last != null &&
+                now - last.elapsedRealtimeMillis < MAP_RECORD_MAX_INTERVAL_MILLIS &&
+                approxDistanceMeters(
+                    last.latitude,
+                    last.longitude,
+                    location.latitude,
+                    location.longitude,
+                ) < MAP_RECORD_MIN_METERS
+            ) {
+                return@collect
+            }
+            lastMapRecord[stored.deviceAddress] =
+                RecorderMark(now, location.latitude, location.longitude)
             withContext(Dispatchers.IO) { mapHistoryStore.add(stored) }
             KarrTrace.log(KarrTrace.MAP) {
-                "record ${stored.deviceName ?: stored.deviceAddress} " +
-                    "rssi=${stored.rssi} tier=${stored.classificationTier}"
+                "record ${stored.deviceName ?: stored.deviceAddress} rssi=${stored.rssi}"
             }
         }
     }
@@ -1124,3 +1143,27 @@ private val SWIPE_NAVIGATION_THRESHOLD = 56.dp
 // Re-read/rotate interval per unit. 20s keeps read-speed testing responsive on one or two units
 // while still rotating past a just-read unit to others in range; raise it for field surveying.
 private const val AUTO_SWEEP_COOLDOWN_MILLIS = 20 * 1_000L
+
+// Map recorder throttle: re-record a unit only after ~8 m of movement, or every 15 s regardless,
+// so a stationary unit refreshes its last-seen without flooding the DB.
+private const val MAP_RECORD_MIN_METERS = 8.0
+private const val MAP_RECORD_MAX_INTERVAL_MILLIS = 15_000L
+private const val METERS_PER_DEGREE = 111_320.0
+
+private data class RecorderMark(
+    val elapsedRealtimeMillis: Long,
+    val latitude: Double,
+    val longitude: Double,
+)
+
+private fun approxDistanceMeters(
+    lat1: Double,
+    lon1: Double,
+    lat2: Double,
+    lon2: Double,
+): Double {
+    val avgLat = Math.toRadians((lat1 + lat2) / 2.0)
+    val dx = (lon2 - lon1) * Math.cos(avgLat) * METERS_PER_DEGREE
+    val dy = (lat2 - lat1) * METERS_PER_DEGREE
+    return Math.sqrt(dx * dx + dy * dy)
+}
