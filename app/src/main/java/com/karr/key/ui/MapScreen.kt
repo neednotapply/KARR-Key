@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Canvas
 import android.graphics.ColorMatrixColorFilter
+import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Point
 import android.hardware.Sensor
@@ -264,6 +265,16 @@ internal fun MapScreen(
                         ),
                     )
                 }
+            },
+            onReportedPositionTapped = { reported ->
+                KarrTrace.log(KarrTrace.MAP) {
+                    "jump to reported ${reported.latitude}, ${reported.longitude}"
+                }
+                focusRequest = MapFocusRequest(
+                    point = reported,
+                    zoom = null,
+                    nonce = (focusRequest?.nonce ?: 0) + 1,
+                )
             },
             modifier = Modifier
                 .fillMaxSize()
@@ -672,6 +683,7 @@ private fun KarrMapView(
     focusRequest: MapFocusRequest?,
     mapOrientationDegrees: Float,
     onEstimatesSelected: (List<DeviceMapEstimate>, Boolean) -> Unit,
+    onReportedPositionTapped: (GeoPoint) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -729,6 +741,7 @@ private fun KarrMapView(
             currentHost.overlay.clusterCellPx = clusterCellPx
             currentHost.overlay.clusterRadiusPx = clusterRadiusPx
             currentHost.overlay.onEstimatesTapped = onEstimatesSelected
+            currentHost.overlay.onReportedPositionTapped = onReportedPositionTapped
             if (!currentHost.centeredOnce) {
                 val location = phoneLocation
                 if (location != null) {
@@ -840,6 +853,7 @@ private class ConfidenceOverlay : Overlay() {
     var clusterCellPx: Float = 0f
     var clusterRadiusPx: Float = 0f
     var onEstimatesTapped: ((List<DeviceMapEstimate>, Boolean) -> Unit)? = null
+    var onReportedPositionTapped: ((GeoPoint) -> Unit)? = null
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
@@ -862,6 +876,20 @@ private class ConfidenceOverlay : Overlay() {
         textAlign = Paint.Align.CENTER
         isFakeBoldText = true
     }
+    // Dashed line + hollow marker for the unit's self-reported (stale) GPS, distinct from the solid
+    // RSSI pin so it reads as "recently reported here", not "currently here".
+    private val reportedLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+        pathEffect = DashPathEffect(floatArrayOf(14f, 10f), 0f)
+    }
+    private val reportedFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
+    private val reportedStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+    }
 
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
         if (shadow) return
@@ -881,14 +909,51 @@ private class ConfidenceOverlay : Overlay() {
             canvas.drawCircle(point.x.toFloat(), point.y.toFloat(), 10f, phonePaint)
             canvas.drawCircle(point.x.toFloat(), point.y.toFloat(), 18f, guidePaint)
         }
+        val reportedColor = (if (darkTheme) REPORTED_MARKER_DARK else REPORTED_MARKER_LIGHT).toArgb()
         clusterEstimates(mapView, projection).forEach { cluster ->
             val singleton = cluster.members.singleOrNull()
             if (singleton != null) {
+                drawReportedAnnotation(canvas, projection, singleton.first, singleton.second, reportedColor)
                 drawSingleEstimate(canvas, projection, singleton.first, singleton.second)
             } else {
                 drawCluster(canvas, cluster)
             }
         }
+    }
+
+    // Draws the dashed line from the RSSI pin to the unit's self-reported (stale) GPS and a hollow
+    // marker there, so the reported location reads as a separate "recently here" annotation.
+    private fun drawReportedAnnotation(
+        canvas: Canvas,
+        projection: Projection,
+        estimate: DeviceMapEstimate,
+        rssiPoint: Point,
+        color: Int,
+    ) {
+        val reported = estimate.reportedPosition ?: return
+        val reportedPoint = projection.toPixels(reported, Point())
+        reportedLinePaint.color = color.withAlpha(170)
+        canvas.drawLine(
+            rssiPoint.x.toFloat(),
+            rssiPoint.y.toFloat(),
+            reportedPoint.x.toFloat(),
+            reportedPoint.y.toFloat(),
+            reportedLinePaint,
+        )
+        reportedFillPaint.color = color.withAlpha(if (darkTheme) 80 else 60)
+        reportedStrokePaint.color = color.withAlpha(235)
+        canvas.drawCircle(
+            reportedPoint.x.toFloat(),
+            reportedPoint.y.toFloat(),
+            REPORTED_MARKER_RADIUS_PX,
+            reportedFillPaint,
+        )
+        canvas.drawCircle(
+            reportedPoint.x.toFloat(),
+            reportedPoint.y.toFloat(),
+            REPORTED_MARKER_RADIUS_PX,
+            reportedStrokePaint,
+        )
     }
 
     private fun drawSingleEstimate(
@@ -975,6 +1040,24 @@ private class ConfidenceOverlay : Overlay() {
         val projection = mapView.projection
         val clusters = clusterEstimates(mapView, projection)
 
+        // Tapping a unit's reported-GPS marker jumps the map to that recently-reported location.
+        // Checked first so the small annotation marker wins over a unit circle behind it.
+        val reportedHit = clusters
+            .asSequence()
+            .filter { it.members.size == 1 }
+            .mapNotNull { it.members.first().first.reportedPosition }
+            .firstOrNull { reported ->
+                val point = projection.toPixels(reported, Point())
+                val radius = max(REPORTED_MARKER_RADIUS_PX, minTouchRadiusPx)
+                val dx = e.x - point.x
+                val dy = e.y - point.y
+                (dx * dx + dy * dy) <= radius * radius
+            }
+        if (reportedHit != null) {
+            onReportedPositionTapped?.invoke(reportedHit)
+            return true
+        }
+
         // A numbered grid bubble (multi-member cluster, only present when zoomed out) is a
         // tap-to-expand target: return its members and signal the caller to zoom in.
         val bubble = clusters.firstOrNull { cluster ->
@@ -1051,6 +1134,9 @@ internal data class DeviceMapEstimate(
     val radiusMeters: Double,
     val rssi: Int,
     val lastSeenUtc: Instant,
+    // The unit's most recent self-reported GPS (stale last-known fix), shown as a secondary
+    // annotation connected to the RSSI position by a line. Null when the unit never reported one.
+    val reportedPosition: GeoPoint? = null,
 )
 
 // nonce distinguishes repeat requests to focus the same point, since a data-class equality
@@ -1235,6 +1321,12 @@ internal fun estimateDeviceLocations(
             accumulator.add(observation, weight)
         }
         val latest = sorted.first()
+        // The unit's most recent self-reported GPS (if any) is surfaced as a secondary annotation,
+        // not the plotted position — it's a stale last-known fix, useful as a recently-visited spot.
+        val reportedPosition = group
+            .filter { it.locationProvider == VEHICLE_GPS_PROVIDER }
+            .maxByOrNull(LocalMapObservation::observedUtc)
+            ?.let { GeoPoint(it.phoneLatitude, it.phoneLongitude) }
         DeviceMapEstimate(
             address = normalizedAddress,
             label = latest.deviceName ?: "Unnamed KARR candidate",
@@ -1246,6 +1338,7 @@ internal fun estimateDeviceLocations(
                 .coerceAtLeast(MIN_CONFIDENCE_RADIUS_METERS),
             rssi = latest.rssi,
             lastSeenUtc = latest.observedUtc,
+            reportedPosition = reportedPosition,
         )
     }
     .sortedByDescending(DeviceMapEstimate::lastSeenUtc)
@@ -1334,6 +1427,11 @@ private val PHONE_DOT_LIGHT = Color(0xff2563eb)
 private val PHONE_DOT_DARK = Color(0xff60a5fa)
 private val GUIDE_RING_LIGHT = Color(0xff64748b)
 private val GUIDE_RING_DARK = Color(0xff94a3b8)
+// Violet, distinct from the teal/amber tier colors, for a unit's self-reported (stale) GPS marker
+// and its connecting line.
+private val REPORTED_MARKER_LIGHT = Color(0xff7c3aed)
+private val REPORTED_MARKER_DARK = Color(0xffa78bfa)
+private const val REPORTED_MARKER_RADIUS_PX = 10f
 private const val SEARCH_FOCUS_ZOOM = 18.0
 private val LAST_SEEN_FORMAT: DateTimeFormatter =
     DateTimeFormatter.ofPattern("MMM d, yyyy HH:mm").withZone(ZoneId.systemDefault())

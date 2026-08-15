@@ -184,6 +184,9 @@ fun KarrKeyApp(
     // (still the nearest/strongest signal right after disconnecting) instead of moving on to
     // others nearby. Keyed by normalized address, valued by SystemClock.elapsedRealtime().
     val autoSweepCooldownUntil = remember { mutableMapOf<String, Long>() }
+    // Last reported GPS recorded per unit, so a static stale fix isn't re-written every sweep pass;
+    // only a changed position adds a new "recently reported" annotation point.
+    val lastReportedGps = remember { mutableMapOf<String, Pair<Double, Double>>() }
 
     // Records every KARR sighting to map history during ANY scan, on ANY tab. Hoisted here (like
     // the sweep below) so map persistence isn't tied to the Map screen being composed; the Map
@@ -331,11 +334,30 @@ fun KarrKeyApp(
                                 decoded = decoded,
                                 fallbackUnitModel = ready.unitModel,
                             )
-                            // NOTE: READ_STATE also carries the unit's self-reported GPS, but on
-                            // hardware it proved to be a stale last-known fix (static across reads,
-                            // ~1 km from the unit's real position), so it is NOT plotted — the map
-                            // locates from phone-side RSSI instead. The reported position is still
-                            // visible in the stored read data for reference.
+                            // READ_STATE's self-reported GPS is a stale last-known fix (static, ~1 km
+                            // off), so it is NOT the plotted position — the map locates from RSSI.
+                            // But it's a recently-visited location worth keeping: record it as a
+                            // secondary annotation (marker + line to the RSSI pin, tap to jump).
+                            // Deduped so a static fix isn't re-written on every pass.
+                            decoded?.vehiclePosition?.let { position ->
+                                val key = ready.address.uppercase()
+                                val coord = position.latitude to position.longitude
+                                if (lastReportedGps[key] != coord) {
+                                    lastReportedGps[key] = coord
+                                    withContext(Dispatchers.IO) {
+                                        mapHistoryStore.addVehicleReportedPosition(
+                                            deviceAddress = ready.address,
+                                            deviceName = ready.name,
+                                            latitude = position.latitude,
+                                            longitude = position.longitude,
+                                        )
+                                    }
+                                    KarrTrace.log(KarrTrace.MAP) {
+                                        "reported GPS ${ready.name ?: ready.address} -> " +
+                                            "${position.latitude}, ${position.longitude}"
+                                    }
+                                }
+                            }
                         }
                     } else {
                         KarrTrace.log(KarrTrace.SWEEP) {

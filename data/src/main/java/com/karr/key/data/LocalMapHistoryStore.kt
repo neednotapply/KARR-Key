@@ -13,9 +13,9 @@ enum class MapCandidateTier {
 }
 
 /** locationProvider marker for observations carrying a unit's own reported GPS (extended
- * READ_STATE). Those fixes proved to be stale last-known positions on hardware, so the map now
- * filters them out and locates from phone-side RSSI; the tag remains so any already-stored rows
- * stay identifiable and excluded. */
+ * READ_STATE). These fixes are stale last-known positions on hardware, so they are NOT used as the
+ * unit's plotted position (that stays RSSI-based); instead the map surfaces them as a secondary
+ * "recently reported" annotation — a marker and connecting line to the RSSI pin. */
 const val VEHICLE_GPS_PROVIDER = "vehicle-gps"
 
 data class LocalMapObservation(
@@ -110,6 +110,29 @@ class LocalMapHistoryStore(
         writableDatabase.insertOrThrow("map_observations", null, observation.toValues())
         return observation
     }
+
+    /** Records a unit's own reported GPS (extended READ_STATE) as a [VEHICLE_GPS_PROVIDER]-tagged
+     * observation. The map keeps the unit's plotted position RSSI-based (the fix is a stale
+     * last-known location) and uses this only as the secondary "recently reported" annotation. */
+    fun addVehicleReportedPosition(
+        deviceAddress: String,
+        deviceName: String?,
+        latitude: Double,
+        longitude: Double,
+    ): LocalMapObservation = add(
+        observedUtc = Instant.now(),
+        deviceAddress = deviceAddress,
+        deviceName = deviceName,
+        classificationTier = MapCandidateTier.CONFIRMED_FORMAT,
+        classificationEvidence = "Unit-reported GPS position",
+        rssi = 0,
+        phoneLatitude = latitude,
+        phoneLongitude = longitude,
+        phoneAccuracyMeters = 1f,
+        locationProvider = VEHICLE_GPS_PROVIDER,
+        estimatedRangeMeters = 0.0,
+        confidenceRadiusMeters = 2.0,
+    )
 
     /**
      * Bulk-imports previously-decoded observations (e.g. from [MapHistoryCsv]) in one
