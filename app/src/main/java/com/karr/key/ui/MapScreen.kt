@@ -239,12 +239,16 @@ internal fun MapScreen(
             phoneLocation = phoneLocation,
             focusRequest = focusRequest,
             mapOrientationDegrees = if (headingUp) (360f - deviceHeadingDegrees) % 360f else 0f,
-            onEstimatesSelected = { hits ->
+            onEstimatesSelected = { hits, expand ->
                 selectedDeviceAddresses = hits.map { it.address }.toSet()
-                // A cluster (more than one hit from a single tap) zooms in to fit its members,
-                // matching MeshCore's tap-to-expand behavior — the closer view then naturally
-                // splits them back into individual markers via the zoom-gated clustering above.
-                if (hits.size > 1) {
+                KarrTrace.log(KarrTrace.MAP) {
+                    "tap -> ${hits.size} device(s): ${hits.joinToString { it.label }}" +
+                        if (expand) " (expand cluster)" else ""
+                }
+                // A numbered grid cluster expands (zoom to fit) to declutter, matching MeshCore's
+                // tap-to-expand behavior. Overlapping individual circles instead select every
+                // device under the tap, so the panel shows results for all of them.
+                if (expand && hits.size > 1) {
                     val latitudes = hits.map { it.latitude }
                     val longitudes = hits.map { it.longitude }
                     focusRequest = MapFocusRequest(
@@ -666,7 +670,7 @@ private fun KarrMapView(
     phoneLocation: PhoneLocation?,
     focusRequest: MapFocusRequest?,
     mapOrientationDegrees: Float,
-    onEstimatesSelected: (List<DeviceMapEstimate>) -> Unit,
+    onEstimatesSelected: (List<DeviceMapEstimate>, Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -834,7 +838,7 @@ private class ConfidenceOverlay : Overlay() {
     // approach most map SDKs' marker clustering uses, kept to a single O(n) pass per draw.
     var clusterCellPx: Float = 0f
     var clusterRadiusPx: Float = 0f
-    var onEstimatesTapped: ((List<DeviceMapEstimate>) -> Unit)? = null
+    var onEstimatesTapped: ((List<DeviceMapEstimate>, Boolean) -> Unit)? = null
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
@@ -968,19 +972,37 @@ private class ConfidenceOverlay : Overlay() {
 
     override fun onSingleTapConfirmed(e: MotionEvent, mapView: MapView): Boolean {
         val projection = mapView.projection
-        val hitCluster = clusterEstimates(mapView, projection).firstOrNull { cluster ->
-            val singleton = cluster.members.singleOrNull()
-            val touchRadiusPx = if (singleton != null) {
-                max(projectedRadiusPx(projection, singleton.first, singleton.second), minTouchRadiusPx)
-            } else {
-                max(clusterRadiusPx, minTouchRadiusPx)
+        val clusters = clusterEstimates(mapView, projection)
+
+        // A numbered grid bubble (multi-member cluster, only present when zoomed out) is a
+        // tap-to-expand target: return its members and signal the caller to zoom in.
+        val bubble = clusters.firstOrNull { cluster ->
+            cluster.members.size > 1 && run {
+                val radius = max(clusterRadiusPx, minTouchRadiusPx)
+                val dx = e.x - cluster.centerX
+                val dy = e.y - cluster.centerY
+                (dx * dx + dy * dy) <= radius * radius
             }
-            val dx = e.x - cluster.centerX
-            val dy = e.y - cluster.centerY
-            (dx * dx + dy * dy) <= touchRadiusPx * touchRadiusPx
         }
-        val hits = hitCluster?.members.orEmpty().map { it.first }
-        onEstimatesTapped?.invoke(hits)
+        if (bubble != null) {
+            onEstimatesTapped?.invoke(bubble.members.map { it.first }, true)
+            return true
+        }
+
+        // Otherwise select EVERY individual circle under the tap, so overlapping circles return
+        // results for all of them rather than only the first one hit-tested.
+        val hits = clusters
+            .filter { it.members.size == 1 }
+            .filter { cluster ->
+                val member = cluster.members.first()
+                val touchRadiusPx =
+                    max(projectedRadiusPx(projection, member.first, member.second), minTouchRadiusPx)
+                val dx = e.x - cluster.centerX
+                val dy = e.y - cluster.centerY
+                (dx * dx + dy * dy) <= touchRadiusPx * touchRadiusPx
+            }
+            .map { it.members.first().first }
+        onEstimatesTapped?.invoke(hits, false)
         return hits.isNotEmpty()
     }
 }
