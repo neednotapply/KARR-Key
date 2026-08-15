@@ -44,6 +44,7 @@ import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffo
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -92,9 +93,11 @@ import com.karr.key.protocol.KarrUnitModel
 import com.karr.key.protocol.QtResponseDecoder
 import com.karr.key.protocol.RecoveredDeviceOperation
 import com.karr.key.protocol.RecoveredWorkflowCatalog
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val KARR_FIRMWARE_UPDATE_URL =
     "https://www.karrsecurity.com/karr-security-firmware-update-instructions"
@@ -181,6 +184,33 @@ fun KarrKeyApp(
     // (still the nearest/strongest signal right after disconnecting) instead of moving on to
     // others nearby. Keyed by normalized address, valued by SystemClock.elapsedRealtime().
     val autoSweepCooldownUntil = remember { mutableMapOf<String, Long>() }
+
+    // Records every KARR sighting to map history during ANY scan, on ANY tab. Hoisted here (like
+    // the sweep below) so map persistence isn't tied to the Map screen being composed; the Map
+    // screen only builds observations for its live display. Uses its own lightweight location fix.
+    val context = LocalContext.current
+    var recorderLocation by remember { mutableStateOf<PhoneLocation?>(null) }
+    val recorderLocationTracker = remember(context) {
+        FrameworkLocationTracker(context) { location -> recorderLocation = location }
+    }
+    DisposableEffect(context) {
+        if (context.hasForegroundLocationPermission()) {
+            recorderLocationTracker.start()
+        }
+        onDispose { recorderLocationTracker.stop() }
+    }
+    LaunchedEffect(bleController, mapHistoryStore) {
+        bleController.scanObservations.collect { observation ->
+            val location = recorderLocation ?: return@collect
+            if (!location.isFresh()) return@collect
+            val stored = observation.toLocalMapObservation(location) ?: return@collect
+            withContext(Dispatchers.IO) { mapHistoryStore.add(stored) }
+            KarrTrace.log(KarrTrace.MAP) {
+                "record ${stored.deviceName ?: stored.deviceAddress} " +
+                    "rssi=${stored.rssi} tier=${stored.classificationTier}"
+            }
+        }
+    }
 
     LaunchedEffect(deviceAuthenticated) {
         // Auto-connect/read drives the app hands-free, so it shouldn't also get yanked over to

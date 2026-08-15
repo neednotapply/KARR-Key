@@ -98,6 +98,13 @@ class LocalMapHistoryStore(
         return observation
     }
 
+    /** Persists an already-built observation (converted upstream), so a single app-level recorder
+     * can own map persistence while the Map screen only builds observations for live display. */
+    fun add(observation: LocalMapObservation): LocalMapObservation {
+        writableDatabase.insertOrThrow("map_observations", null, observation.toValues())
+        return observation
+    }
+
     /**
      * Bulk-imports previously-decoded observations (e.g. from [MapHistoryCsv]) in one
      * transaction. Device address is encrypted with a randomized IV, so it cannot be matched

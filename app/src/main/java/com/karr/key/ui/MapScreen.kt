@@ -87,6 +87,7 @@ import java.io.File
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.floor
@@ -196,11 +197,14 @@ internal fun MapScreen(
         onDispose { orientationTracker.stop() }
     }
 
+    // Display-only: builds an in-memory observation to update live markers while the Map screen is
+    // open. Persistence to history is owned by the app-level recorder in KarrKeyApp so sightings
+    // are stored during any scan on any tab, not only while this screen is composed.
     LaunchedEffect(controller, locationGranted) {
         controller.scanObservations.collect { observation ->
             val location = currentLocation ?: return@collect
             if (!location.isFresh()) return@collect
-            val stored = observation.toLocalMapObservation(location, historyStore)
+            val stored = observation.toLocalMapObservation(location)
                 ?: return@collect
             history = listOf(stored) + history
             // Re-cluster only this device's own observations rather than the whole history, so
@@ -1037,7 +1041,7 @@ private data class MapFocusRequest(
     val boundingBox: BoundingBox? = null,
 )
 
-private class FrameworkLocationTracker(
+internal class FrameworkLocationTracker(
     context: Context,
     private val onLocation: (PhoneLocation) -> Unit,
 ) : LocationListener {
@@ -1135,9 +1139,11 @@ private fun Context.currentDisplayRotation(): Int {
     return displayManager.getDisplay(Display.DEFAULT_DISPLAY)?.rotation ?: Surface.ROTATION_0
 }
 
-private fun BleScanObservation.toLocalMapObservation(
+// Pure conversion (no persistence): builds an in-memory observation for a KARR candidate, or null
+// for a non-candidate. Persistence is owned by the app-level recorder in KarrKeyApp so sightings
+// are stored during any scan on any tab; the Map screen uses this only to update its live display.
+internal fun BleScanObservation.toLocalMapObservation(
     location: PhoneLocation,
-    historyStore: LocalMapHistoryStore,
 ): LocalMapObservation? {
     val tier = when (device.classification.tier) {
         KarrCandidateTier.CONFIRMED_FORMAT -> MapCandidateTier.CONFIRMED_FORMAT
@@ -1149,9 +1155,10 @@ private fun BleScanObservation.toLocalMapObservation(
         rangeMeters = range,
         phoneAccuracyMeters = location.accuracyMeters,
     )
-    return historyStore.add(
+    return LocalMapObservation(
+        id = UUID.randomUUID().toString(),
         observedUtc = Instant.ofEpochMilli(observedUtcMillis),
-        deviceAddress = device.address,
+        deviceAddress = device.address.uppercase(),
         deviceName = device.name,
         classificationTier = tier,
         classificationEvidence = device.classification.evidence,
@@ -1244,7 +1251,7 @@ private data class WeightedLocation(
         )
 }
 
-private fun Context.hasForegroundLocationPermission(): Boolean =
+internal fun Context.hasForegroundLocationPermission(): Boolean =
     ContextCompat.checkSelfPermission(
         this,
         Manifest.permission.ACCESS_FINE_LOCATION,
@@ -1254,7 +1261,7 @@ private fun Context.hasForegroundLocationPermission(): Boolean =
             Manifest.permission.ACCESS_COARSE_LOCATION,
         ) == PackageManager.PERMISSION_GRANTED
 
-private fun PhoneLocation.isFresh(): Boolean =
+internal fun PhoneLocation.isFresh(): Boolean =
     android.os.SystemClock.elapsedRealtime() - elapsedRealtimeMillis <= LOCATION_FRESHNESS_MILLIS
 
 private fun BleSessionState.canMapScan(): Boolean =
