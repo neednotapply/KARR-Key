@@ -19,7 +19,7 @@ import android.util.Log
  *    correlate an authorised device; acceptable because this never ships.
  *
  * Filter in the field with, for example:
- *   adb logcat -s KARR/Ble KARR/Cmd KARR/Auth KARR/Proto KARR/Policy
+ *   adb logcat -s KARR/Ble KARR/Cmd KARR/Auth KARR/Proto KARR/Policy KARR/Sweep KARR/Map
  */
 object KarrTrace {
     @Volatile

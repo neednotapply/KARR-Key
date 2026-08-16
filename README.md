@@ -213,25 +213,83 @@ Operation details use the normal Android back action.
 
 ## Building the app
 
-Developers need JDK 17, Android SDK 36, and either `local.properties` or
-`ANDROID_HOME` configured for that SDK.
+### Prerequisites
+
+- **JDK 17.** The Gradle build pins its compilation toolchain to JDK 17, so a
+  JDK 17 must be installed and discoverable. Any distribution works (CI uses
+  Temurin). A newer JDK (21, or Android Studio's bundled JBR) may also be on
+  your `PATH` — the toolchain still selects 17 — but point `JAVA_HOME` at the
+  JDK 17 so Gradle itself launches on it. Confirm with:
+
+  ```powershell
+  .\gradlew.bat -version
+  ```
+
+  The `Launcher JVM:` line should read `17.x`. If no JDK 17 is installed the
+  build fails immediately with a clear "No compatible toolchains" error instead
+  of silently compiling on the wrong JDK.
+- **Android SDK** with platform `android-36`, `build-tools;36.0.0`, and
+  `platform-tools`. Point Gradle at it with `sdk.dir` in `local.properties` or
+  the `ANDROID_HOME` environment variable (either is sufficient). Without
+  Android Studio, install the command-line tools and run:
+
+  ```powershell
+  sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+  ```
+
+### Getting the source
+
+The artifacts under `research/` (original APKs and IDA databases) are stored in
+Git LFS and are **not build inputs**. Skip them when cloning to avoid a large,
+pointless download:
 
 ```powershell
-.\gradlew.bat --no-daemon testDebugUnitTest lintDebug assembleDebug :app:assembleDebugAndroidTest
+$env:GIT_LFS_SKIP_SMUDGE = 1; git clone <repo-url>
 ```
 
-On Linux or macOS, use `./gradlew`. The debug APK is written to
-`app/build/outputs/apk/debug/KARR-Key.apk` and uses package name `com.karr.key`.
-The current app version is `1.0.3` (code 12).
+CI builds with LFS disabled for the same reason.
 
-The build checks that Map's Internet and network-state permissions are explicit,
-Bluetooth scan keeps `neverForLocation`, and foreground location permissions
-are explicit. GitHub Actions also runs the tests, lint, and debug build. A
-nightly prerelease is created only when the main branch has changed since the
-previous release.
+### Fast local iteration
 
-Stable releases are also produced entirely by GitHub Actions. Pushing a tag in
-the form `vMAJOR.MINOR.PATCH` runs the tests and lint against that exact tagged
+For the normal edit-build-run loop, keep the Gradle daemon warm — this is the
+default, so do **not** pass `--no-daemon` here — and build only what you need:
+
+```powershell
+.\gradlew.bat :app:assembleDebug
+```
+```powershell
+.\gradlew.bat installDebug
+```
+
+`installDebug` builds and installs to a connected device or emulator. The debug
+APK is written to `app/build/outputs/apk/debug/KARR-Key.apk`, uses package name
+`com.karr.key`, and is signed with the local debug keystore, so `installDebug`
+(or `adb install -r`) updates it in place without wiping the stored access keys.
+The app version lives in `versionName`/`versionCode` in
+[app/build.gradle.kts](app/build.gradle.kts).
+
+### Full check before pushing
+
+This mirrors what CI runs; use `--no-daemon` for a clean, reproducible result.
+Append `:app:assembleDebugAndroidTest` if you also need the instrumented-test
+APK:
+
+```powershell
+.\gradlew.bat --no-daemon testDebugUnitTest lintDebug assembleDebug
+```
+
+On Linux or macOS, use `./gradlew`.
+
+The build also checks that Map's Internet and network-state permissions are
+explicit, Bluetooth scan keeps `neverForLocation`, and foreground location
+permissions are explicit. GitHub Actions runs this same tests/lint/debug build
+on every push and pull request. A nightly prerelease is created only when the
+main branch has changed since the previous release.
+
+### Releases
+
+Stable releases are produced entirely by GitHub Actions. Pushing a tag in the
+form `vMAJOR.MINOR.PATCH` runs the tests and lint against that exact tagged
 commit, builds and verifies a CI-signed release APK, and creates the GitHub
 release with that APK as its only uploaded asset. GitHub displays the APK's
 SHA-256 digest directly on the release page, while the release notes retain the

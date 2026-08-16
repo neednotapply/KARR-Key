@@ -236,7 +236,12 @@ dependencies.
 
 ## Validation
 
-Run the complete check before handing off a change:
+The Gradle build pins its compilation toolchain to JDK 17, so a JDK 17 must be
+installed or the build fails fast with a "No compatible toolchains" error rather
+than compiling on the wrong JDK. See the environment prerequisites under
+[Building the app](README.md#building-the-app). While iterating, build with the
+default Gradle daemon (for example `.\gradlew.bat :app:assembleDebug`); reserve
+`--no-daemon` for the complete pre-handoff check below, which matches CI:
 
 ```powershell
 .\gradlew.bat --no-daemon testDebugUnitTest lintDebug assembleDebug
@@ -262,6 +267,34 @@ Run the complete check before handing off a change:
 
 CI intentionally skips Git LFS because research artifacts are not build
 inputs.
+
+## Live BLE/protocol tracing
+
+Debug builds emit a structured trace of the live BLE, protocol, and
+authentication pipeline to logcat, so a connected developer can follow a
+real-hardware session — including scanning — without touching the phone. It is
+implemented by `KarrTrace` (`core`) and enabled automatically for any debuggable
+build by `KarrApplication`; it never runs in a release APK. No key material is
+logged: the `PROVIDE_AUTH` response payload is redacted at the single wire choke
+point regardless of caller.
+
+View it over `adb logcat`, filtering to the KARR tags:
+
+```powershell
+adb logcat -s KARR/Ble KARR/Cmd KARR/Auth KARR/Proto KARR/Policy KARR/Sweep KARR/Map
+```
+
+| Tag | Covers |
+|---|---|
+| `KARR/Ble` | GATT state, connection, and TX/RX packets |
+| `KARR/Cmd` | Command exchange requests, responses, and timeouts |
+| `KARR/Auth` | Challenge/response authentication |
+| `KARR/Proto` | Protocol-level decoding |
+| `KARR/Policy` | Local role/capability allow/block decisions |
+| `KARR/Sweep` | Auto-sweep scan/connect/read loop |
+| `KARR/Map` | Map sightings recorded during a scan |
+
+`KARR/Sweep` and `KARR/Map` are the tags to watch during a scan.
 
 ## Remaining local compatibility work
 
