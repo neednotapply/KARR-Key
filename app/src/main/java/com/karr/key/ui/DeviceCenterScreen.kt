@@ -1,6 +1,7 @@
 package com.karr.key.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -11,6 +12,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -27,6 +30,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
@@ -38,6 +42,7 @@ import com.karr.key.ble.BleController
 import com.karr.key.ble.BleSessionState
 import com.karr.key.ble.DiscoveredDevice
 import com.karr.key.ble.KarrCandidateTier
+import com.karr.key.protocol.RecoveredWorkflowCatalog
 import kotlinx.coroutines.launch
 
 @Composable
@@ -45,6 +50,8 @@ internal fun DeviceCenterScreen(
     controller: BleController,
     autoConnectReadEnabled: Boolean,
     onAutoConnectReadEnabledChanged: (Boolean) -> Unit,
+    autoConnectSendOperationId: String,
+    onAutoConnectSendOperationSelected: (String) -> Unit,
     requestPermissions: (((Boolean) -> Unit) -> Unit),
     snackbar: SnackbarHostState,
     modifier: Modifier = Modifier,
@@ -84,6 +91,8 @@ internal fun DeviceCenterScreen(
         onShowOtherDevicesChanged = { showOtherDevices = it },
         autoConnectReadEnabled = autoConnectReadEnabled,
         onAutoConnectReadEnabledChanged = onAutoConnectReadEnabledChanged,
+        autoConnectSendOperationId = autoConnectSendOperationId,
+        onAutoConnectSendOperationSelected = onAutoConnectSendOperationSelected,
         onScan = startScan,
         onStopScan = controller::stopScan,
         onDisconnect = controller::disconnect,
@@ -110,6 +119,83 @@ internal fun DeviceCenterScreen(
 }
 
 @Composable
+private fun AutoConnectCard(
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+    selectedOperationId: String,
+    onOperationSelected: (String) -> Unit,
+) {
+    val operations = remember { RecoveredWorkflowCatalog.autoConnectOperations }
+    val selectedLabel = remember(selectedOperationId, operations) {
+        operations.firstOrNull { it.id == selectedOperationId }?.label
+            ?: operations.firstOrNull()?.label
+            ?: "Read unit state"
+    }
+    var expanded by remember { mutableStateOf(false) }
+    OutlinedCard(Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        "Auto-connect & send",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        "While scanning, automatically connects to each confirmed KARR unit " +
+                            "found, sends the selected operation once connected, then disconnects " +
+                            "and resumes scanning. Any read result is saved to the map.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = onEnabledChange,
+                )
+            }
+            Box(Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = { expanded = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("auto-connect-operation"),
+                ) {
+                    Text(selectedLabel, modifier = Modifier.weight(1f))
+                    Text("▾")
+                }
+                DropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false },
+                ) {
+                    operations.forEach { operation ->
+                        DropdownMenuItem(
+                            text = { Text(operation.label) },
+                            onClick = {
+                                onOperationSelected(operation.id)
+                                expanded = false
+                            },
+                            modifier = Modifier.testTag("auto-connect-operation:${operation.id}"),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ConnectionSection(
     state: BleSessionState,
     nearbyCount: Int,
@@ -120,6 +206,8 @@ private fun ConnectionSection(
     onShowOtherDevicesChanged: (Boolean) -> Unit,
     autoConnectReadEnabled: Boolean,
     onAutoConnectReadEnabledChanged: (Boolean) -> Unit,
+    autoConnectSendOperationId: String,
+    onAutoConnectSendOperationSelected: (String) -> Unit,
     onScan: () -> Unit,
     onStopScan: () -> Unit,
     onDisconnect: () -> Unit,
@@ -216,36 +304,12 @@ private fun ConnectionSection(
             }
         }
         item {
-            OutlinedCard(Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Text(
-                            "Auto-connect & read",
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Text(
-                            "While scanning, automatically connects to the next confirmed " +
-                                "KARR unit found, reads all unit settings once connected, " +
-                                "then disconnects and resumes scanning for the next unit.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(
-                        checked = autoConnectReadEnabled,
-                        onCheckedChange = onAutoConnectReadEnabledChanged,
-                    )
-                }
-            }
+            AutoConnectCard(
+                enabled = autoConnectReadEnabled,
+                onEnabledChange = onAutoConnectReadEnabledChanged,
+                selectedOperationId = autoConnectSendOperationId,
+                onOperationSelected = onAutoConnectSendOperationSelected,
+            )
         }
         item {
             SectionHeader(

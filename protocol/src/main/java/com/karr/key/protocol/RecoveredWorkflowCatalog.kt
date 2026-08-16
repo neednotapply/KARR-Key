@@ -472,6 +472,20 @@ object RecoveredWorkflowCatalog {
     fun operationById(operationId: String): RecoveredDeviceOperation? =
         operations.firstOrNull { operation -> operation.id == operationId }
 
+    /**
+     * Operations offered for auto-connect & send: every read plus the standard mutating commands,
+     * with Reads listed first. Excluded: experimental operations (the single-shot immobilizer-output
+     * test, whose safety depends on an interactive ignition-off preflight) and standalone mode
+     * switches (CHANGE_MODE) — a mode change now happens implicitly, driving a unit to a selected
+     * command's required mode before sending, rather than being chosen on its own.
+     */
+    val autoConnectOperations: List<RecoveredDeviceOperation> by lazy {
+        operations
+            .filterNot { operation -> operation.category == "Experimental" }
+            .filterNot { operation -> operation.command == QtCommand.CHANGE_MODE }
+            .sortedWith(compareBy({ operation -> operation.category != "Reads" }, { it.label }))
+    }
+
     fun actionsFor(featureId: String): List<RecoveredDeviceAction> =
         actions[featureId].orEmpty()
 

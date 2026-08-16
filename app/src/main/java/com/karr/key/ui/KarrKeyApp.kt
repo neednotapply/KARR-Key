@@ -76,11 +76,14 @@ import com.karr.key.R
 import com.karr.key.ble.BleCommandExchange
 import com.karr.key.ble.BleCommandExchangeResult
 import com.karr.key.ble.BleController
+import com.karr.key.ble.BleModeChangeExchange
+import com.karr.key.ble.BleModeChangeResult
 import com.karr.key.ble.BleSessionState
 import com.karr.key.core.KarrTrace
 import com.karr.key.core.ResearchAccess
 import com.karr.key.core.Session
 import com.karr.key.data.AutoConnectReadPreferences
+import com.karr.key.data.LocalDeviceProfileStore
 import com.karr.key.data.LocalDeviceReadStore
 import com.karr.key.data.LocalMapHistoryStore
 import com.karr.key.data.LocalOperationStore
@@ -90,6 +93,9 @@ import com.karr.key.protocol.DeviceKeyPurpose
 import com.karr.key.protocol.DeviceKeyProvisioning
 import com.karr.key.protocol.KarrDeviceMode
 import com.karr.key.protocol.KarrUnitModel
+import com.karr.key.protocol.KarrVulnerabilityStatus
+import com.karr.key.protocol.QtCommand
+import com.karr.key.protocol.QtProtocolCodec
 import com.karr.key.protocol.QtResponseDecoder
 import com.karr.key.protocol.RecoveredDeviceOperation
 import com.karr.key.protocol.RecoveredWorkflowCatalog
@@ -130,6 +136,10 @@ internal fun advanceWatchDogsMode(currentTapCount: Int): WatchDogsModeProgress {
     )
 }
 
+// Cap on auto-connect mode-switch hops per unit, so a malformed transition graph can't loop the
+// sweep on one device instead of moving on.
+private const val MAX_AUTO_MODE_HOPS = 5
+
 @Composable
 fun KarrKeyApp(
     repository: KeyRepository,
@@ -138,6 +148,7 @@ fun KarrKeyApp(
     operationStore: LocalOperationStore,
     mapHistoryStore: LocalMapHistoryStore,
     deviceReadStore: LocalDeviceReadStore,
+    deviceProfileStore: LocalDeviceProfileStore,
     autoConnectReadPreferences: AutoConnectReadPreferences,
     requestBlePermissions: (((Boolean) -> Unit) -> Unit),
     requestMapLocationPermissions: (((Boolean) -> Unit) -> Unit),
@@ -173,10 +184,14 @@ fun KarrKeyApp(
     var autoConnectReadEnabled by remember {
         mutableStateOf(autoConnectReadPreferences.enabled)
     }
+    var autoConnectSendOperationId by remember {
+        mutableStateOf(autoConnectReadPreferences.operationId)
+    }
     val autoReadExchange = remember(bleController) { BleCommandExchange(bleController) }
-    // Auto-read uses READ_STATE so a drive-by captures the unit's own reported GPS from its
-    // extended state, letting the map plot it exactly. The catalog derives operation ids from the
-    // command name (READ_STATE -> "read-state"), NOT from the action's own id string.
+    val autoModeChangeExchange = remember(bleController) { BleModeChangeExchange(bleController) }
+    // Fallback for the auto-connect sweep when no valid operation is selected. READ_STATE also
+    // captures the unit's own reported GPS from its extended state, letting the map plot it. The
+    // catalog derives operation ids from the command name (READ_STATE -> "read-state").
     val readStateOperation = remember {
         RecoveredWorkflowCatalog.operationById("read-state")
     }
@@ -187,6 +202,11 @@ fun KarrKeyApp(
     // Last reported GPS recorded per unit, so a static stale fix isn't re-written every sweep pass;
     // only a changed position adds a new "recently reported" annotation point.
     val lastReportedGps = remember { mutableMapOf<String, Pair<Double, Double>>() }
+    // Last vulnerability verdict and unit-model code persisted per unit, so a device profile isn't
+    // re-written on every sweep pass; only a changed value hits the store. Separate maps because the
+    // verdict is learned at AuthenticationRequired and the model only later, at Ready.
+    val lastVulnerability = remember { mutableMapOf<String, KarrVulnerabilityStatus>() }
+    val lastModelWrite = remember { mutableMapOf<String, Int?>() }
 
     // Records every KARR sighting to map history during ANY scan, on ANY tab. Hoisted here (like
     // the sweep below) so map persistence isn't tied to the Map screen being composed; the Map
@@ -274,11 +294,15 @@ fun KarrKeyApp(
         }
     }
 
-    LaunchedEffect(autoConnectReadEnabled, bleController) {
+    LaunchedEffect(autoConnectReadEnabled, autoConnectSendOperationId, bleController) {
         if (!autoConnectReadEnabled) return@LaunchedEffect
-        val operation = readStateOperation
+        // Resolve against the auto-connect list so only valid, non-experimental operations are ever
+        // auto-sent; fall back to the state read if the stored id is missing or no longer offered.
+        val operation = RecoveredWorkflowCatalog.autoConnectOperations
+            .firstOrNull { it.id == autoConnectSendOperationId }
+            ?: readStateOperation
         if (operation == null) {
-            KarrTrace.warn(KarrTrace.SWEEP, "read operation unavailable; sweep cannot read")
+            KarrTrace.warn(KarrTrace.SWEEP, "auto-connect operation unavailable; sweep cannot send")
             return@LaunchedEffect
         }
         // Address of the unit currently being connected/authenticated, so a failure that lands
@@ -297,7 +321,25 @@ fun KarrKeyApp(
                 }
                 is BleSessionState.DiscoveringUart -> pendingAddress = current.address
                 is BleSessionState.UartSubscribed -> pendingAddress = current.address
-                is BleSessionState.AuthenticationRequired -> pendingAddress = current.address
+                is BleSessionState.AuthenticationRequired -> {
+                    pendingAddress = current.address
+                    // The challenge width reveals whether the recovered legacy keys apply: 8-byte =
+                    // vulnerable, wider (e.g. 32-byte AES) = patched. Captured here so patched units
+                    // are recorded too — they are rejected before READ_MODE and never reach Ready.
+                    val vulnerability =
+                        KarrVulnerabilityStatus.fromChallengeBytes(current.challengeBytes)
+                    val key = current.address.uppercase()
+                    if (!lastVulnerability.containsKey(key) || lastVulnerability[key] != vulnerability) {
+                        lastVulnerability[key] = vulnerability
+                        withContext(Dispatchers.IO) {
+                            deviceProfileStore.record(
+                                deviceAddress = current.address,
+                                unitModelCode = null,
+                                vulnerability = vulnerability,
+                            )
+                        }
+                    }
+                }
                 is BleSessionState.Authenticating -> pendingAddress = current.address
                 is BleSessionState.Ready -> {
                     if (handledCurrentReady) return@collect
@@ -309,16 +351,74 @@ fun KarrKeyApp(
                             "model=${ready.unitModel?.displayName ?: "?"} " +
                             "mode=${ready.unitMode?.name ?: "?"}; reading"
                     }
+                    // Reaching Ready means the 8-byte legacy auth succeeded (vulnerable), and
+                    // READ_MODE gave the authoritative unit model. Persist both for the map label.
+                    run {
+                        val key = ready.address.uppercase()
+                        val modelCode = ready.unitModel?.code
+                        if (!lastModelWrite.containsKey(key) || lastModelWrite[key] != modelCode) {
+                            lastModelWrite[key] = modelCode
+                            withContext(Dispatchers.IO) {
+                                deviceProfileStore.record(
+                                    deviceAddress = ready.address,
+                                    unitModelCode = modelCode,
+                                    vulnerability = KarrVulnerabilityStatus.VULNERABLE,
+                                )
+                            }
+                        }
+                    }
                     // Talks to the unit directly instead of going through DeviceOperationExecutor:
                     // that path awaits snackbar dismissal (several seconds each, queued behind any
                     // snackbar in flight), which stalled disconnect()/startScan() long enough that
                     // the sweep looked stuck online rather than moving on to the next device.
-                    val access = operation.executionAccess(
+                    // Drive the unit to a mode the selected operation supports before sending it,
+                    // following the recovered CHANGE_MODE transition path (multi-hop), each hop
+                    // confirmed by a fresh READ_MODE. Only mode blocks are resolved this way;
+                    // role/hardware blocks and unauthorized transition paths still stop the send.
+                    var currentMode = ready.unitMode
+                    var access = operation.executionAccess(
                         session = session,
                         deviceAuthenticated = true,
                         unitModel = ready.unitModel,
-                        unitMode = ready.unitMode,
+                        unitMode = currentMode,
                     )
+                    var modeHops = 0
+                    while (access.blockingReason != null && modeHops < MAX_AUTO_MODE_HOPS) {
+                        val offer = modeSwitchOffer(
+                            session = session,
+                            blockedAction = access.action,
+                            deviceAuthenticated = true,
+                            unitModel = ready.unitModel,
+                            unitMode = currentMode,
+                        ) ?: break
+                        KarrTrace.log(KarrTrace.SWEEP) {
+                            "mode ${currentMode?.name ?: "?"} -> ${offer.nextMode.name} " +
+                                "for ${operation.label}"
+                        }
+                        val changeResult = autoModeChangeExchange.changeAndConfirm(
+                            changePacket = QtProtocolCodec.generateOriginal(
+                                command = QtCommand.CHANGE_MODE,
+                                payload = byteArrayOf(offer.nextMode.code.toByte()),
+                            ),
+                            targetMode = offer.nextMode,
+                        )
+                        if (changeResult !is BleModeChangeResult.Confirmed) {
+                            KarrTrace.warn(
+                                KarrTrace.SWEEP,
+                                "mode switch to ${offer.nextMode.name} failed: " +
+                                    changeResult::class.simpleName,
+                            )
+                            break
+                        }
+                        currentMode = offer.nextMode
+                        modeHops++
+                        access = operation.executionAccess(
+                            session = session,
+                            deviceAuthenticated = true,
+                            unitModel = ready.unitModel,
+                            unitMode = currentMode,
+                        )
+                    }
                     if (access.blockingReason == null) {
                         val action = access.action
                         val result = autoReadExchange.sendAndAwait(
@@ -361,7 +461,7 @@ fun KarrKeyApp(
                         }
                     } else {
                         KarrTrace.log(KarrTrace.SWEEP) {
-                            "read skipped for ${ready.address}: ${access.blockingReason}"
+                            "send skipped for ${ready.address}: ${access.blockingReason}"
                         }
                     }
                     // Applied regardless of read outcome, so a device that fails or times out isn't
@@ -412,10 +512,16 @@ fun KarrKeyApp(
         operationStore = operationStore,
         mapHistoryStore = mapHistoryStore,
         deviceReadStore = deviceReadStore,
+        deviceProfileStore = deviceProfileStore,
         autoConnectReadEnabled = autoConnectReadEnabled,
         onAutoConnectReadEnabledChanged = { enabled ->
             autoConnectReadEnabled = enabled
             autoConnectReadPreferences.enabled = enabled
+        },
+        autoConnectSendOperationId = autoConnectSendOperationId,
+        onAutoConnectSendOperationSelected = { operationId ->
+            autoConnectSendOperationId = operationId
+            autoConnectReadPreferences.operationId = operationId
         },
         onProvisioningChanged = { provisioningRevision++ },
         requestBlePermissions = requestBlePermissions,
@@ -445,8 +551,11 @@ private fun KeyShell(
     operationStore: LocalOperationStore,
     mapHistoryStore: LocalMapHistoryStore,
     deviceReadStore: LocalDeviceReadStore,
+    deviceProfileStore: LocalDeviceProfileStore,
     autoConnectReadEnabled: Boolean,
     onAutoConnectReadEnabledChanged: (Boolean) -> Unit,
+    autoConnectSendOperationId: String,
+    onAutoConnectSendOperationSelected: (String) -> Unit,
     onProvisioningChanged: () -> Unit,
     requestBlePermissions: (((Boolean) -> Unit) -> Unit),
     requestMapLocationPermissions: (((Boolean) -> Unit) -> Unit),
@@ -609,6 +718,7 @@ private fun KeyShell(
                                 controller = bleController,
                                 historyStore = mapHistoryStore,
                                 deviceReadStore = deviceReadStore,
+                                deviceProfileStore = deviceProfileStore,
                                 requestBlePermissions = requestBlePermissions,
                                 requestLocationPermissions = requestMapLocationPermissions,
                                 snackbar = snackbar,
@@ -621,6 +731,7 @@ private fun KeyShell(
                                 deviceKeys = deviceKeys,
                                 mapHistoryStore = mapHistoryStore,
                                 deviceReadStore = deviceReadStore,
+                                deviceProfileStore = deviceProfileStore,
                                 section = route.section,
                                 onSectionSelected = navigation::updateSettingsSection,
                                 onProvisioningChanged = onProvisioningChanged,
@@ -635,6 +746,8 @@ private fun KeyShell(
                                 controller = bleController,
                                 autoConnectReadEnabled = autoConnectReadEnabled,
                                 onAutoConnectReadEnabledChanged = onAutoConnectReadEnabledChanged,
+                                autoConnectSendOperationId = autoConnectSendOperationId,
+                                onAutoConnectSendOperationSelected = onAutoConnectSendOperationSelected,
                                 requestPermissions = requestBlePermissions,
                                 snackbar = snackbar,
                                 modifier = Modifier.fillMaxSize(),

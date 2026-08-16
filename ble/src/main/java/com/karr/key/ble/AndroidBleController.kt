@@ -1002,6 +1002,18 @@ class AndroidBleController(
             unitSerial = name.orEmpty(),
             packet = parsed.packet,
         )
+        // Surface the challenge width for every REQUEST_AUTH, before the session's accept/reject
+        // decision routes on to Authenticating (8-byte legacy) or Error (a wider, e.g. 32-byte AES,
+        // challenge). This transient state is how the app learns a unit's vulnerable/patched status:
+        // a patched unit is rejected before READ_MODE, so this is the only point its challenge width
+        // is observable.
+        if (parsed.packet.command == QtCommand.REQUEST_AUTH) {
+            _state.value = BleSessionState.AuthenticationRequired(
+                address = address,
+                name = name,
+                challengeBytes = parsed.packet.payload.size,
+            )
+        }
         if (action !is AuthenticationAction.None) {
             KarrTrace.log(KarrTrace.AUTH) {
                 val incoming = parsed.packet.command?.name ?: "cmd=${parsed.packet.commandCode}"

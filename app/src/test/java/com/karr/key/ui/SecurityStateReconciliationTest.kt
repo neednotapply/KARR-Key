@@ -12,14 +12,14 @@ import com.karr.key.protocol.QtProtocolCodec
 import com.karr.key.protocol.QtSecurityState
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SecurityStateReconciliationTest {
     @Test
-    fun confirmsRequestedStateFromFreshReadModeResponse() = runBlocking {
+    fun confirmsRequestedStateFromFreshReadModeResponse() = runTest {
         val controller = ReconciliationBleController { notifications ->
             notifications.emit(readModeResponse(armed = true))
             Result.success(Unit)
@@ -44,7 +44,7 @@ class SecurityStateReconciliationTest {
     }
 
     @Test
-    fun preservesDifferentFreshStateInsteadOfClaimingSuccess() = runBlocking {
+    fun preservesDifferentFreshStateInsteadOfClaimingSuccess() = runTest {
         val controller = ReconciliationBleController { notifications ->
             notifications.emit(readModeResponse(armed = false))
             Result.success(Unit)
@@ -62,7 +62,7 @@ class SecurityStateReconciliationTest {
     }
 
     @Test
-    fun leavesTimeoutUnconfirmedWhenFreshStateCannotBeRead() = runBlocking {
+    fun leavesTimeoutUnconfirmedWhenFreshStateCannotBeRead() = runTest {
         val controller = ReconciliationBleController { _ -> Result.success(Unit) }
 
         val result = BleCommandExchange(controller).reconcileSecurityState(
@@ -90,7 +90,14 @@ private class ReconciliationBleController(
     )
     override val devices = MutableStateFlow<List<DiscoveredDevice>>(emptyList())
     override val scanObservations = MutableSharedFlow<BleScanObservation>()
-    override val notifications = MutableSharedFlow<ByteArray>()
+    // Mirror AndroidBleController's real notifications flow: buffered (not a rendezvous), so a
+    // synchronous emit from send() is retained for the already-subscribed collector instead of
+    // depending on a wall-clock rendezvous. Combined with runTest's virtual time, the exchange
+    // resolves deterministically regardless of host load.
+    override val notifications = MutableSharedFlow<ByteArray>(
+        replay = 0,
+        extraBufferCapacity = 32,
+    )
     val sentPackets = mutableListOf<ByteArray>()
 
     override fun startScan(): Result<Unit> = Result.success(Unit)

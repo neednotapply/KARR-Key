@@ -15,7 +15,11 @@ import org.junit.Test
 class BleCommandExchangeTest {
     @Test
     fun subscribesBeforeWriteAndAcceptsMatchingResponse() = runTest {
-        val controller = FakeBleController { _, notifications ->
+        // Rendezvous (no buffer) on purpose: if sendAndAwait wrote before subscribing, this
+        // synchronous emit would be dropped and the exchange would time out. The buffered default
+        // used by the other tests would mask that ordering regression, so this one opts into
+        // rendezvous to keep proving the subscribe-before-write contract.
+        val controller = FakeBleController(notificationBufferCapacity = 0) { _, notifications ->
             notifications.emit(
                 QtProtocolCodec.generateOriginal(
                     QtCommand.VEHICLE_CONTROL,
@@ -240,6 +244,12 @@ private fun ByteArray.command(): QtCommand? =
     (QtProtocolCodec.parse(this) as PacketParseResult.Success).packet.command
 
 private class FakeBleController(
+    // Default mirrors AndroidBleController's real notifications flow (extraBufferCapacity = 32,
+    // non-blocking tryEmit), so a synchronous emit from send() is retained for the collector rather
+    // than depending on a rendezvous handoff. A test that must prove send-vs-subscribe ordering
+    // overrides this to 0 (rendezvous), where a value emitted before the collector subscribes is
+    // dropped instead of buffered.
+    private val notificationBufferCapacity: Int = 32,
     private val sendBehavior: suspend (
         packet: ByteArray,
         notifications: MutableSharedFlow<ByteArray>,
@@ -250,7 +260,10 @@ private class FakeBleController(
     )
     override val devices = MutableStateFlow<List<DiscoveredDevice>>(emptyList())
     override val scanObservations = MutableSharedFlow<BleScanObservation>()
-    override val notifications = MutableSharedFlow<ByteArray>()
+    override val notifications = MutableSharedFlow<ByteArray>(
+        replay = 0,
+        extraBufferCapacity = notificationBufferCapacity,
+    )
     val sentPackets = mutableListOf<ByteArray>()
 
     override fun startScan(): Result<Unit> = Result.success(Unit)

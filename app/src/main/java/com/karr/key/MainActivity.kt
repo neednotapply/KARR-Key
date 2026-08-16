@@ -11,6 +11,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.karr.key.ble.BlePermissions
+import com.karr.key.data.LocalDeviceProfileStore
 import com.karr.key.data.LocalDeviceReadStore
 import com.karr.key.data.LocalKeyRepository
 import com.karr.key.data.LocalMapHistoryStore
@@ -37,6 +38,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var operationStore: LocalOperationStore
     private lateinit var mapHistoryStore: LocalMapHistoryStore
     private lateinit var deviceReadStore: LocalDeviceReadStore
+    private lateinit var deviceProfileStore: LocalDeviceProfileStore
     private val activityScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
     private var permissionResult: ((Boolean) -> Unit)? = null
     private var locationPermissionResult: ((Boolean) -> Unit)? = null
@@ -127,6 +129,7 @@ class MainActivity : ComponentActivity() {
         operationStore = LocalOperationStore(this)
         mapHistoryStore = LocalMapHistoryStore(this)
         deviceReadStore = LocalDeviceReadStore(this)
+        deviceProfileStore = LocalDeviceProfileStore(this)
 
         setContent {
             KarrKeyTheme {
@@ -137,6 +140,7 @@ class MainActivity : ComponentActivity() {
                     operationStore = operationStore,
                     mapHistoryStore = mapHistoryStore,
                     deviceReadStore = deviceReadStore,
+                    deviceProfileStore = deviceProfileStore,
                     autoConnectReadPreferences = app.autoConnectReadPreferences,
                     requestBlePermissions = ::requestBlePermissions,
                     requestMapLocationPermissions = ::requestMapLocationPermissions,
@@ -152,6 +156,7 @@ class MainActivity : ComponentActivity() {
         operationStore.close()
         mapHistoryStore.close()
         deviceReadStore.close()
+        deviceProfileStore.close()
         super.onDestroy()
     }
 

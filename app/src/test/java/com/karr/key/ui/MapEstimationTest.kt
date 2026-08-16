@@ -60,6 +60,34 @@ class MapEstimationTest {
         assertEquals(strong.rssi, estimate.rssi)
     }
 
+    @Test
+    fun recentSightingsOutweighOlderOnesSoAMovingUnitTracksItsLatestPosition() {
+        // Ten strong sightings at an old spot, then one equally-strong sighting a minute later well
+        // away. The naive all-history centroid would sit ~91% back at the old spot (~32.0009); with
+        // recency weighting the pin should track to within a few metres of the latest 32.0100 fix.
+        val oldSpot = (0..9).map { i ->
+            observation(
+                observedUtc = Instant.parse("2026-08-03T10:00:00Z").plusSeconds(i.toLong()),
+                latitude = 32.0000,
+                longitude = -117.0000,
+                rssi = -50,
+                accuracy = 8f,
+            )
+        }
+        val recent = observation(
+            observedUtc = Instant.parse("2026-08-03T10:01:00Z"),
+            latitude = 32.0100,
+            longitude = -117.0100,
+            rssi = -50,
+            accuracy = 8f,
+        )
+
+        val estimate = estimateDeviceLocations(oldSpot + recent).single()
+
+        assertTrue("lat=${estimate.latitude}", estimate.latitude > 32.0080)
+        assertTrue("lon=${estimate.longitude}", estimate.longitude < -117.0080)
+    }
+
     private fun observation(
         observedUtc: Instant,
         latitude: Double,

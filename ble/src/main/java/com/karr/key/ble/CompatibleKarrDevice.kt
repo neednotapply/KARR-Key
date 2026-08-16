@@ -44,9 +44,12 @@ object CompatibleKarrDevice {
             .maxByOrNull { it.tier.rank }
 
         if (normalizedName != null && exactDrQtSerial.matches(normalizedName)) {
+            // The name carries the family (DR vs QT) but not the specific model; the model and
+            // vulnerable/patched status are only known after connecting, and are layered on later.
+            val family = normalizedName.take(2)
             return KarrDeviceClassification(
                 tier = KarrCandidateTier.CONFIRMED_FORMAT,
-                evidence = "Recovered DR/QT serial format",
+                evidence = "Recovered $family serial format",
                 recoveredName = normalizedName,
             )
         }

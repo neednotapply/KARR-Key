@@ -20,6 +20,10 @@ class CompatibleKarrDeviceTest {
             val result = CompatibleKarrDevice.classify(name)
             assertEquals(name, KarrCandidateTier.CONFIRMED_FORMAT, result.tier)
             assertTrue(result.isCandidate)
+            // The scan line names the family (DR vs QT); model and vulnerable/patched are only
+            // known after connecting and are layered on later.
+            val expectedFamily = name.trim().uppercase().take(2)
+            assertEquals(name, "Recovered $expectedFamily serial format", result.evidence)
         }
     }
 

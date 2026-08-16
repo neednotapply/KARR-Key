@@ -79,12 +79,16 @@ import com.karr.key.ble.BleScanObservation
 import com.karr.key.ble.BleSessionState
 import com.karr.key.ble.KarrCandidateTier
 import com.karr.key.core.KarrTrace
+import com.karr.key.data.DeviceProfile
 import com.karr.key.data.DeviceReadRecord
+import com.karr.key.data.LocalDeviceProfileStore
 import com.karr.key.data.LocalDeviceReadStore
 import com.karr.key.data.LocalMapHistoryStore
 import com.karr.key.data.LocalMapObservation
 import com.karr.key.data.MapCandidateTier
 import com.karr.key.data.VEHICLE_GPS_PROVIDER
+import com.karr.key.protocol.KarrUnitModel
+import com.karr.key.protocol.KarrVulnerabilityStatus
 import java.io.File
 import java.time.Instant
 import java.time.ZoneId
@@ -93,6 +97,7 @@ import java.util.Locale
 import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.pow
@@ -112,6 +117,7 @@ internal fun MapScreen(
     controller: BleController,
     historyStore: LocalMapHistoryStore,
     deviceReadStore: LocalDeviceReadStore,
+    deviceProfileStore: LocalDeviceProfileStore,
     requestBlePermissions: (((Boolean) -> Unit) -> Unit),
     requestLocationPermissions: (((Boolean) -> Unit) -> Unit),
     snackbar: SnackbarHostState,
@@ -125,6 +131,11 @@ internal fun MapScreen(
     }
     var readsByAddress by remember(deviceReadStore) {
         mutableStateOf<Map<String, List<DeviceReadRecord>>>(emptyMap())
+    }
+    // What connecting to each unit proved (model + vulnerable/patched), keyed by address. Used to
+    // replace the scan-time format guess on the device card with real, connection-confirmed data.
+    var profilesByAddress by remember(deviceProfileStore) {
+        mutableStateOf<Map<String, DeviceProfile>>(emptyMap())
     }
     var phoneLocation by remember { mutableStateOf<PhoneLocation?>(null) }
     val currentLocation by rememberUpdatedState(phoneLocation)
@@ -157,12 +168,17 @@ internal fun MapScreen(
     // freshly-read unit shows its data without leaving the Map.
     suspend fun refreshReads() {
         readsByAddress = withContext(Dispatchers.IO) { deviceReadStore.allGroupedByAddress() }
+        profilesByAddress = withContext(Dispatchers.IO) { deviceProfileStore.all() }
     }
 
     LaunchedEffect(deviceReadStore) { refreshReads() }
     LaunchedEffect(deviceReadStore, state) {
-        // A read only lands while connected; re-pull when the session returns to a settled state.
-        if (state is BleSessionState.Ready || state is BleSessionState.Idle) {
+        // A read or device profile only lands while connected; re-pull when the session settles.
+        // Scanning is included so an auto-sweep's just-written profile shows on the next scan resume.
+        if (state is BleSessionState.Ready ||
+            state is BleSessionState.Idle ||
+            state is BleSessionState.Scanning
+        ) {
             refreshReads()
         }
     }
@@ -292,17 +308,8 @@ internal fun MapScreen(
             locationGranted = locationGranted,
             selectedEstimates = selectedEstimates,
             readsByAddress = readsByAddress,
+            profilesByAddress = profilesByAddress,
             onOpenReadData = { address -> readDetailAddress = address },
-            onReportedCoordsClick = { estimate ->
-                estimate.reportedPosition?.let { reported ->
-                    revealedReportedAddress = estimate.address
-                    focusRequest = MapFocusRequest(
-                        point = reported,
-                        zoom = null,
-                        nonce = (focusRequest?.nonce ?: 0) + 1,
-                    )
-                }
-            },
             headingUp = headingUp,
             onToggleHeadingUp = {
                 headingUp = !headingUp
@@ -378,14 +385,30 @@ internal fun MapScreen(
     }
 
     readDetailAddress?.let { address ->
+        val estimate = estimates.firstOrNull { it.address == address }
         val reads = readsByAddress[address].orEmpty()
-        if (reads.isEmpty()) {
+        val reported = estimate?.reportedPosition
+        if (reads.isEmpty() && reported == null) {
             readDetailAddress = null
         } else {
             UnitReadDataDialog(
-                label = estimates.firstOrNull { it.address == address }?.label ?: address,
+                label = estimate?.label ?: address,
                 address = address,
                 reads = reads,
+                reportedPosition = reported,
+                // Tapping the coords here is the one place the reported-GPS line is revealed:
+                // recenter on the reported fix and close this dialog so the map is visible.
+                onReportedCoordsClick = reported?.let { point ->
+                    {
+                        revealedReportedAddress = address
+                        focusRequest = MapFocusRequest(
+                            point = point,
+                            zoom = null,
+                            nonce = (focusRequest?.nonce ?: 0) + 1,
+                        )
+                        readDetailAddress = null
+                    }
+                },
                 onDismiss = { readDetailAddress = null },
             )
         }
@@ -398,8 +421,8 @@ private fun MapBottomPanel(
     locationGranted: Boolean,
     selectedEstimates: List<DeviceMapEstimate>,
     readsByAddress: Map<String, List<DeviceReadRecord>>,
+    profilesByAddress: Map<String, DeviceProfile>,
     onOpenReadData: (String) -> Unit,
-    onReportedCoordsClick: (DeviceMapEstimate) -> Unit,
     onEnableLocation: () -> Unit,
     onScan: () -> Unit,
     onStopScan: () -> Unit,
@@ -426,16 +449,19 @@ private fun MapBottomPanel(
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     selectedEstimates.forEach { estimate ->
                         val hasReads = readsByAddress[estimate.address]?.isNotEmpty() == true
+                        // Reachable detail exists when there are stored reads or a reported GPS
+                        // fix; the reported-GPS coords live inside that detail view now.
+                        val hasDetail = hasReads || estimate.reportedPosition != null
                         EstimateDetail(
                             estimate = estimate,
-                            hasReadData = hasReads,
-                            onClick = if (hasReads) {
+                            evidence = deviceEvidenceLine(
+                                estimate.evidence,
+                                estimate.label,
+                                profilesByAddress[estimate.address],
+                            ),
+                            hasDetail = hasDetail,
+                            onClick = if (hasDetail) {
                                 { onOpenReadData(estimate.address) }
-                            } else {
-                                null
-                            },
-                            onReportedCoordsClick = if (estimate.reportedPosition != null) {
-                                { onReportedCoordsClick(estimate) }
                             } else {
                                 null
                             },
@@ -606,12 +632,50 @@ private fun DeviceSearchDialog(
     )
 }
 
+/**
+ * The device-card evidence line. Once a connection has profiled the unit, the line states what was
+ * proven — vulnerable/patched plus the authoritative unit model. Otherwise it shows the scan-time
+ * classification, upgrading the legacy generic "DR/QT" wording to the actual family (recoverable
+ * from the device name) so pre-existing and imported records read specifically too.
+ */
+internal fun deviceEvidenceLine(
+    scanEvidence: String,
+    deviceName: String?,
+    profile: DeviceProfile?,
+): String {
+    val baseEvidence = familySpecificScanEvidence(scanEvidence, deviceName)
+    if (profile == null) return baseEvidence
+    val modelName = profile.unitModelCode
+        ?.let(KarrUnitModel::fromCode)
+        ?.takeIf(KarrUnitModel::isRecognized)
+        ?.displayName
+    return when (profile.vulnerability) {
+        KarrVulnerabilityStatus.VULNERABLE ->
+            if (modelName != null) "Vulnerable · $modelName" else "Vulnerable KARR unit"
+        KarrVulnerabilityStatus.PATCHED ->
+            if (modelName != null) "Patched · $modelName" else "Patched KARR unit"
+        KarrVulnerabilityStatus.UNKNOWN -> baseEvidence
+    }
+}
+
+// Older records (and imports made before this) stored the generic "Recovered DR/QT serial format".
+// The family is in the device name (e.g. "DR D029A54D"), so upgrade just that one legacy string in
+// place at display time — no re-scan or database migration needed. Other classifications, and the
+// already-specific strings new scans produce, pass through untouched.
+private const val LEGACY_DR_QT_SERIAL_EVIDENCE = "Recovered DR/QT serial format"
+
+private fun familySpecificScanEvidence(scanEvidence: String, deviceName: String?): String {
+    if (scanEvidence != LEGACY_DR_QT_SERIAL_EVIDENCE) return scanEvidence
+    val family = deviceName?.trim()?.uppercase()?.take(2)
+    return if (family == "DR" || family == "QT") "Recovered $family serial format" else scanEvidence
+}
+
 @Composable
 private fun EstimateDetail(
     estimate: DeviceMapEstimate,
-    hasReadData: Boolean,
+    evidence: String,
+    hasDetail: Boolean,
     onClick: (() -> Unit)?,
-    onReportedCoordsClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     val rowModifier = modifier
@@ -633,7 +697,7 @@ private fun EstimateDetail(
             style = MaterialTheme.typography.bodySmall,
         )
         Text(
-            estimate.evidence,
+            evidence,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall,
         )
@@ -642,30 +706,14 @@ private fun EstimateDetail(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall,
         )
-        if (hasReadData) {
+        // Entry point to the detail dialog, which holds the unit's reads and its clickable
+        // reported-GPS coords. Shown whenever either of those exists.
+        if (hasDetail) {
             Text(
                 "View unit data ›",
                 color = MaterialTheme.colorScheme.primary,
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.testTag("map-view-unit-data:${estimate.address}"),
-            )
-        }
-        estimate.reportedPosition?.let { reported ->
-            Text(
-                "Reported GPS ${
-                    String.format(Locale.US, "%.5f, %.5f", reported.latitude, reported.longitude)
-                } ›",
-                color = MaterialTheme.colorScheme.primary,
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier
-                    .testTag("map-reported-gps:${estimate.address}")
-                    .then(
-                        if (onReportedCoordsClick != null) {
-                            Modifier.clickable(onClick = onReportedCoordsClick)
-                        } else {
-                            Modifier
-                        },
-                    ),
             )
         }
     }
@@ -676,6 +724,8 @@ private fun UnitReadDataDialog(
     label: String,
     address: String,
     reads: List<DeviceReadRecord>,
+    reportedPosition: GeoPoint?,
+    onReportedCoordsClick: (() -> Unit)?,
     onDismiss: () -> Unit,
 ) {
     val ordered = remember(reads) { reads.sortedByDescending(DeviceReadRecord::capturedUtc) }
@@ -683,37 +733,75 @@ private fun UnitReadDataDialog(
         onDismissRequest = onDismiss,
         title = { Text(label) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     address,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                 )
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 380.dp)
-                        .testTag("map-unit-read-data"),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    items(ordered, key = DeviceReadRecord::command) { record ->
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(
-                                record.heading,
-                                style = MaterialTheme.typography.labelLarge,
+                // Reported GPS lives here (one level below the map card): tapping it draws the
+                // line from the RSSI pin to this stale fix, recenters, and closes the dialog.
+                reportedPosition?.let { reported ->
+                    Text(
+                        "Reported GPS ${
+                            String.format(
+                                Locale.US,
+                                "%.5f, %.5f",
+                                reported.latitude,
+                                reported.longitude,
                             )
-                            record.lines.forEach { line ->
+                        } ›",
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier
+                            .testTag("map-reported-gps:$address")
+                            .then(
+                                if (onReportedCoordsClick != null) {
+                                    Modifier.clickable(onClick = onReportedCoordsClick)
+                                } else {
+                                    Modifier
+                                },
+                            ),
+                    )
+                }
+                if (ordered.isEmpty()) {
+                    Text(
+                        "No unit reads stored yet.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 380.dp)
+                            .testTag("map-unit-read-data"),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        items(ordered, key = DeviceReadRecord::command) { record ->
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(
-                                    line,
+                                    record.heading,
+                                    style = MaterialTheme.typography.labelLarge,
+                                )
+                                // The clickable Reported GPS row above already shows this fix, so
+                                // drop the decoder's redundant "Position:" line when that row is
+                                // present; keep it as a fallback when there is no clickable row.
+                                record.lines
+                                    .filterNot { reportedPosition != null && it.startsWith("Position:") }
+                                    .forEach { line ->
+                                        Text(
+                                            line,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            style = MaterialTheme.typography.bodySmall,
+                                        )
+                                    }
+                                Text(
+                                    "Read ${formatLastSeen(record.capturedUtc)}",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.bodySmall,
+                                    style = MaterialTheme.typography.labelSmall,
                                 )
                             }
-                            Text(
-                                "Read ${formatLastSeen(record.capturedUtc)}",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.labelSmall,
-                            )
                         }
                     }
                 }
@@ -970,11 +1058,16 @@ private class ConfidenceOverlay : Overlay() {
         }
         val reportedColor = (if (darkTheme) REPORTED_MARKER_DARK else REPORTED_MARKER_LIGHT).toArgb()
         clusterEstimates(mapView, projection).forEach { cluster ->
+            // Draw the revealed unit's reported-GPS line + marker whether it is a lone pin or has
+            // merged into a numbered cluster. The line often points far away, so following it means
+            // zooming out — exactly when the unit joins a cluster — and the line must survive that.
+            cluster.members
+                .firstOrNull { it.first.address == revealedReportedAddress }
+                ?.let { member ->
+                    drawReportedAnnotation(canvas, projection, member.first, member.second, reportedColor)
+                }
             val singleton = cluster.members.singleOrNull()
             if (singleton != null) {
-                if (singleton.first.address == revealedReportedAddress) {
-                    drawReportedAnnotation(canvas, projection, singleton.first, singleton.second, reportedColor)
-                }
                 drawSingleEstimate(canvas, projection, singleton.first, singleton.second)
             } else {
                 drawCluster(canvas, cluster)
@@ -1101,13 +1194,15 @@ private class ConfidenceOverlay : Overlay() {
         val projection = mapView.projection
         val clusters = clusterEstimates(mapView, projection)
 
-        // Tapping the revealed unit's reported-GPS marker re-centers the map on it. Only the
-        // revealed unit draws a marker, so only it is hit-tested. Checked first so the small
-        // annotation marker wins over a unit circle behind it.
+        // Tapping the revealed unit's reported-GPS marker re-centers the map on it. The marker is
+        // drawn whether the unit is a lone pin or inside a numbered cluster, so hit-test it in
+        // either case. Checked first so the small annotation marker wins over a circle behind it.
         val reportedHit = clusters
             .asSequence()
-            .filter { it.members.size == 1 && it.members.first().first.address == revealedReportedAddress }
-            .mapNotNull { it.members.first().first.reportedPosition }
+            .mapNotNull { cluster ->
+                cluster.members.firstOrNull { it.first.address == revealedReportedAddress }
+            }
+            .mapNotNull { it.first.reportedPosition }
             .firstOrNull { reported ->
                 val point = projection.toPixels(reported, Point())
                 val radius = max(REPORTED_MARKER_RADIUS_PX, minTouchRadiusPx)
@@ -1376,10 +1471,19 @@ internal fun estimateDeviceLocations(
             .filterNot { it.locationProvider == VEHICLE_GPS_PROVIDER }
             .ifEmpty { group }
             .sortedByDescending(LocalMapObservation::observedUtc)
+        // Weight recent sightings far more than old ones. Without this the pin sits at the
+        // signal-weighted centroid of EVERY past sighting, so while driving — past a unit, or with
+        // your own unit aboard — each new scan only nudges the pin toward you instead of jumping to
+        // where the unit was just seen ("drifts toward but never reaches"). Age is measured from the
+        // group's freshest sighting, not "now", so a unit not seen for a while keeps its last fix
+        // instead of decaying to nothing.
+        val latestUtcMillis = sorted.first().observedUtc.toEpochMilli()
         val weighted = sorted.fold(WeightedLocation()) { accumulator, observation ->
             val confidence = max(observation.confidenceRadiusMeters, 1.0)
             val signalWeight = (observation.rssi + 100).coerceIn(1, 80).toDouble()
-            val weight = signalWeight / (confidence * confidence)
+            val ageSeconds = (latestUtcMillis - observation.observedUtc.toEpochMilli()) / 1000.0
+            val recencyWeight = exp(-ageSeconds / RECENCY_DECAY_SECONDS)
+            val weight = signalWeight * recencyWeight / (confidence * confidence)
             accumulator.add(observation, weight)
         }
         val latest = sorted.first()
@@ -1507,6 +1611,12 @@ private const val MIN_RANGE_METERS = 1.0
 private const val MAX_RANGE_METERS = 120.0
 private const val MIN_CONFIDENCE_RADIUS_METERS = 5.0
 private const val MAX_CONFIDENCE_RADIUS_METERS = 250.0
+// Recency time constant for the plotted position: a sighting's weight decays by e^-1 every
+// RECENCY_DECAY_SECONDS of age relative to the group's freshest sighting, so the pin follows where a
+// unit was most recently seen rather than the centroid of the whole drive. Larger = smoother but
+// laggier while moving; smaller = tracks tighter but jumpier (roughly RECENCY_DECAY_SECONDS × speed
+// of lag behind a co-moving unit).
+private const val RECENCY_DECAY_SECONDS = 10.0
 private const val METERS_PER_DEGREE_LATITUDE = 111_320.0
 private const val MAP_ESTIMATE_REVEAL_BLOCK_SIZE = 30
 private val MIN_TOUCH_TARGET_RADIUS = 24.dp

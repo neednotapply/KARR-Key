@@ -20,6 +20,27 @@ class RecoveredWorkflowCatalogTest {
     }
 
     @Test
+    fun autoConnectOperationsOfferReadsAndCommandsButExcludeExperimentalAndModeSwitches() {
+        val ops = RecoveredWorkflowCatalog.autoConnectOperations
+        val experimentalIds = RecoveredWorkflowCatalog.operations
+            .filter { operation -> operation.category == "Experimental" }
+            .map { operation -> operation.id }
+
+        assertTrue(experimentalIds.isNotEmpty())
+        assertTrue(ops.any { operation -> operation.category == "Reads" })
+        assertTrue(ops.any { operation -> operation.category == "Commands" })
+        assertTrue(ops.none { operation -> operation.id in experimentalIds })
+        // Standalone mode switches are excluded; a mode change happens implicitly before a send.
+        assertTrue(ops.none { operation -> operation.command == QtCommand.CHANGE_MODE })
+        // The default auto-connect operation stays available.
+        assertTrue(ops.any { operation -> operation.id == "read-state" })
+        // Reads are listed before commands.
+        val lastReadIndex = ops.indexOfLast { operation -> operation.category == "Reads" }
+        val firstCommandIndex = ops.indexOfFirst { operation -> operation.category == "Commands" }
+        assertTrue(lastReadIndex < firstCommandIndex)
+    }
+
+    @Test
     fun canonicalOperationsDeduplicateIdenticalPacketsAndRetainBindings() {
         val operations = RecoveredWorkflowCatalog.operations
         val operationPackets = operations.map { operation ->
