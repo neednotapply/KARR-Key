@@ -16,6 +16,10 @@ android {
     }
 }
 
+kotlin {
+    jvmToolchain(17)
+}
+
 dependencies {
     implementation(project(":core"))
     testImplementation("junit:junit:4.13.2")

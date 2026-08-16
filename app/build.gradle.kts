@@ -50,6 +50,13 @@ android {
     }
 }
 
+// Pin the compilation JDK so the build no longer depends on JAVA_HOME or the
+// JDK first on PATH. Fails loudly if no JDK 17 is installed rather than silently
+// building on whatever JVM happens to launch Gradle. Applied in every module.
+kotlin {
+    jvmToolchain(17)
+}
+
 androidComponents {
     onVariants { variant ->
         variant.outputs.forEach { output ->
