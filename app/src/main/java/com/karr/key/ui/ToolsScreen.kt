@@ -56,6 +56,7 @@ import com.karr.key.protocol.RecoveredDeviceOperation
 import com.karr.key.protocol.RecoveredModelCompatibility
 import com.karr.key.protocol.RecoveredWorkflowCatalog
 import com.karr.key.protocol.compatibilityWith
+import com.karr.key.protocol.dangerScore
 
 internal enum class OperationTypeFilter(val displayLabel: String) {
     READS("Reads"),
@@ -63,11 +64,14 @@ internal enum class OperationTypeFilter(val displayLabel: String) {
 }
 
 internal const val UNIT_MODE_FILTER = "Unit mode"
-internal const val EXPERIMENTAL_FILTER = "Experimental"
+
+// Tri-state sort for the operations list, cycled by the "Danger" chip: off -> descending -> ascending.
+internal enum class DangerSort { DESCENDING, ASCENDING }
 
 internal data class OperationFilters(
     val workflow: String? = null,
     val operationType: OperationTypeFilter? = null,
+    val dangerSort: DangerSort? = null,
 ) {
     companion object {
         val Saver = listSaver<OperationFilters, String>(
@@ -75,6 +79,7 @@ internal data class OperationFilters(
                 listOf(
                     filters.workflow.orEmpty(),
                     filters.operationType?.name.orEmpty(),
+                    filters.dangerSort?.name.orEmpty(),
                 )
             },
             restore = { values ->
@@ -84,6 +89,10 @@ internal data class OperationFilters(
                         .getOrNull(1)
                         ?.ifBlank { null }
                         ?.let(OperationTypeFilter::valueOf),
+                    dangerSort = values
+                        .getOrNull(2)
+                        ?.ifBlank { null }
+                        ?.let(DangerSort::valueOf),
                 )
             },
         )
@@ -105,6 +114,7 @@ internal fun AdaptiveOperationsScreen(
     onOpenOperation: (RecoveredDeviceOperation) -> Unit,
     onExecuteOperation: (RecoveredDeviceOperation) -> Unit,
     executingOperationId: String? = null,
+    onOpenCommandConsole: () -> Unit = {},
     detailContent: @Composable (RecoveredDeviceOperation) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -125,6 +135,7 @@ internal fun AdaptiveOperationsScreen(
                     onOpenOperation = onOpenOperation,
                     onExecuteOperation = onExecuteOperation,
                     executingOperationId = executingOperationId,
+                    onOpenCommandConsole = onOpenCommandConsole,
                     modifier = Modifier
                         .weight(0.43f)
                         .fillMaxSize(),
@@ -154,6 +165,7 @@ internal fun AdaptiveOperationsScreen(
                 onOpenOperation = onOpenOperation,
                 onExecuteOperation = onExecuteOperation,
                 executingOperationId = executingOperationId,
+                onOpenCommandConsole = onOpenCommandConsole,
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -174,9 +186,10 @@ private fun OperationsCatalogPane(
     onOpenOperation: (RecoveredDeviceOperation) -> Unit,
     onExecuteOperation: (RecoveredDeviceOperation) -> Unit,
     executingOperationId: String?,
+    onOpenCommandConsole: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val operations = RecoveredWorkflowCatalog.operations
+    val operations = listableOperations()
     val workflows = workflowFiltersFor(operations)
     val filtered = deviceOperationsFor(
         query = query,
@@ -200,6 +213,10 @@ private fun OperationsCatalogPane(
             bottom = 32.dp,
         ),
     ) {
+        item(key = "command-console-entry") {
+            CommandConsoleEntryCard(onOpen = onOpenCommandConsole)
+        }
+
         if (deviceAuthenticated) {
             item(key = "connected-model") {
                 OutlinedCard(Modifier.fillMaxWidth()) {
@@ -283,12 +300,13 @@ private fun OperationsCatalogPane(
                     FilterChip(
                         selected = selected,
                         onClick = {
+                            // Type and workflow stay mutually exclusive; the danger sort is
+                            // orthogonal and carried across toggles.
                             onFiltersChanged(
-                                if (selected) {
-                                    OperationFilters()
-                                } else {
-                                    OperationFilters(operationType = operationType)
-                                },
+                                filters.copy(
+                                    operationType = if (selected) null else operationType,
+                                    workflow = null,
+                                ),
                             )
                         },
                         label = {
@@ -309,11 +327,10 @@ private fun OperationsCatalogPane(
                         selected = selected,
                         onClick = {
                             onFiltersChanged(
-                                if (selected) {
-                                    OperationFilters()
-                                } else {
-                                    OperationFilters(workflow = workflow)
-                                },
+                                filters.copy(
+                                    workflow = if (selected) null else workflow,
+                                    operationType = null,
+                                ),
                             )
                         },
                         label = {
@@ -328,6 +345,49 @@ private fun OperationsCatalogPane(
                         ),
                     )
                 }
+                // Tri-state sort by danger: off -> descending (🔻) -> ascending (🔺) -> off.
+                FilterChip(
+                    selected = filters.dangerSort != null,
+                    onClick = {
+                        val next = when (filters.dangerSort) {
+                            null -> DangerSort.DESCENDING
+                            DangerSort.DESCENDING -> DangerSort.ASCENDING
+                            DangerSort.ASCENDING -> null
+                        }
+                        onFiltersChanged(filters.copy(dangerSort = next))
+                    },
+                    label = {
+                        // Always render a triangle so the chip keeps the same width whether or not
+                        // the sort is active — a hollow ▽ when off, a filled ▼/▲ for the two
+                        // directions — so toggling it doesn't nudge the filter row. Plain text
+                        // glyphs (not the red emoji) inherit the chip's label color and stay on the
+                        // black/white theme. Triangle and text are separate, center-aligned glyphs
+                        // so enlarging the triangle doesn't drop the "Danger" baseline below the
+                        // neighboring chips.
+                        val triangle = when (filters.dangerSort) {
+                            DangerSort.DESCENDING -> "▼"
+                            DangerSort.ASCENDING -> "▲"
+                            null -> "▽"
+                        }
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                triangle,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontSize = MaterialTheme.typography.labelMedium.fontSize * 1.3f,
+                                maxLines = 1,
+                            )
+                            Text(
+                                "Danger",
+                                style = MaterialTheme.typography.labelMedium,
+                                maxLines = 1,
+                            )
+                        }
+                    },
+                    modifier = Modifier.testTag("operation-filter:danger"),
+                )
             }
         }
 
@@ -351,12 +411,20 @@ private fun OperationsCatalogPane(
                 }
             }
         } else {
-            filtered
-                .groupBy(RecoveredDeviceOperation::category)
-                .forEach { (category, categoryOperations) ->
-                    item(key = "heading:$category") {
+            // When sorting by danger the list is a single ranked run with no category headings; the
+            // category grouping would otherwise re-cluster it and hide the ordering. Otherwise keep
+            // the familiar Reads / Commands sections.
+            val sections: List<Pair<String?, List<RecoveredDeviceOperation>>> =
+                if (filters.dangerSort != null) {
+                    listOf(null to filtered)
+                } else {
+                    filtered.groupBy(RecoveredDeviceOperation::category).toList()
+                }
+            sections.forEach { (category, sectionOperations) ->
+                category?.let {
+                    item(key = "heading:$it") {
                         Text(
-                            text = category,
+                            text = it,
                             modifier = Modifier
                                 .padding(top = 8.dp)
                                 .semantics { heading() },
@@ -365,22 +433,73 @@ private fun OperationsCatalogPane(
                             color = MaterialTheme.colorScheme.primary,
                         )
                     }
-                    items(
-                        items = categoryOperations,
-                        key = RecoveredDeviceOperation::id,
-                    ) { operation ->
-                        OperationListRow(
-                            session = session,
-                            operation = operation,
-                            deviceAuthenticated = deviceAuthenticated,
-                            unitModel = unitModel,
-                            unitMode = unitMode,
-                            onOpen = { onOpenOperation(operation) },
-                            onExecute = onExecuteOperation,
-                            executingOperationId = executingOperationId,
+                }
+                items(
+                    items = sectionOperations,
+                    key = RecoveredDeviceOperation::id,
+                ) { operation ->
+                    OperationListRow(
+                        session = session,
+                        operation = operation,
+                        deviceAuthenticated = deviceAuthenticated,
+                        unitModel = unitModel,
+                        unitMode = unitMode,
+                        onOpen = { onOpenOperation(operation) },
+                        onExecute = onExecuteOperation,
+                        executingOperationId = executingOperationId,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CommandConsoleEntryCard(onOpen: () -> Unit) {
+    OutlinedCard(
+        onClick = onOpen,
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("open-command-console"),
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Command console",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Surface(
+                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                        shape = MaterialTheme.shapes.small,
+                    ) {
+                        Text(
+                            "Testing",
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
                         )
                     }
                 }
+                Text(
+                    "Send any raw protocol command and see what the unit accepts, rejects, or " +
+                        "ignores. Uncurated — for probing hardware support.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
@@ -417,19 +536,24 @@ private fun OperationListRow(
         unitModel = unitModel,
         unitMode = unitMode,
     )
-    val actionTarget = modeSwitchOffer?.operation ?: operation
-    val actionEnabled = (executionAccess.canExecute || modeSwitchOffer != null) &&
+    // A mode block is now resolved automatically on send — the executor drives the unit to a
+    // supported mode first — so a mode-blocked-but-reachable operation stays enabled and reads as
+    // runnable, and tapping it runs the operation itself rather than a manual one-hop mode switch.
+    val modeAutoResolvable = !executionAccess.canExecute && modeSwitchOffer != null
+    val actionEnabled = (executionAccess.canExecute || modeAutoResolvable) &&
         executingOperationId == null
     val actionLabel = operationActionLabel(
         availability = availability,
         executionAccess = executionAccess,
-        actionTargetOperationId = actionTarget.id,
+        actionTargetOperationId = operation.id,
         executingOperationId = executingOperationId,
+        modeAutoResolvable = modeAutoResolvable,
     )
-    val showBlockedIcon = !executionAccess.canExecute
+    val showBlockedIcon = !executionAccess.canExecute && !modeAutoResolvable
     val actionStateDescription = when {
         executionAccess.canExecute -> null
-        modeSwitchOffer != null -> modeSwitchOffer.modeSwitchDescription()
+        modeAutoResolvable ->
+            "Switches to ${modeSwitchOffer.destinationDescription} on send, then runs."
         else -> executionAccess.blockingReason
     }
     OutlinedCard(
@@ -458,7 +582,7 @@ private fun OperationListRow(
                 )
                 CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
                     Button(
-                        onClick = { onExecute(actionTarget) },
+                        onClick = { onExecute(operation) },
                         enabled = actionEnabled,
                         modifier = Modifier
                             .width(144.dp)
@@ -502,9 +626,10 @@ private fun OperationListRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                operation.roles.forEach { role ->
-                    RoleTag(role)
-                }
+                DangerTag(operation.dangerScore)
+                // Only the access floor — the lowest role that may run this — rather than every
+                // permitted role; anyone at or above it is allowed.
+                RoleTag(operation.lowestRole)
             }
         }
     }
@@ -515,10 +640,12 @@ internal fun operationActionLabel(
     executionAccess: OperationExecutionAccess,
     actionTargetOperationId: String,
     executingOperationId: String?,
+    modeAutoResolvable: Boolean = false,
 ): String = when {
     executingOperationId == actionTargetOperationId ->
         if (executionAccess.action.mutating) "Sending..." else "Reading..."
-    executionAccess.canExecute ->
+    // A mode-only block is resolved automatically on send, so it reads as runnable, not blocked.
+    executionAccess.canExecute || modeAutoResolvable ->
         if (executionAccess.action.mutating) "Send command" else "Run read"
     !executionAccess.deviceAuthenticated -> "Not connected"
     executionAccess.decision is AuthorizationDecision.Denied ->
@@ -527,14 +654,6 @@ internal fun operationActionLabel(
     availability != FeatureAvailability.Available -> availability.label
     else -> "Unavailable"
 }
-
-private fun ModeSwitchOffer.modeSwitchDescription(): String =
-    if (totalSteps == 1) {
-        "Switch to ${nextMode.displayName} mode before running this operation."
-    } else {
-        "Switch to ${nextMode.displayName} mode as step 1 of $totalSteps toward " +
-            destinationDescription + "."
-    }
 
 internal fun operationModelAvailability(
     session: Session,
@@ -591,12 +710,18 @@ private fun RoleTag(role: UserRole) {
     }
 }
 
+// The operations shown in the list. Experimental candidates (currently only the immobilizer-output
+// test) are intentionally excluded: that testing now happens in the command console, where the same
+// command is reachable as a VEHICLE_CONTROL preset.
+internal fun listableOperations(): List<RecoveredDeviceOperation> =
+    RecoveredWorkflowCatalog.operations.filterNot { operation -> operation.experimental }
+
 internal fun deviceOperationsFor(
     query: String = "",
     filters: OperationFilters = OperationFilters(),
 ): List<RecoveredDeviceOperation> {
     val normalizedQuery = query.trim()
-    return RecoveredWorkflowCatalog.operations.filter { operation ->
+    val matched = listableOperations().filter { operation ->
         val operationTypeMatches = when (filters.operationType) {
             null -> true
             OperationTypeFilter.READS -> !operation.mutating
@@ -605,9 +730,6 @@ internal fun deviceOperationsFor(
         val workflowMatches = when (filters.workflow) {
             null -> true
             UNIT_MODE_FILTER -> operation.command == QtCommand.CHANGE_MODE
-            EXPERIMENTAL_FILTER -> operation.bindings.any { binding ->
-                binding.action.experimental
-            }
             else -> operation.bindings.any { binding ->
                 binding.feature.category == filters.workflow
             }
@@ -626,20 +748,19 @@ internal fun deviceOperationsFor(
             }
         operationTypeMatches && workflowMatches && queryMatches
     }
+    return when (filters.dangerSort) {
+        null -> matched
+        DangerSort.DESCENDING -> matched.sortedByDescending { operation -> operation.dangerScore }
+        DangerSort.ASCENDING -> matched.sortedBy { operation -> operation.dangerScore }
+    }
 }
 
 internal fun workflowFiltersFor(
-    operations: List<RecoveredDeviceOperation> = RecoveredWorkflowCatalog.operations,
+    operations: List<RecoveredDeviceOperation> = listableOperations(),
 ): List<String> {
     return buildList {
         if (operations.any { operation -> operation.command == QtCommand.CHANGE_MODE }) {
             add(UNIT_MODE_FILTER)
-        }
-        if (operations.any { operation ->
-                operation.bindings.any { binding -> binding.action.experimental }
-            }
-        ) {
-            add(EXPERIMENTAL_FILTER)
         }
     }
 }

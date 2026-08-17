@@ -3,6 +3,7 @@ package com.karr.key.ui
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -328,5 +329,48 @@ internal fun CodeSurface(
                 softWrap = true,
             )
         }
+    }
+}
+
+/**
+ * A "Danger: N" chip. Shares the [RoleTag] pill shape and metrics used across the operation cards.
+ * The app's palette is deliberately monochrome, so severity is graded by weight rather than hue: a
+ * low score recedes like a neutral chip, a mid score brightens, and a high score inverts to near-max
+ * contrast so destructive or firmware commands jump out — all while staying on the grayscale theme.
+ */
+@Composable
+internal fun DangerTag(score: Int, modifier: Modifier = Modifier) {
+    val dark = isSystemInDarkTheme()
+    val container: Color
+    val content: Color
+    when {
+        score >= 7 -> {
+            // Inverted: near-white on dark, near-black on light — the strongest pull.
+            container = if (dark) Color(0xFFE7E7E7) else Color(0xFF1F1F1F)
+            content = if (dark) Color(0xFF1A1A1A) else Color(0xFFF5F5F5)
+        }
+        score >= 4 -> {
+            // A clear mid-gray, brighter than the neutral role chips.
+            container = if (dark) Color(0xFF6A6A6A) else Color(0xFF9A9A9A)
+            content = if (dark) Color(0xFFFFFFFF) else Color(0xFF111111)
+        }
+        else -> {
+            // Recedes, matching the neutral role chips.
+            container = if (dark) Color(0xFF2E2E2E) else Color(0xFFE1E1E1)
+            content = if (dark) Color(0xFFC7C7C7) else Color(0xFF3A3A3A)
+        }
+    }
+    Surface(
+        modifier = modifier,
+        color = container,
+        contentColor = content,
+        shape = MaterialTheme.shapes.small,
+    ) {
+        Text(
+            text = "Danger: $score",
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }

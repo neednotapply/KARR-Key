@@ -52,6 +52,12 @@ data class RecoveredOperationBinding(
     val limitation: String?,
 )
 
+/** A recovered, human-labeled payload for a command, offered as a fill-in preset by the console. */
+data class RecoveredKnownPayload(
+    val label: String,
+    val payload: List<Int>,
+)
+
 data class RecoveredDeviceOperation(
     val id: String,
     val label: String,
@@ -72,6 +78,15 @@ data class RecoveredDeviceOperation(
             binding.feature.requiredRole
         }
 
+    /**
+     * The least-privileged role permitted to run this operation — its access "floor". Roles rank by
+     * [UserRole] declaration order (CUSTOMER, then DEALER, then INSTALLER), so anyone at or above the
+     * floor is allowed. The operation card shows only this rather than every permitted role.
+     */
+    val lowestRole: UserRole
+        get() = roles.minByOrNull { role -> role.ordinal }
+            ?: bindings.first().feature.requiredRole
+
     val command: QtCommand
         get() = bindings.first().action.command
 
@@ -80,7 +95,21 @@ data class RecoveredDeviceOperation(
 
     val mutating: Boolean
         get() = bindings.first().action.mutating
+
+    val experimental: Boolean
+        get() = bindings.any { binding -> binding.action.experimental }
 }
+
+/**
+ * The 0–10 danger of a curated operation: its command's [dangerScore], nudged up by one for
+ * experimental candidates whose real-world behavior is less certain (e.g. the immobilizer-output
+ * test). Clamped to the same 0–10 range so it reads consistently with the console.
+ */
+val RecoveredDeviceOperation.dangerScore: Int
+    get() {
+        val experimental = bindings.any { binding -> binding.action.experimental }
+        return (command.dangerScore + if (experimental) 1 else 0).coerceIn(0, 10)
+    }
 
 object RecoveredWorkflowCatalog {
     private const val CUSTOMER_SOURCE = "KARR BT 2.15 managed caller"
@@ -174,8 +203,32 @@ object RecoveredWorkflowCatalog {
         read("read-violations", "Read violations", QtCommand.READ_VIOLATIONS),
     )
 
+    // Reads promoted out of the raw command console after being confirmed working on real hardware
+    // (a DR1 CAN unit, User mode). All are harmless, payload-free reads. Grouped so identity/info
+    // reads read at the Customer floor and the deeper CAN/bus reads at the Dealer floor.
+    private val recoveredIdentityReads = listOf(
+        read("read-vin", "Read stored VIN", QtCommand.READ_VIN),
+        read("read-serial", "Read unit serial", QtCommand.READ_SERIAL),
+    )
+
+    private val recoveredInfoReads = listOf(
+        read("read-io-protection", "Read IO protection", QtCommand.READ_IO_PROTECTION),
+        read("read-reset-cause", "Read reset cause", QtCommand.READ_RESET_CAUSE),
+        read("get-tilt-sensitivity", "Read tilt sensitivity", QtCommand.GET_TILT_SENSITIVITY),
+        read("debug-message", "Read diagnostic message", QtCommand.DEBUG_MESSAGE),
+    )
+
+    private val recoveredCanReads = listOf(
+        read("can-filename", "Read CAN file name", QtCommand.CAN_FILENAME),
+        read("can-file-version", "Read CAN file version", QtCommand.CAN_FILE_VERSION),
+        read("can-read-flag", "Read CAN flag", QtCommand.CAN_READ_FLAG),
+        read("check-can-errors", "Check CAN errors", QtCommand.CHECK_CAN_ERRORS),
+        read("bus-state", "Read bus state", QtCommand.BUS_STATE),
+        read("gmlan-timing-read", "Read GM-LAN timing", QtCommand.GMLAN_TIMING_READ),
+    )
+
     private val actions = mapOf(
-        "customer.vehicles" to commonIdentityReads,
+        "customer.vehicles" to commonIdentityReads + recoveredIdentityReads,
         "customer.controls" to listOf(
             mutate(
                 id = "lock-arm",
@@ -280,7 +333,7 @@ object RecoveredWorkflowCatalog {
                 source = CUSTOMER_SOURCE,
             ),
         ),
-        "customer.diagnostics" to commonDiagnostics,
+        "customer.diagnostics" to commonDiagnostics + recoveredInfoReads,
         "customer.settings" to listOf(
             read("read-settings", "Read all unit settings", QtCommand.READ_ALL_SETTINGS),
             read(
@@ -289,7 +342,7 @@ object RecoveredWorkflowCatalog {
                 QtCommand.READ_VIOLATION_INHIBIT,
             ),
         ),
-        "dealer.device" to commonIdentityReads + listOf(
+        "dealer.device" to commonIdentityReads + recoveredIdentityReads + listOf(
             read("read-firmware", "Read firmware version", QtCommand.READ_FIRMWARE_VERSION),
         ),
         "dealer.settings" to listOf(
@@ -305,8 +358,8 @@ object RecoveredWorkflowCatalog {
         ),
         "dealer.remotes" to remoteServiceActions(DEALER_SOURCE),
         "dealer.violations" to violationActions(DEALER_SOURCE),
-        "dealer.diagnostics" to commonDiagnostics,
-        "installer.unit" to commonIdentityReads,
+        "dealer.diagnostics" to commonDiagnostics + recoveredInfoReads + recoveredCanReads,
+        "installer.unit" to commonIdentityReads + recoveredIdentityReads,
         "installer.fitment" to commonIdentityReads + listOf(
             read(
                 "read-battery",
@@ -314,7 +367,7 @@ object RecoveredWorkflowCatalog {
                 QtCommand.READ_VEHICLE_BATTERY_VOLTAGE,
             ),
         ),
-        "installer.checks" to commonDiagnostics + listOf(
+        "installer.checks" to commonDiagnostics + recoveredCanReads + listOf(
             readRemotes(),
         ),
         "installer.tests" to listOf(
@@ -409,7 +462,7 @@ object RecoveredWorkflowCatalog {
                 experimental = false,
             ),
         ),
-        "installer.repair" to commonDiagnostics,
+        "installer.repair" to commonDiagnostics + recoveredInfoReads,
         "installer.removal" to listOf(
             read("read-state", "Read unit state", QtCommand.READ_STATE),
             read("read-mode", "Read unit mode", QtCommand.READ_MODE),
@@ -471,6 +524,24 @@ object RecoveredWorkflowCatalog {
 
     fun operationById(operationId: String): RecoveredDeviceOperation? =
         operations.firstOrNull { operation -> operation.id == operationId }
+
+    /**
+     * Known, non-empty payloads recovered for each command, so the raw command console can offer
+     * them as one-tap presets instead of the tester hand-entering hex. Derived from [operations],
+     * so it stays in sync with the curated catalog; commands whose only recovered form takes no
+     * payload (plain reads, clears) are absent because an empty payload is already the default.
+     */
+    val knownPayloadsByCommand: Map<QtCommand, List<RecoveredKnownPayload>> by lazy {
+        operations
+            .filter { operation -> operation.payload.isNotEmpty() }
+            .groupBy { operation -> operation.command }
+            .mapValues { (_, commandOperations) ->
+                commandOperations
+                    .map { operation -> RecoveredKnownPayload(operation.label, operation.payload) }
+                    .distinctBy { known -> known.payload }
+                    .sortedBy { known -> known.payload.firstOrNull() ?: -1 }
+            }
+    }
 
     /**
      * Operations offered for auto-connect & send: every read plus the standard mutating commands,

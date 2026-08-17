@@ -44,6 +44,8 @@ internal sealed interface AppRoute : NavKey {
     data object Device : AppRoute
 
     data class OperationDetail(val operationId: String) : AppRoute
+
+    data object CommandConsole : AppRoute
 }
 
 internal class KarrNavigationState private constructor(
@@ -125,6 +127,22 @@ internal class KarrNavigationState private constructor(
             stack.removeAt(stack.lastIndex)
         }
         stack.add(AppRoute.OperationDetail(operation.id))
+        switchTopLevel(
+            destination = TopLevelDestination.OPERATIONS,
+            forwardWhenUnchanged = true,
+        )
+    }
+
+    fun openCommandConsole() {
+        val stack = stacks.getValue(TopLevelDestination.OPERATIONS)
+        if (stack.firstOrNull() != AppRoute.Operations) {
+            stack.clear()
+            stack.add(AppRoute.Operations)
+        }
+        while (stack.size > 1) {
+            stack.removeAt(stack.lastIndex)
+        }
+        stack.add(AppRoute.CommandConsole)
         switchTopLevel(
             destination = TopLevelDestination.OPERATIONS,
             forwardWhenUnchanged = true,
@@ -298,6 +316,7 @@ private fun AppRoute.encode(): String = when (this) {
     is AppRoute.Settings -> "settings|${section.name}"
     AppRoute.Device -> "device"
     is AppRoute.OperationDetail -> "operation|$operationId"
+    AppRoute.CommandConsole -> "command-console"
 }
 
 private fun AppRoute.Companion.decode(value: String): AppRoute? {
@@ -315,6 +334,7 @@ private fun AppRoute.Companion.decode(value: String): AppRoute? {
         "operation" -> parts.getOrNull(1)
             ?.takeIf(String::isNotBlank)
             ?.let(AppRoute::OperationDetail)
+        "command-console" -> AppRoute.CommandConsole
         // Old feature details pointed to an intermediate menu that no longer exists.
         "feature" -> null
         else -> null

@@ -166,7 +166,7 @@ class KarrNavigationStateTest {
             operation.command to operation.payload
         }
 
-        assertEquals(25, operations.size)
+        assertEquals(36, operations.size)
         assertEquals(packets.size, packets.distinct().size)
         assertEquals(
             UserRole.entries.toSet(),
@@ -214,7 +214,8 @@ class KarrNavigationStateTest {
         assertTrue(reads.all { operation -> !operation.mutating })
         assertTrue(commands.isNotEmpty())
         assertTrue(commands.all { operation -> operation.mutating })
-        assertTrue(commands.any { operation -> operation.category == "Experimental" })
+        // The one Experimental op is no longer part of the list, so the partition holds without it.
+        assertTrue(commands.none { operation -> operation.category == "Experimental" })
         assertEquals(
             deviceOperationsFor().map { operation -> operation.id }.toSet(),
             (reads + commands).map { operation -> operation.id }.toSet(),
@@ -269,18 +270,16 @@ class KarrNavigationStateTest {
     }
 
     @Test
-    fun experimentalFilterCollectsOnlyTheRemainingCandidate() {
-        val experimental = deviceOperationsFor(
-            filters = OperationFilters(workflow = EXPERIMENTAL_FILTER),
-        )
+    fun theExperimentalCandidateIsExcludedFromTheOperationsList() {
+        // Experimental testing moved to the command console, so the list no longer surfaces it.
+        val listed = deviceOperationsFor()
 
-        assertEquals(1, experimental.size)
+        assertTrue(listed.isNotEmpty())
         assertTrue(
-            experimental.all { operation ->
+            listed.none { operation ->
                 operation.bindings.any { binding -> binding.action.experimental }
             },
         )
-        assertTrue(experimental.none { operation -> operation.command == QtCommand.CHANGE_MODE })
     }
 
     @Test
@@ -288,10 +287,7 @@ class KarrNavigationStateTest {
         val workflows = workflowFiltersFor()
 
         assertEquals(
-            listOf(
-                UNIT_MODE_FILTER,
-                EXPERIMENTAL_FILTER,
-            ),
+            listOf(UNIT_MODE_FILTER),
             workflows,
         )
         listOf("Vehicle controls", "Diagnostics", "Validation", "Unit service").forEach { redundant ->

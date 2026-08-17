@@ -77,7 +77,6 @@ import com.karr.key.ble.BleCommandExchange
 import com.karr.key.ble.BleCommandExchangeResult
 import com.karr.key.ble.BleController
 import com.karr.key.ble.BleModeChangeExchange
-import com.karr.key.ble.BleModeChangeResult
 import com.karr.key.ble.BleSessionState
 import com.karr.key.core.KarrTrace
 import com.karr.key.core.ResearchAccess
@@ -94,8 +93,6 @@ import com.karr.key.protocol.DeviceKeyProvisioning
 import com.karr.key.protocol.KarrDeviceMode
 import com.karr.key.protocol.KarrUnitModel
 import com.karr.key.protocol.KarrVulnerabilityStatus
-import com.karr.key.protocol.QtCommand
-import com.karr.key.protocol.QtProtocolCodec
 import com.karr.key.protocol.QtResponseDecoder
 import com.karr.key.protocol.RecoveredDeviceOperation
 import com.karr.key.protocol.RecoveredWorkflowCatalog
@@ -135,10 +132,6 @@ internal fun advanceWatchDogsMode(currentTapCount: Int): WatchDogsModeProgress {
         activated = activated,
     )
 }
-
-// Cap on auto-connect mode-switch hops per unit, so a malformed transition graph can't loop the
-// sweep on one device instead of moving on.
-private const val MAX_AUTO_MODE_HOPS = 5
 
 @Composable
 fun KarrKeyApp(
@@ -294,6 +287,52 @@ fun KarrKeyApp(
         }
     }
 
+    // Record what a connection reveals about a unit — its auth vulnerability (from the challenge
+    // width at AuthenticationRequired) and, once authenticated, its model — for EVERY connection,
+    // manual or auto-connect. Kept separate from the auto-connect sweep (which only runs when
+    // auto-connect-read is on and only sends a command) so a hand-connected unit — a neighbour's
+    // patched car reached from the Device screen — still lands its patched/vulnerable status on the
+    // map. A patched unit issues a wider-than-legacy challenge and is rejected before Ready, so the
+    // AuthenticationRequired capture is the only place its status can be observed.
+    LaunchedEffect(bleController) {
+        bleController.state.collect { current ->
+            when (current) {
+                is BleSessionState.AuthenticationRequired -> {
+                    val vulnerability =
+                        KarrVulnerabilityStatus.fromChallengeBytes(current.challengeBytes)
+                    val key = current.address.uppercase()
+                    if (lastVulnerability[key] != vulnerability) {
+                        lastVulnerability[key] = vulnerability
+                        withContext(Dispatchers.IO) {
+                            deviceProfileStore.record(
+                                deviceAddress = current.address,
+                                unitModelCode = null,
+                                vulnerability = vulnerability,
+                            )
+                        }
+                    }
+                }
+                is BleSessionState.Ready -> {
+                    // Reaching Ready means the legacy auth succeeded (vulnerable); READ_MODE also gave
+                    // the authoritative model. Persist both for the map label.
+                    val key = current.address.uppercase()
+                    val modelCode = current.unitModel?.code
+                    if (lastModelWrite[key] != modelCode) {
+                        lastModelWrite[key] = modelCode
+                        withContext(Dispatchers.IO) {
+                            deviceProfileStore.record(
+                                deviceAddress = current.address,
+                                unitModelCode = modelCode,
+                                vulnerability = KarrVulnerabilityStatus.VULNERABLE,
+                            )
+                        }
+                    }
+                }
+                else -> Unit
+            }
+        }
+    }
+
     LaunchedEffect(autoConnectReadEnabled, autoConnectSendOperationId, bleController) {
         if (!autoConnectReadEnabled) return@LaunchedEffect
         // Resolve against the auto-connect list so only valid, non-experimental operations are ever
@@ -321,25 +360,9 @@ fun KarrKeyApp(
                 }
                 is BleSessionState.DiscoveringUart -> pendingAddress = current.address
                 is BleSessionState.UartSubscribed -> pendingAddress = current.address
-                is BleSessionState.AuthenticationRequired -> {
-                    pendingAddress = current.address
-                    // The challenge width reveals whether the recovered legacy keys apply: 8-byte =
-                    // vulnerable, wider (e.g. 32-byte AES) = patched. Captured here so patched units
-                    // are recorded too — they are rejected before READ_MODE and never reach Ready.
-                    val vulnerability =
-                        KarrVulnerabilityStatus.fromChallengeBytes(current.challengeBytes)
-                    val key = current.address.uppercase()
-                    if (!lastVulnerability.containsKey(key) || lastVulnerability[key] != vulnerability) {
-                        lastVulnerability[key] = vulnerability
-                        withContext(Dispatchers.IO) {
-                            deviceProfileStore.record(
-                                deviceAddress = current.address,
-                                unitModelCode = null,
-                                vulnerability = vulnerability,
-                            )
-                        }
-                    }
-                }
+                // Profile recording (vulnerability/model) now lives in the always-on effect above, so
+                // it happens on manual connects too; here the sweep only tracks the pending address.
+                is BleSessionState.AuthenticationRequired -> pendingAddress = current.address
                 is BleSessionState.Authenticating -> pendingAddress = current.address
                 is BleSessionState.Ready -> {
                     if (handledCurrentReady) return@collect
@@ -351,22 +374,8 @@ fun KarrKeyApp(
                             "model=${ready.unitModel?.displayName ?: "?"} " +
                             "mode=${ready.unitMode?.name ?: "?"}; reading"
                     }
-                    // Reaching Ready means the 8-byte legacy auth succeeded (vulnerable), and
-                    // READ_MODE gave the authoritative unit model. Persist both for the map label.
-                    run {
-                        val key = ready.address.uppercase()
-                        val modelCode = ready.unitModel?.code
-                        if (!lastModelWrite.containsKey(key) || lastModelWrite[key] != modelCode) {
-                            lastModelWrite[key] = modelCode
-                            withContext(Dispatchers.IO) {
-                                deviceProfileStore.record(
-                                    deviceAddress = ready.address,
-                                    unitModelCode = modelCode,
-                                    vulnerability = KarrVulnerabilityStatus.VULNERABLE,
-                                )
-                            }
-                        }
-                    }
+                    // The unit's profile (model + vulnerable) is persisted by the always-on effect
+                    // above; the sweep just performs the auto-send.
                     // Talks to the unit directly instead of going through DeviceOperationExecutor:
                     // that path awaits snackbar dismissal (several seconds each, queued behind any
                     // snackbar in flight), which stalled disconnect()/startScan() long enough that
@@ -375,49 +384,38 @@ fun KarrKeyApp(
                     // following the recovered CHANGE_MODE transition path (multi-hop), each hop
                     // confirmed by a fresh READ_MODE. Only mode blocks are resolved this way;
                     // role/hardware blocks and unauthorized transition paths still stop the send.
-                    var currentMode = ready.unitMode
-                    var access = operation.executionAccess(
+                    val initialAccess = operation.executionAccess(
                         session = session,
                         deviceAuthenticated = true,
                         unitModel = ready.unitModel,
-                        unitMode = currentMode,
+                        unitMode = ready.unitMode,
                     )
-                    var modeHops = 0
-                    while (access.blockingReason != null && modeHops < MAX_AUTO_MODE_HOPS) {
-                        val offer = modeSwitchOffer(
-                            session = session,
-                            blockedAction = access.action,
-                            deviceAuthenticated = true,
-                            unitModel = ready.unitModel,
-                            unitMode = currentMode,
-                        ) ?: break
-                        KarrTrace.log(KarrTrace.SWEEP) {
-                            "mode ${currentMode?.name ?: "?"} -> ${offer.nextMode.name} " +
-                                "for ${operation.label}"
-                        }
-                        val changeResult = autoModeChangeExchange.changeAndConfirm(
-                            changePacket = QtProtocolCodec.generateOriginal(
-                                command = QtCommand.CHANGE_MODE,
-                                payload = byteArrayOf(offer.nextMode.code.toByte()),
-                            ),
-                            targetMode = offer.nextMode,
+                    val drive = autoModeChangeExchange.driveToRequiredMode(
+                        session = session,
+                        action = initialAccess.action,
+                        unitModel = ready.unitModel,
+                        startMode = ready.unitMode,
+                        onHop = { from, to ->
+                            KarrTrace.log(KarrTrace.SWEEP) {
+                                "mode ${from?.name ?: "?"} -> ${to.name} for ${operation.label}"
+                            }
+                        },
+                    )
+                    drive.failure?.let { failure ->
+                        KarrTrace.warn(
+                            KarrTrace.SWEEP,
+                            "mode switch failed: ${failure::class.simpleName}",
                         )
-                        if (changeResult !is BleModeChangeResult.Confirmed) {
-                            KarrTrace.warn(
-                                KarrTrace.SWEEP,
-                                "mode switch to ${offer.nextMode.name} failed: " +
-                                    changeResult::class.simpleName,
-                            )
-                            break
-                        }
-                        currentMode = offer.nextMode
-                        modeHops++
-                        access = operation.executionAccess(
+                    }
+                    val access = if (drive.changed) {
+                        operation.executionAccess(
                             session = session,
                             deviceAuthenticated = true,
                             unitModel = ready.unitModel,
-                            unitMode = currentMode,
+                            unitMode = drive.finalMode,
                         )
+                    } else {
+                        initialAccess
                     }
                     if (access.blockingReason == null) {
                         val action = access.action
@@ -615,7 +613,11 @@ private fun KeyShell(
                             )
                         },
                         navigationIcon = {
-                            if (navigation.currentRoute is AppRoute.OperationDetail) {
+                            val currentRoute = navigation.currentRoute
+                            if (
+                                currentRoute is AppRoute.OperationDetail ||
+                                currentRoute is AppRoute.CommandConsole
+                            ) {
                                 IconButton(onClick = { navigation.navigateUp() }) {
                                     Icon(
                                         painter = painterResource(R.drawable.ic_arrow_back),
@@ -711,6 +713,17 @@ private fun KeyShell(
                                 onLatestExecutionResultChanged = {
                                     latestOperationExecutionResult = it
                                 },
+                                onOpenCommandConsole = navigation::openCommandConsole,
+                            )
+                        }
+                        entry<AppRoute.CommandConsole> {
+                            CommandConsoleScreen(
+                                controller = bleController,
+                                deviceAuthenticated = deviceAuthenticated,
+                                session = session,
+                                unitModel = unitModel,
+                                unitMode = unitMode,
+                                modifier = Modifier.fillMaxSize(),
                             )
                         }
                         entry<AppRoute.Map> {
@@ -780,6 +793,7 @@ private fun KeyShell(
                                     onLatestExecutionResultChanged = {
                                         latestOperationExecutionResult = it
                                     },
+                                    onOpenCommandConsole = navigation::openCommandConsole,
                                 )
                             }
                         }
@@ -811,6 +825,7 @@ private fun OperationsRouteContent(
     listState: androidx.compose.foundation.lazy.LazyListState,
     latestExecutionResult: OperationExecutionResult?,
     onLatestExecutionResultChanged: (OperationExecutionResult) -> Unit,
+    onOpenCommandConsole: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val executor = remember(controller, operationStore, deviceReadStore, snackbar) {
@@ -833,6 +848,7 @@ private fun OperationsRouteContent(
         listState = listState,
         onQueryChanged = onQueryChanged,
         onFiltersChanged = onFiltersChanged,
+        onOpenCommandConsole = onOpenCommandConsole,
         onOpenOperation = navigation::openOperation,
         onExecuteOperation = { operation ->
             if (executingOperationId == null) {
@@ -1241,6 +1257,7 @@ internal fun shellTopBarTitle(
     AppRoute.Device,
     -> null
     is AppRoute.OperationDetail -> operationTitle ?: "Operation"
+    AppRoute.CommandConsole -> "Command console"
 }
 
 // Map owns horizontal drag for panning/zooming, so no gesture is installed at all while it's the

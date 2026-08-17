@@ -19,7 +19,11 @@ import android.util.Log
  *    correlate an authorised device; acceptable because this never ships.
  *
  * Filter in the field with, for example:
- *   adb logcat -s KARR/Ble KARR/Cmd KARR/Auth KARR/Proto KARR/Policy KARR/Sweep KARR/Map
+ *   adb logcat -s KARR/Ble KARR/Cmd KARR/Auth KARR/Proto KARR/Policy KARR/Sweep KARR/Map KARR/Compat
+ *
+ * [COMPAT] carries one line per raw command-console send — connected unit model, command, and the
+ * unit's accept / reject / no-response outcome — so filtering `adb logcat -s KARR/Compat` builds a
+ * per-model command-compatibility picture without persisting anything to the app database.
  */
 object KarrTrace {
     @Volatile
@@ -32,6 +36,7 @@ object KarrTrace {
     const val POLICY = "KARR/Policy"
     const val SWEEP = "KARR/Sweep"
     const val MAP = "KARR/Map"
+    const val COMPAT = "KARR/Compat"
 
     /** Command code for `PROVIDE_AUTH`; duplicated here to keep [core] free of a
      * protocol dependency. Kept in sync with `QtCommand.PROVIDE_AUTH`. */

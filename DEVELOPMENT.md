@@ -281,7 +281,7 @@ point regardless of caller.
 View it over `adb logcat`, filtering to the KARR tags:
 
 ```powershell
-adb logcat -s KARR/Ble KARR/Cmd KARR/Auth KARR/Proto KARR/Policy KARR/Sweep KARR/Map
+adb logcat -s KARR/Ble KARR/Cmd KARR/Auth KARR/Proto KARR/Policy KARR/Sweep KARR/Map KARR/Compat
 ```
 
 | Tag | Covers |
@@ -293,8 +293,34 @@ adb logcat -s KARR/Ble KARR/Cmd KARR/Auth KARR/Proto KARR/Policy KARR/Sweep KARR
 | `KARR/Policy` | Local role/capability allow/block decisions |
 | `KARR/Sweep` | Auto-sweep scan/connect/read loop |
 | `KARR/Map` | Map sightings recorded during a scan |
+| `KARR/Compat` | One line per raw command-console send: unit model + command + outcome |
 
 `KARR/Sweep` and `KARR/Map` are the tags to watch during a scan.
+
+### Command compatibility log
+
+Every send from the debug **Command console** emits one `KARR/Compat` line pairing the
+connected unit's model with the command and the unit's response, so a testing pass builds a
+per-model command-support picture without persisting anything to the app database. Filter to
+just that channel:
+
+```powershell
+adb logcat -s KARR/Compat
+```
+
+Each line reads `<model> | <COMMAND>(<code>) | <outcome> | tx=<hex>`, for example:
+
+```text
+DR1 CAN | READ_VIN(0x23) | ACCEPTED rx=READ_VIN 17B | tx=-
+DR1 CAN | SET_SECURE_KEY(0x4E) | REJECTED code=0x05 Invalid state | tx=01 02 03
+DR1 CAN | BOOTLOAD_ENTER(0x19) | NO_RESPONSE | tx=-
+```
+
+Outcomes: `ACCEPTED` / `ACK_OK` (unit recognized and accepted it), `REJECTED code=..`
+(recognized but refused — the code says why), `NO_RESPONSE` (no reply within the 5 s window —
+often an unrecognized or no-reply command), and `LINK_FAIL` (the BLE write itself failed, so the
+result is inconclusive). Grep by model (`DR1 CAN`) or command to see which commands each model
+supports.
 
 ## Remaining local compatibility work
 

@@ -1,6 +1,7 @@
 package com.karr.key.protocol
 
 import com.karr.key.core.FeatureCatalog
+import com.karr.key.core.UserRole
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -17,6 +18,89 @@ class RecoveredWorkflowCatalogTest {
             featureIds,
             RecoveredWorkflowCatalog.featureIdsWithDeviceActions,
         )
+    }
+
+    @Test
+    fun operationDangerScoresStayInRangeAndBumpForExperimental() {
+        RecoveredWorkflowCatalog.operations.forEach { operation ->
+            assertTrue(
+                "${operation.id} danger ${operation.dangerScore} out of range",
+                operation.dangerScore in 0..10,
+            )
+        }
+        // The experimental immobilizer-output test scores above the plain command it rides on.
+        val immobilizer = RecoveredWorkflowCatalog.operations
+            .first { operation -> operation.bindings.any { it.action.experimental } }
+        assertTrue(immobilizer.dangerScore > immobilizer.command.dangerScore)
+    }
+
+    @Test
+    fun lowestRoleIsTheLeastPrivilegedPermittedRole() {
+        // Read unit state is shared by all three roles; its floor is Customer.
+        val readState = RecoveredWorkflowCatalog.operationById("read-state")
+        assertTrue(readState != null)
+        assertEquals(
+            setOf(UserRole.CUSTOMER, UserRole.DEALER, UserRole.INSTALLER),
+            readState!!.roles,
+        )
+        assertEquals(UserRole.CUSTOMER, readState.lowestRole)
+
+        // For every operation the floor is one of its roles and the minimum by privilege order.
+        RecoveredWorkflowCatalog.operations.forEach { operation ->
+            assertTrue(operation.lowestRole in operation.roles)
+            assertEquals(
+                operation.roles.minByOrNull { role -> role.ordinal },
+                operation.lowestRole,
+            )
+        }
+    }
+
+    @Test
+    fun hardwareValidatedReadsArePromotedFromTheConsole() {
+        val ids = RecoveredWorkflowCatalog.operations.map { operation -> operation.id }.toSet()
+        listOf(
+            "read-vin", "read-serial",
+            "read-io-protection", "read-reset-cause", "get-tilt-sensitivity", "debug-message",
+            "can-filename", "can-file-version", "can-read-flag",
+            "check-can-errors", "bus-state", "gmlan-timing-read",
+        ).forEach { id -> assertTrue("$id should be a promoted operation", id in ids) }
+
+        // Identity/info reads read at the Customer floor; the deeper CAN/bus reads at the Dealer floor.
+        assertEquals(UserRole.CUSTOMER, RecoveredWorkflowCatalog.operationById("read-vin")!!.lowestRole)
+        assertEquals(
+            UserRole.DEALER,
+            RecoveredWorkflowCatalog.operationById("can-filename")!!.lowestRole,
+        )
+        // All promoted reads are non-mutating.
+        listOf("read-vin", "can-filename", "gmlan-timing-read").forEach { id ->
+            assertFalse(RecoveredWorkflowCatalog.operationById(id)!!.mutating)
+        }
+    }
+
+    @Test
+    fun knownPayloadsSurfaceRecoveredValuesAndOmitEmptyReads() {
+        val known = RecoveredWorkflowCatalog.knownPayloadsByCommand
+
+        // A command with multiple recovered payloads exposes each distinct one.
+        val vehicleControl = known[QtCommand.VEHICLE_CONTROL].orEmpty().map { it.payload }
+        assertTrue(vehicleControl.contains(listOf(10)))
+        assertTrue(vehicleControl.contains(listOf(2)))
+
+        // CHANGE_MODE exposes the recovered target-mode codes.
+        val modeCodes = known[QtCommand.CHANGE_MODE].orEmpty().map { it.payload }
+        assertTrue(modeCodes.contains(listOf(KarrDeviceMode.VALET.code)))
+        assertTrue(modeCodes.contains(listOf(KarrDeviceMode.INSTALLER.code)))
+
+        // A single-payload command still appears.
+        assertEquals(listOf(listOf(1)), known[QtCommand.BUMP_TEST].orEmpty().map { it.payload })
+
+        // Plain reads take no payload, so they are absent rather than listed with an empty one.
+        assertFalse(known.containsKey(QtCommand.READ_STATE))
+        // Every listed payload is non-empty and every label is populated.
+        known.values.flatten().forEach { entry ->
+            assertTrue(entry.payload.isNotEmpty())
+            assertTrue(entry.label.isNotBlank())
+        }
     }
 
     @Test
@@ -47,7 +131,7 @@ class RecoveredWorkflowCatalogTest {
             operation.command to operation.payload
         }
 
-        assertEquals(25, operations.size)
+        assertEquals(37, operations.size)
         assertEquals(operationPackets.size, operationPackets.distinct().size)
 
         val readState = operations.single { operation ->

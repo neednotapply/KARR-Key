@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -263,6 +264,9 @@ internal fun MapScreen(
             focusRequest = focusRequest,
             mapOrientationDegrees = if (headingUp) (360f - deviceHeadingDegrees) % 360f else 0f,
             revealedReportedAddress = revealedReportedAddress,
+            vulnerabilityByAddress = remember(profilesByAddress) {
+                profilesByAddress.mapValues { (_, profile) -> profile.vulnerability }
+            },
             onEstimatesSelected = { hits, expand ->
                 selectedDeviceAddresses = hits.map { it.address }.toSet()
                 revealedReportedAddress = null
@@ -307,7 +311,6 @@ internal fun MapScreen(
             state = state,
             locationGranted = locationGranted,
             selectedEstimates = selectedEstimates,
-            readsByAddress = readsByAddress,
             profilesByAddress = profilesByAddress,
             onOpenReadData = { address -> readDetailAddress = address },
             headingUp = headingUp,
@@ -370,6 +373,7 @@ internal fun MapScreen(
     if (showDeviceSearch) {
         DeviceSearchDialog(
             estimates = estimates,
+            profilesByAddress = profilesByAddress,
             onDismiss = { showDeviceSearch = false },
             onSelect = { estimate ->
                 selectedDeviceAddresses = setOf(estimate.address)
@@ -388,30 +392,28 @@ internal fun MapScreen(
         val estimate = estimates.firstOrNull { it.address == address }
         val reads = readsByAddress[address].orEmpty()
         val reported = estimate?.reportedPosition
-        if (reads.isEmpty() && reported == null) {
-            readDetailAddress = null
-        } else {
-            UnitReadDataDialog(
-                label = estimate?.label ?: address,
-                address = address,
-                reads = reads,
-                reportedPosition = reported,
-                // Tapping the coords here is the one place the reported-GPS line is revealed:
-                // recenter on the reported fix and close this dialog so the map is visible.
-                onReportedCoordsClick = reported?.let { point ->
-                    {
-                        revealedReportedAddress = address
-                        focusRequest = MapFocusRequest(
-                            point = point,
-                            zoom = null,
-                            nonce = (focusRequest?.nonce ?: 0) + 1,
-                        )
-                        readDetailAddress = null
-                    }
-                },
-                onDismiss = { readDetailAddress = null },
-            )
-        }
+        UnitReadDataDialog(
+            label = estimate?.label ?: address,
+            address = address,
+            rssi = estimate?.rssi,
+            radiusMeters = estimate?.radiusMeters,
+            reads = reads,
+            reportedPosition = reported,
+            // Tapping the coords here is the one place the reported-GPS line is revealed:
+            // recenter on the reported fix and close this dialog so the map is visible.
+            onReportedCoordsClick = reported?.let { point ->
+                {
+                    revealedReportedAddress = address
+                    focusRequest = MapFocusRequest(
+                        point = point,
+                        zoom = null,
+                        nonce = (focusRequest?.nonce ?: 0) + 1,
+                    )
+                    readDetailAddress = null
+                }
+            },
+            onDismiss = { readDetailAddress = null },
+        )
     }
 }
 
@@ -420,7 +422,6 @@ private fun MapBottomPanel(
     state: BleSessionState,
     locationGranted: Boolean,
     selectedEstimates: List<DeviceMapEstimate>,
-    readsByAddress: Map<String, List<DeviceReadRecord>>,
     profilesByAddress: Map<String, DeviceProfile>,
     onOpenReadData: (String) -> Unit,
     onEnableLocation: () -> Unit,
@@ -448,10 +449,6 @@ private fun MapBottomPanel(
             if (selectedEstimates.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     selectedEstimates.forEach { estimate ->
-                        val hasReads = readsByAddress[estimate.address]?.isNotEmpty() == true
-                        // Reachable detail exists when there are stored reads or a reported GPS
-                        // fix; the reported-GPS coords live inside that detail view now.
-                        val hasDetail = hasReads || estimate.reportedPosition != null
                         EstimateDetail(
                             estimate = estimate,
                             evidence = deviceEvidenceLine(
@@ -459,12 +456,8 @@ private fun MapBottomPanel(
                                 estimate.label,
                                 profilesByAddress[estimate.address],
                             ),
-                            hasDetail = hasDetail,
-                            onClick = if (hasDetail) {
-                                { onOpenReadData(estimate.address) }
-                            } else {
-                                null
-                            },
+                            vulnerability = profilesByAddress[estimate.address]?.vulnerability,
+                            onClick = { onOpenReadData(estimate.address) },
                         )
                     }
                 }
@@ -552,6 +545,7 @@ private fun MapBottomPanel(
 @Composable
 private fun DeviceSearchDialog(
     estimates: List<DeviceMapEstimate>,
+    profilesByAddress: Map<String, DeviceProfile>,
     onDismiss: () -> Unit,
     onSelect: (DeviceMapEstimate) -> Unit,
 ) {
@@ -593,6 +587,7 @@ private fun DeviceSearchDialog(
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         items(results, key = DeviceMapEstimate::address) { estimate ->
+                            val profile = profilesByAddress[estimate.address]
                             Surface(
                                 onClick = { onSelect(estimate) },
                                 modifier = Modifier
@@ -601,21 +596,48 @@ private fun DeviceSearchDialog(
                                 tonalElevation = 1.dp,
                                 shape = MaterialTheme.shapes.small,
                             ) {
-                                Column(modifier = Modifier.padding(10.dp)) {
-                                    Text(
-                                        estimate.label,
-                                        style = MaterialTheme.typography.labelLarge,
-                                    )
-                                    Text(
-                                        estimate.address,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style = MaterialTheme.typography.bodySmall,
-                                    )
-                                    Text(
-                                        "Last seen ${formatLastSeen(estimate.lastSeenUtc)}",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style = MaterialTheme.typography.bodySmall,
-                                    )
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    // Same status marker as the map: 🛡️/⚠️ once proven, else the
+                                    // neutral dot that stands for a never-connected unit.
+                                    Box(
+                                        modifier = Modifier.size(24.dp),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        val glyph = profile?.vulnerability?.statusGlyph()
+                                        if (glyph != null) {
+                                            Text(glyph, style = MaterialTheme.typography.titleMedium)
+                                        } else {
+                                            Text(
+                                                "•",
+                                                style = MaterialTheme.typography.titleLarge,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            estimate.label,
+                                            style = MaterialTheme.typography.labelLarge,
+                                        )
+                                        Text(
+                                            deviceEvidenceLine(
+                                                estimate.evidence,
+                                                estimate.label,
+                                                profile,
+                                            ),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            style = MaterialTheme.typography.bodySmall,
+                                        )
+                                        Text(
+                                            "Last seen ${formatLastSeen(estimate.lastSeenUtc)}",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            style = MaterialTheme.typography.bodySmall,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -638,6 +660,17 @@ private fun DeviceSearchDialog(
  * classification, upgrading the legacy generic "DR/QT" wording to the actual family (recoverable
  * from the device name) so pre-existing and imported records read specifically too.
  */
+/**
+ * The status glyph for a unit's proven authentication vulnerability, shown on the map marker and in
+ * the search list. Null when the unit has never been connected, since a scan cannot reveal it — the
+ * caller keeps the plain dot in that case.
+ */
+internal fun KarrVulnerabilityStatus.statusGlyph(): String? = when (this) {
+    KarrVulnerabilityStatus.VULNERABLE -> "⚠️"
+    KarrVulnerabilityStatus.PATCHED -> "🛡️"
+    KarrVulnerabilityStatus.UNKNOWN -> null
+}
+
 internal fun deviceEvidenceLine(
     scanEvidence: String,
     deviceName: String?,
@@ -670,45 +703,55 @@ private fun familySpecificScanEvidence(scanEvidence: String, deviceName: String?
     return if (family == "DR" || family == "QT") "Recovered $family serial format" else scanEvidence
 }
 
+// Mirrors a search-list row: a leading status glyph (🛡️/⚠️, or the neutral dot for a
+// never-connected unit) beside the name, evidence, and last-seen. The MAC, RSSI, and radius now
+// live one level down in the unit-data dialog, which the whole row opens.
 @Composable
 private fun EstimateDetail(
     estimate: DeviceMapEstimate,
     evidence: String,
-    hasDetail: Boolean,
-    onClick: (() -> Unit)?,
+    vulnerability: KarrVulnerabilityStatus?,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val rowModifier = modifier
-        .fillMaxWidth()
-        .testTag("map-selected-estimate:${estimate.address}")
-        .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-    Column(
-        modifier = rowModifier,
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("map-selected-estimate:${estimate.address}")
+            .clickable(onClick = onClick),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            estimate.label,
-            style = MaterialTheme.typography.labelLarge,
-        )
-        Text(
-            "${estimate.address}  RSSI ${estimate.rssi} dBm  " +
-                "radius ${estimate.radiusMeters.toInt()} m",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodySmall,
-        )
-        Text(
-            evidence,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodySmall,
-        )
-        Text(
-            "Last seen ${formatLastSeen(estimate.lastSeenUtc)}",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodySmall,
-        )
-        // Entry point to the detail dialog, which holds the unit's reads and its clickable
-        // reported-GPS coords. Shown whenever either of those exists.
-        if (hasDetail) {
+        Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+            val glyph = vulnerability?.statusGlyph()
+            if (glyph != null) {
+                Text(glyph, style = MaterialTheme.typography.titleMedium)
+            } else {
+                Text(
+                    "•",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                estimate.label,
+                style = MaterialTheme.typography.labelLarge,
+            )
+            Text(
+                evidence,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                "Last seen ${formatLastSeen(estimate.lastSeenUtc)}",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
             Text(
                 "View unit data ›",
                 color = MaterialTheme.colorScheme.primary,
@@ -723,6 +766,8 @@ private fun EstimateDetail(
 private fun UnitReadDataDialog(
     label: String,
     address: String,
+    rssi: Int?,
+    radiusMeters: Double?,
     reads: List<DeviceReadRecord>,
     reportedPosition: GeoPoint?,
     onReportedCoordsClick: (() -> Unit)?,
@@ -734,8 +779,14 @@ private fun UnitReadDataDialog(
         title = { Text(label) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // MAC, plus the RSSI and radius that used to sit on the map card — relocated here to
+                // keep the card itself compact.
                 Text(
-                    address,
+                    buildString {
+                        append(address)
+                        if (rssi != null) append("  RSSI $rssi dBm")
+                        if (radiusMeters != null) append("  radius ${radiusMeters.toInt()} m")
+                    },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -826,6 +877,7 @@ private fun KarrMapView(
     focusRequest: MapFocusRequest?,
     mapOrientationDegrees: Float,
     revealedReportedAddress: String?,
+    vulnerabilityByAddress: Map<String, KarrVulnerabilityStatus>,
     onEstimatesSelected: (List<DeviceMapEstimate>, Boolean) -> Unit,
     onReportedPositionTapped: (GeoPoint) -> Unit,
     modifier: Modifier = Modifier,
@@ -835,6 +887,7 @@ private fun KarrMapView(
     val minTouchRadiusPx = with(density) { MIN_TOUCH_TARGET_RADIUS.toPx() }
     val clusterCellPx = with(density) { CLUSTER_CELL_SIZE.toPx() }
     val clusterRadiusPx = with(density) { CLUSTER_MARKER_RADIUS.toPx() }
+    val statusGlyphPx = with(density) { MARKER_STATUS_GLYPH_SIZE.toPx() }
     val darkTheme = isSystemInDarkTheme()
 
     AndroidView(
@@ -884,6 +937,8 @@ private fun KarrMapView(
             currentHost.overlay.darkTheme = darkTheme
             currentHost.overlay.clusterCellPx = clusterCellPx
             currentHost.overlay.clusterRadiusPx = clusterRadiusPx
+            currentHost.overlay.statusGlyphPx = statusGlyphPx
+            currentHost.overlay.vulnerabilityByAddress = vulnerabilityByAddress
             currentHost.overlay.revealedReportedAddress = revealedReportedAddress
             currentHost.overlay.onEstimatesTapped = onEstimatesSelected
             currentHost.overlay.onReportedPositionTapped = onReportedPositionTapped
@@ -988,6 +1043,12 @@ private class MapHost(
 
 private class ConfidenceOverlay : Overlay() {
     var estimates: List<DeviceMapEstimate> = emptyList()
+        set(value) {
+            if (field != value) {
+                field = value
+                groups = null
+            }
+        }
     var phoneLocation: PhoneLocation? = null
     var minTouchRadiusPx: Float = 0f
     var darkTheme: Boolean = false
@@ -996,11 +1057,31 @@ private class ConfidenceOverlay : Overlay() {
     // and their screen-space distance grows past a cell's width — the same grid-bucketing
     // approach most map SDKs' marker clustering uses, kept to a single O(n) pass per draw.
     var clusterCellPx: Float = 0f
+        set(value) {
+            if (field != value) {
+                field = value
+                groups = null
+            }
+        }
     var clusterRadiusPx: Float = 0f
     var onEstimatesTapped: ((List<DeviceMapEstimate>, Boolean) -> Unit)? = null
     var onReportedPositionTapped: ((GeoPoint) -> Unit)? = null
     // Address of the unit whose reported-GPS line + marker are currently revealed; null draws none.
     var revealedReportedAddress: String? = null
+    // Proven auth status per address (from connection profiles). A singleton marker draws its status
+    // glyph (🛡️/⚠️) instead of the plain dot; addresses that were never connected stay a plain dot.
+    var vulnerabilityByAddress: Map<String, KarrVulnerabilityStatus> = emptyMap()
+    var statusGlyphPx: Float = 0f
+
+    // Which cell a marker lands in depends on the zoom, and osmdroid drives the zoom continuously
+    // through a pinch (and through an animated zoom), so re-bucketing every frame makes markers hop
+    // between cells mid-gesture: bubble counts tick up and down and groups merge and split under the
+    // fingers. The grouping is therefore pinned to the zoom it was computed at and only re-formed
+    // once the zoom stops moving, so the groups settle once, on release, instead of per frame.
+    private var groupingZoom: Double? = null
+    private var groups: List<List<DeviceMapEstimate>>? = null
+    private var settleCheck: Runnable? = null
+    private var settleCheckZoom: Double = 0.0
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
@@ -1022,6 +1103,11 @@ private class ConfidenceOverlay : Overlay() {
     private val clusterTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textAlign = Paint.Align.CENTER
         isFakeBoldText = true
+    }
+    // Draws the vulnerable/patched emoji at a singleton marker's center. Color emoji ignore the
+    // paint color and render their own glyph, so no color is set here.
+    private val statusGlyphPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.CENTER
     }
     // Dashed line + hollow marker for the unit's self-reported (stale) GPS, distinct from the solid
     // RSSI pin so it reads as "recently reported here", not "currently here".
@@ -1048,6 +1134,7 @@ private class ConfidenceOverlay : Overlay() {
             .withAlpha(90)
         clusterTextPaint.color = (if (darkTheme) MARKER_DOT_DARK else MARKER_DOT_LIGHT).toArgb()
         clusterTextPaint.textSize = clusterRadiusPx * CLUSTER_TEXT_SIZE_FACTOR
+        if (statusGlyphPx > 0f) statusGlyphPaint.textSize = statusGlyphPx
         phoneLocation?.let { location ->
             val point = projection.toPixels(
                 GeoPoint(location.latitude, location.longitude),
@@ -1122,7 +1209,15 @@ private class ConfidenceOverlay : Overlay() {
         strokePaint.color = color.withAlpha(if (darkTheme) 235 else 190)
         canvas.drawCircle(centerPoint.x.toFloat(), centerPoint.y.toFloat(), radiusPx, fillPaint)
         canvas.drawCircle(centerPoint.x.toFloat(), centerPoint.y.toFloat(), radiusPx, strokePaint)
-        canvas.drawCircle(centerPoint.x.toFloat(), centerPoint.y.toFloat(), 6f, markerPaint)
+        val glyph = vulnerabilityByAddress[estimate.address]?.statusGlyph()
+        if (glyph != null && statusGlyphPx > 0f) {
+            // Center the emoji on its cap height the same way the cluster number is centered.
+            val baseline =
+                centerPoint.y - (statusGlyphPaint.descent() + statusGlyphPaint.ascent()) / 2f
+            canvas.drawText(glyph, centerPoint.x.toFloat(), baseline, statusGlyphPaint)
+        } else {
+            canvas.drawCircle(centerPoint.x.toFloat(), centerPoint.y.toFloat(), 6f, markerPaint)
+        }
     }
 
     private fun drawCluster(canvas: Canvas, cluster: MapCluster) {
@@ -1150,37 +1245,29 @@ private class ConfidenceOverlay : Overlay() {
         else -> POSSIBLE_MARKER_LIGHT
     }.toArgb()
 
-    // Ported from MeshCore's map clustering (github.com/zjs81/meshcore-open,
-    // lib/screens/map_screen.dart): individual markers stay individual above
-    // CLUSTER_OFF_ZOOM no matter how close together they are, and below it, the desired
-    // on-screen cell size is converted into degrees at the current zoom (assuming standard
-    // 256px web-mercator tiles) so bucketing is by lat/lon rather than by re-projecting every
-    // marker to screen pixels just to find its cell.
+    // Groups at the pinned zoom rather than the map's live one, which holds the grouping still for
+    // the length of a pinch or a zoom animation. Only the grouping is held: members are re-projected
+    // every frame, so a held bubble stays glued to its markers as the map scales rather than hanging
+    // at a stale screen position.
     private fun clusterEstimates(mapView: MapView, projection: Projection): List<MapCluster> {
         if (estimates.isEmpty()) return emptyList()
-        val zoom = mapView.zoomLevelDouble
-        if (zoom >= CLUSTER_OFF_ZOOM || clusterCellPx <= 0f) {
-            return estimates.map { estimate ->
-                MapCluster(
-                    listOf(
-                        estimate to projection.toPixels(
-                            GeoPoint(estimate.latitude, estimate.longitude),
-                            Point(),
-                        ),
-                    ),
-                )
+        val liveZoom = mapView.zoomLevelDouble
+        val pinnedZoom = groupingZoom
+        val zoom: Double
+        if (pinnedZoom == null) {
+            zoom = liveZoom
+            groupingZoom = liveZoom
+        } else {
+            zoom = pinnedZoom
+            if (pinnedZoom != liveZoom) {
+                // The zoom is in flight: keep the groups it started with and watch for it to stop.
+                scheduleSettleCheck(mapView, liveZoom)
             }
         }
-        val cellDegrees = 360.0 / (256.0 * 2.0.pow(zoom)) * clusterCellPx
-        val buckets = LinkedHashMap<Pair<Int, Int>, MutableList<DeviceMapEstimate>>()
-        estimates.forEach { estimate ->
-            val cellKey = floor(estimate.latitude / cellDegrees).toInt() to
-                floor(estimate.longitude / cellDegrees).toInt()
-            buckets.getOrPut(cellKey) { mutableListOf() }.add(estimate)
-        }
-        return buckets.values.map { members ->
+        val members = groups ?: groupEstimates(zoom).also { groups = it }
+        return members.map { group ->
             MapCluster(
-                members.map { estimate ->
+                group.map { estimate ->
                     estimate to projection.toPixels(
                         GeoPoint(estimate.latitude, estimate.longitude),
                         Point(),
@@ -1188,6 +1275,51 @@ private class ConfidenceOverlay : Overlay() {
                 },
             )
         }
+    }
+
+    // Ported from MeshCore's map clustering (github.com/zjs81/meshcore-open,
+    // lib/screens/map_screen.dart): individual markers stay individual above
+    // CLUSTER_OFF_ZOOM no matter how close together they are, and below it, the desired
+    // on-screen cell size is converted into degrees at the given zoom (assuming standard
+    // 256px web-mercator tiles) so bucketing is by lat/lon rather than by re-projecting every
+    // marker to screen pixels just to find its cell.
+    private fun groupEstimates(zoom: Double): List<List<DeviceMapEstimate>> {
+        if (zoom >= CLUSTER_OFF_ZOOM || clusterCellPx <= 0f) return estimates.map { listOf(it) }
+        val cellDegrees = 360.0 / (256.0 * 2.0.pow(zoom)) * clusterCellPx
+        val buckets = LinkedHashMap<Pair<Int, Int>, MutableList<DeviceMapEstimate>>()
+        estimates.forEach { estimate ->
+            val cellKey = floor(estimate.latitude / cellDegrees).toInt() to
+                floor(estimate.longitude / cellDegrees).toInt()
+            buckets.getOrPut(cellKey) { mutableListOf() }.add(estimate)
+        }
+        return buckets.values.toList()
+    }
+
+    // Waits for the zoom to hold still rather than hooking the gesture, so a pinch, a double-tap
+    // zoom and an animated zoomToBoundingBox all release the same way. Self-reposting, so the map
+    // re-groups after the last frame of a zoom without needing another draw to notice.
+    private fun scheduleSettleCheck(mapView: MapView, liveZoom: Double) {
+        if (settleCheck != null) return
+        settleCheckZoom = liveZoom
+        val check = Runnable {
+            settleCheck = null
+            val settledZoom = mapView.zoomLevelDouble
+            if (settledZoom != settleCheckZoom || mapView.isAnimating()) {
+                scheduleSettleCheck(mapView, settledZoom)
+            } else {
+                groupingZoom = null
+                groups = null
+                mapView.invalidate()
+            }
+        }
+        settleCheck = check
+        mapView.postDelayed(check, CLUSTER_SETTLE_MILLIS)
+    }
+
+    override fun onDetach(mapView: MapView) {
+        settleCheck?.let(mapView::removeCallbacks)
+        settleCheck = null
+        super.onDetach(mapView)
     }
 
     override fun onSingleTapConfirmed(e: MotionEvent, mapView: MapView): Boolean {
@@ -1626,6 +1758,11 @@ private val CLUSTER_CELL_SIZE = 64.dp
 // unlike MeshCore's own, much wider-zoomed-out _clusterOffZoom of 12.5.
 private const val CLUSTER_OFF_ZOOM = 18.0
 private const val CLUSTER_FOCUS_PADDING_PX = 96
+// How long the zoom must hold still before the groups re-form. Comfortably longer than the gap
+// between frames of a pinch or a zoom animation, short enough to read as part of letting go.
+private const val CLUSTER_SETTLE_MILLIS = 120L
 private val CLUSTER_MARKER_RADIUS = 22.dp
 private const val CLUSTER_TEXT_SIZE_FACTOR = 0.9f
+// Size of the 🛡️/⚠️ status emoji drawn at a singleton marker's center, in place of the plain dot.
+private val MARKER_STATUS_GLYPH_SIZE = 20.dp
 private var osmMapConfigured = false

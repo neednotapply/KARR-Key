@@ -51,7 +51,7 @@ class ToolsAccessibilityTest {
     fun operationCatalogIsDirectAndDeduplicated() {
         setOperationsContent()
 
-        composeRule.onNodeWithText("25 of 25 operations").assertIsDisplayed()
+        composeRule.onNodeWithText("36 of 36 operations").assertIsDisplayed()
         composeRule.onNodeWithText("Read unit state").assertIsDisplayed()
         composeRule.onAllNodesWithText("Connection").assertCountEquals(0)
         composeRule.onAllNodesWithText("Research access").assertCountEquals(0)
@@ -79,7 +79,7 @@ class ToolsAccessibilityTest {
             .performClick()
 
         composeRule.onAllNodes(hasContentDescription("Clear search")).assertCountEquals(0)
-        composeRule.onNodeWithText("25 of 25 operations").assertIsDisplayed()
+        composeRule.onNodeWithText("36 of 36 operations").assertIsDisplayed()
     }
 
     @Test
@@ -164,18 +164,17 @@ class ToolsAccessibilityTest {
         val unitModeCount = deviceOperationsFor(
             filters = OperationFilters(workflow = UNIT_MODE_FILTER),
         ).size
-        val experimentalCount = deviceOperationsFor(
-            filters = OperationFilters(workflow = EXPERIMENTAL_FILTER),
-        ).size
         composeRule.onAllNodes(hasText("All") and hasClickAction()).assertCountEquals(0)
         listOf("Vehicle controls", "Diagnostics", "Validation", "Unit service").forEach { redundant ->
             composeRule.onAllNodes(hasText(redundant) and hasClickAction()).assertCountEquals(0)
         }
+        // The Experimental filter is gone; a tri-state Danger sort stands in its place.
+        composeRule.onAllNodesWithText("Experimental").assertCountEquals(0)
         val filterTags = listOf(
             "operation-filter:reads",
             "operation-filter:commands",
             "operation-filter:unit-mode",
-            "operation-filter:experimental",
+            "operation-filter:danger",
         )
         filterTags.forEach { tag ->
             composeRule.onNodeWithTag(tag).assertIsDisplayed()
@@ -190,19 +189,22 @@ class ToolsAccessibilityTest {
             )
         }
         composeRule.onNodeWithTag("operation-filter:reads").performClick()
-        composeRule.onNodeWithText("$readCount of 25 operations").assertIsDisplayed()
+        composeRule.onNodeWithText("$readCount of 36 operations").assertIsDisplayed()
         composeRule.onNodeWithTag("operation-filter:commands").performClick()
-        composeRule.onNodeWithText("$commandCount of 25 operations").assertIsDisplayed()
+        composeRule.onNodeWithText("$commandCount of 36 operations").assertIsDisplayed()
         composeRule.onNodeWithTag("operation-filter:commands").performClick()
-        composeRule.onNodeWithText("25 of 25 operations").assertIsDisplayed()
+        composeRule.onNodeWithText("36 of 36 operations").assertIsDisplayed()
         clickWorkflowFilter(UNIT_MODE_FILTER)
-        composeRule.onNodeWithText("$unitModeCount of 25 operations").assertIsDisplayed()
+        composeRule.onNodeWithText("$unitModeCount of 36 operations").assertIsDisplayed()
         clickWorkflowFilter(UNIT_MODE_FILTER)
-        composeRule.onNodeWithText("25 of 25 operations").assertIsDisplayed()
-        clickWorkflowFilter(EXPERIMENTAL_FILTER)
-        composeRule.onNodeWithText("$experimentalCount of 25 operations").assertIsDisplayed()
-        clickWorkflowFilter(EXPERIMENTAL_FILTER)
-        composeRule.onNodeWithText("25 of 25 operations").assertIsDisplayed()
+        composeRule.onNodeWithText("36 of 36 operations").assertIsDisplayed()
+        // The Danger sort keeps the full set (it re-orders, not filters) and cycles through three states.
+        composeRule.onNodeWithTag("operation-filter:danger").performClick()
+        composeRule.onNodeWithText("36 of 36 operations").assertIsDisplayed()
+        composeRule.onNodeWithTag("operation-filter:danger").performClick()
+        composeRule.onNodeWithText("36 of 36 operations").assertIsDisplayed()
+        composeRule.onNodeWithTag("operation-filter:danger").performClick()
+        composeRule.onNodeWithText("36 of 36 operations").assertIsDisplayed()
         composeRule.onAllNodesWithText("Type: All").assertCountEquals(0)
         composeRule.onAllNodesWithText("Role: All").assertCountEquals(0)
         composeRule.onAllNodesWithText("Vehicle information").assertCountEquals(0)
@@ -231,7 +233,7 @@ class ToolsAccessibilityTest {
     }
 
     @Test
-    fun modeRestrictedOperationExplainsRequirementAndRemainsSelectable() {
+    fun modeRestrictedOperationStaysRunnableAndAutoResolvesOnSend() {
         var executedOperation: RecoveredDeviceOperation? = null
         setOperationsContent(
             deviceAuthenticated = true,
@@ -244,16 +246,18 @@ class ToolsAccessibilityTest {
         composeRule.onNodeWithTag("operations-catalog").performScrollToNode(
             hasTestTag("operation:bump-test-01"),
         )
-        composeRule.onNodeWithTag("operation:bump-test-01")
-            .assertTextContains("Unit mode")
-            .assertIsEnabled()
+        // Blocked only by mode, so it reads as runnable and stays enabled — the send auto-switches
+        // to a supported mode rather than offering a manual mode change.
+        composeRule.onNodeWithTag("operation:bump-test-01").assertTextContains("Send command")
         composeRule.onNodeWithTag("operation-action:bump-test-01")
             .assertIsEnabled()
             .performClick()
 
         composeRule.runOnIdle {
-            assertEquals(QtCommand.CHANGE_MODE, executedOperation?.command)
-            assertEquals(listOf(KarrDeviceMode.DEALER.code), executedOperation?.payload)
+            // Tapping runs the operation itself; the executor drives the mode. It is no longer a
+            // manual CHANGE_MODE step.
+            assertEquals(QtCommand.BUMP_TEST, executedOperation?.command)
+            assertEquals(listOf(1), executedOperation?.payload)
         }
     }
 

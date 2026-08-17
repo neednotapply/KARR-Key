@@ -139,7 +139,7 @@ internal class DeviceOperationExecutor(
         unitMode: KarrDeviceMode?,
         callbacks: OperationExecutionCallbacks = OperationExecutionCallbacks(),
     ) {
-        val access = operation.executionAccess(
+        var access = operation.executionAccess(
             session = session,
             deviceAuthenticated = deviceAuthenticated,
             unitModel = unitModel,
@@ -150,17 +150,42 @@ internal class DeviceOperationExecutor(
                 "model=${unitModel?.displayName ?: "?"} mode=${unitMode?.name ?: "?"} " +
                 "authenticated=$deviceAuthenticated"
         }
-        access.blockingReason?.let { reason ->
-            KarrTrace.log(KarrTrace.POLICY) { "blocked ${access.action.command.name}: $reason" }
-            callbacks.onStatus(reason)
-            snackbar.showSnackbar(reason)
-            return
-        }
-        val action = access.action
         callbacks.onSendingChanged(true)
-        callbacks.onDecodedResponse(null)
-        callbacks.onRawResponse(null)
         try {
+            // If the unit's mode is the only thing blocking this command, drive it to a supported
+            // mode and re-evaluate — the same behavior the auto-connect sweep uses. A role/hardware
+            // block is not a mode block, so no hop is made and the gate below still stops the send.
+            if (access.blockingReason != null && deviceAuthenticated) {
+                val drive = modeChangeExchange.driveToRequiredMode(
+                    session = session,
+                    action = access.action,
+                    unitModel = unitModel,
+                    startMode = unitMode,
+                    onHop = { _, to ->
+                        callbacks.onStatus("Switching to ${to.displayName} mode first...")
+                    },
+                )
+                if (drive.changed) {
+                    KarrTrace.log(KarrTrace.POLICY) {
+                        "auto mode -> ${drive.finalMode?.name ?: "?"} for ${access.action.command.name}"
+                    }
+                    access = operation.executionAccess(
+                        session = session,
+                        deviceAuthenticated = deviceAuthenticated,
+                        unitModel = unitModel,
+                        unitMode = drive.finalMode,
+                    )
+                }
+            }
+            access.blockingReason?.let { reason ->
+                KarrTrace.log(KarrTrace.POLICY) { "blocked ${access.action.command.name}: $reason" }
+                callbacks.onStatus(reason)
+                snackbar.showSnackbar(reason)
+                return
+            }
+            val action = access.action
+            callbacks.onDecodedResponse(null)
+            callbacks.onRawResponse(null)
             val preflightDecision = runPreflight(action, callbacks.onStatus)
             val executableAction = when (preflightDecision) {
                 is RecoveredPreflightDecision.Allowed -> action.copy(

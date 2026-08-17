@@ -55,6 +55,7 @@ import com.karr.key.protocol.QtPacket
 import com.karr.key.protocol.QtProtocolCodec
 import com.karr.key.protocol.QtResponseDecoder
 import com.karr.key.protocol.compatibilityWith
+import com.karr.key.protocol.dangerScore
 import com.karr.key.protocol.evaluate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -94,6 +95,10 @@ fun DeviceOperationScreen(
         unitModel = unitModel,
         unitMode = unitMode,
     )
+    // A mode-only block is resolved automatically on send (the shared mode driver switches the unit
+    // to a supported mode first), so such an operation stays runnable rather than showing a disabled
+    // Send behind a "wrong mode" message.
+    val modeAutoResolvable = modeSwitchOffer != null
     val recoveryStatus = remember(
         operation.id,
         session.roles,
@@ -194,18 +199,31 @@ fun DeviceOperationScreen(
     }
 
     fun execute(action: RecoveredDeviceAction) {
-        action.compatibilityWith(unitModel, unitMode).blockingReason()?.let { reason ->
-            commandStatus = reason
-            scope.launch {
-                snackbar.showSnackbar(reason)
-            }
-            return
-        }
         sending = true
         decodedResponse = null
         lastResponse = null
         scope.launch {
             try {
+                // If the unit's mode is the only block, drive it to a supported mode first — the
+                // same shared driver every send path uses — then re-check before sending.
+                var effectiveMode = unitMode
+                if (action.compatibilityWith(unitModel, effectiveMode).blockingReason() != null) {
+                    val drive = modeChangeExchange.driveToRequiredMode(
+                        session = session,
+                        action = action,
+                        unitModel = unitModel,
+                        startMode = effectiveMode,
+                        onHop = { _, to ->
+                            commandStatus = "Switching to ${to.displayName} mode first..."
+                        },
+                    )
+                    if (drive.changed) effectiveMode = drive.finalMode
+                }
+                action.compatibilityWith(unitModel, effectiveMode).blockingReason()?.let { reason ->
+                    commandStatus = reason
+                    snackbar.showSnackbar(reason)
+                    return@launch
+                }
                 val preflightDecision = runPreflight(action)
                 val executableAction = when (preflightDecision) {
                     is RecoveredPreflightDecision.Allowed -> action.copy(
@@ -581,13 +599,16 @@ fun DeviceOperationScreen(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
+                    // A mode-only block no longer disables Send — the drive resolves it on tap.
+                    val modeReady =
+                        compatibility == RecoveredModelCompatibility.Supported || modeAutoResolvable
                     if (action.mutating) {
                         Button(
                             onClick = { execute(action) },
                             enabled =
                                 decision == AuthorizationDecision.Allowed &&
                                     deviceAuthenticated &&
-                                    compatibility == RecoveredModelCompatibility.Supported &&
+                                    modeReady &&
                                     recoveryStatus?.available != false &&
                                     !sending,
                         ) {
@@ -605,7 +626,7 @@ fun DeviceOperationScreen(
                             enabled =
                                 decision == AuthorizationDecision.Allowed &&
                                     deviceAuthenticated &&
-                                    compatibility == RecoveredModelCompatibility.Supported &&
+                                    modeReady &&
                                     !sending,
                         ) {
                             Text("Run read")
@@ -620,6 +641,7 @@ fun DeviceOperationScreen(
                                 "Requirements",
                                 style = MaterialTheme.typography.titleMedium,
                             )
+                            DangerTag(operation.dangerScore)
                         action.targetMode?.let { targetMode ->
                             Text(
                                 "MODE EFFECT",
