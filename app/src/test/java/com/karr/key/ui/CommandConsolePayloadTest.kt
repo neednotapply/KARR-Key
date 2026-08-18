@@ -6,6 +6,8 @@ import com.karr.key.core.UserRole
 import com.karr.key.protocol.KarrDeviceMode
 import com.karr.key.protocol.KarrUnitModel
 import com.karr.key.protocol.QtCommand
+import com.karr.key.protocol.QtCommandLayer
+import com.karr.key.protocol.profile
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -18,6 +20,51 @@ class CommandConsolePayloadTest {
         roles = UserRole.entries.toSet(),
         capabilities = Capability.entries.toSet(),
     )
+
+    @Test
+    fun consoleExcludesOperationsByCommandIdentity() {
+        val operationCommands = setOf(QtCommand.READ_STATE, QtCommand.VEHICLE_CONTROL)
+
+        val commands = commandConsoleCommands(operationCommands)
+
+        assertTrue(QtCommand.READ_STATE !in commands)
+        assertTrue(QtCommand.VEHICLE_CONTROL !in commands)
+        assertTrue(QtCommand.READ_VIN in commands)
+    }
+
+    @Test
+    fun defaultConsoleHasNoCommandAlreadyListedInOperations() {
+        val operationCommands = listableOperations().map { operation -> operation.command }.toSet()
+
+        assertTrue(commandConsoleCommands().none(operationCommands::contains))
+        assertTrue(QtCommand.READ_SPECIFIC_SETTING !in commandConsoleCommands())
+    }
+
+    @Test
+    fun consoleExcludesUnitEmittedProtocolResponses() {
+        val commands = commandConsoleCommands(emptySet())
+
+        assertTrue(commands.none { command -> command.profile.layer == QtCommandLayer.PROTOCOL })
+        assertTrue(QtCommand.ACK_OK !in commands)
+        assertTrue(QtCommand.ACK_ERROR !in commands)
+        assertTrue(QtCommand.CAN_MESSAGE !in commands)
+    }
+
+    @Test
+    fun researchedPayloadsExposeOnlyObservedNonDestructiveOptions() {
+        assertTrue(QtCommand.READ_SPECIFIC_SETTING !in researchedConsolePayloads)
+        assertEquals(
+            listOf(listOf(0x00), listOf(0x01), listOf(0x03), listOf(0x04)),
+            researchedConsolePayloads.getValue(QtCommand.LEARN_DOORS).map { it.payload },
+        )
+        assertEquals(
+            listOf(listOf(0x00), listOf(0x01)),
+            researchedConsolePayloads.getValue(QtCommand.REMOTE_TEST_MODE).map { it.payload },
+        )
+        assertTrue(QtCommand.SET_SECURE_KEY !in researchedConsolePayloads)
+        assertTrue(QtCommand.READ_REGISTER !in researchedConsolePayloads)
+        assertTrue(QtCommand.WRITE_SPECIFIC_SETTING !in researchedConsolePayloads)
+    }
 
     @Test
     fun curatedModeGatedActionResolvesOnlyKnownModeGatedCommands() {

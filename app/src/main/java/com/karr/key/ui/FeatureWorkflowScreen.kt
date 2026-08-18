@@ -1,12 +1,15 @@
 package com.karr.key.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
@@ -16,15 +19,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import com.karr.key.BuildConfig
 import com.karr.key.ble.BleCommandExchange
 import com.karr.key.ble.BleCommandExchangeResult
 import com.karr.key.ble.BleController
@@ -33,9 +40,11 @@ import com.karr.key.ble.BleModeChangeResult
 import com.karr.key.ble.BleSessionState
 import com.karr.key.ble.ModeChangeStage
 import com.karr.key.core.AuthorizationDecision
+import com.karr.key.core.KarrTrace
 import com.karr.key.core.RolePolicy
 import com.karr.key.core.Session
 import com.karr.key.core.displayName
+import com.karr.key.data.CommandCompatStore
 import com.karr.key.data.LocalDeviceReadStore
 import com.karr.key.data.LocalOperationState
 import com.karr.key.data.LocalOperationStore
@@ -57,6 +66,7 @@ import com.karr.key.protocol.QtResponseDecoder
 import com.karr.key.protocol.compatibilityWith
 import com.karr.key.protocol.dangerScore
 import com.karr.key.protocol.evaluate
+import com.karr.key.protocol.qtSpecificSettingOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -87,6 +97,15 @@ fun DeviceOperationScreen(
     }
     val feature = binding.feature
     val action = binding.action
+    var selectedSetting by remember(operation.id) {
+        mutableIntStateOf(action.payload.firstOrNull() ?: 0)
+    }
+    var settingMenuExpanded by remember(operation.id) { mutableStateOf(false) }
+    val selectedAction = if (action.command == QtCommand.READ_SPECIFIC_SETTING) {
+        action.copy(payload = listOf(selectedSetting))
+    } else {
+        action
+    }
     val decision = RolePolicy().authorize(session, feature, deviceAuthenticated)
     val modeSwitchOffer = modeSwitchOffer(
         session = session,
@@ -117,6 +136,10 @@ fun DeviceOperationScreen(
     }
     val exchange = remember(controller) { BleCommandExchange(controller) }
     val modeChangeExchange = remember(controller) { BleModeChangeExchange(controller) }
+    val context = LocalContext.current
+    val compatibilityStore = remember(context) {
+        if (BuildConfig.DEBUG) CommandCompatStore(context) else null
+    }
     val scope = rememberCoroutineScope()
     var commandStatus by remember(operation.id) { mutableStateOf<String?>(null) }
     var decodedResponse by remember(operation.id) {
@@ -124,6 +147,17 @@ fun DeviceOperationScreen(
     }
     var lastResponse by remember(operation.id) { mutableStateOf<String?>(null) }
     var sending by remember(operation.id) { mutableStateOf(false) }
+
+    fun recordSpecificSettingResult(action: RecoveredDeviceAction, outcome: String) {
+        if (action.command != QtCommand.READ_SPECIFIC_SETTING || unitModel == null) return
+        val tx = ByteArray(action.payload.size) { index -> action.payload[index].toByte() }
+        compatibilityStore?.record(unitModel.code, action.command.name, tx, outcome)
+        KarrTrace.log(KarrTrace.COMPAT) {
+            val txHex = if (tx.isEmpty()) "-" else KarrTrace.hex(tx)
+            "${unitModel.displayName} / ${unitMode?.displayName ?: "?"} | " +
+                "${action.command.name} | $outcome | tx=$txHex"
+        }
+    }
     LaunchedEffect(operation.id, initialExecutionResult) {
         initialExecutionResult
             ?.takeIf { result -> result.operationId == operation.id }
@@ -409,6 +443,17 @@ fun DeviceOperationScreen(
                     )
                 ) {
                     is BleCommandExchangeResult.Acknowledged -> {
+                        val responseName = result.response.command?.name
+                            ?: "0x${result.response.commandCode.toString(16).uppercase()}"
+                        val responsePayload = if (result.response.payload.isEmpty()) {
+                            "-"
+                        } else {
+                            KarrTrace.hex(result.response.payload)
+                        }
+                        recordSpecificSettingResult(
+                            executableAction,
+                            "${CommandCompatStore.OUTCOME_OK} rx=$responseName:$responsePayload",
+                        )
                         decodedResponse = QtResponseDecoder.decode(
                             packet = result.response,
                             unitModel = unitModel,
@@ -450,6 +495,15 @@ fun DeviceOperationScreen(
                         snackbar.showSnackbar("${action.label} acknowledged.")
                     }
                     is BleCommandExchangeResult.Rejected -> {
+                        val rejectCode = result.response.payload.firstOrNull()
+                            ?.toInt()
+                            ?.and(0xff)
+                            ?.let { code -> "0x${code.toString(16).uppercase().padStart(2, '0')}" }
+                            ?: "??"
+                        recordSpecificSettingResult(
+                            executableAction,
+                            CommandCompatStore.OUTCOME_REJECT_PREFIX + rejectCode,
+                        )
                         decodedResponse = null
                         lastResponse = result.response.rawResponseText(result.rawFrame)
                         val error = result.response.ackErrorMessage(executableAction.command)
@@ -462,6 +516,10 @@ fun DeviceOperationScreen(
                         snackbar.showSnackbar(error)
                     }
                     BleCommandExchangeResult.TimedOut -> {
+                        recordSpecificSettingResult(
+                            executableAction,
+                            CommandCompatStore.OUTCOME_TIMEOUT,
+                        )
                         val baseError =
                             "GATT accepted ${executableAction.command.name}, but no matching unit " +
                                 "response was observed within 5 seconds." +
@@ -556,6 +614,10 @@ fun DeviceOperationScreen(
                         }
                     }
                     is BleCommandExchangeResult.TransportFailure -> {
+                        recordSpecificSettingResult(
+                            executableAction,
+                            CommandCompatStore.OUTCOME_LINK,
+                        )
                         val error = result.message +
                             if (executableAction.singleShot) {
                                 " The single-shot command was not retried."
@@ -594,17 +656,74 @@ fun DeviceOperationScreen(
             ),
         ) {
             item {
-                val compatibility = action.compatibilityWith(unitModel, unitMode)
+                val compatibility = selectedAction.compatibilityWith(unitModel, unitMode)
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
+                    if (action.command == QtCommand.READ_SPECIFIC_SETTING) {
+                        OutlinedCard(Modifier.fillMaxWidth()) {
+                            Column(
+                                modifier = Modifier.padding(18.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Text(
+                                    "Setting to read",
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
+                                Text(
+                                    "Choose the payload selector sent to the unit.",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Box(Modifier.fillMaxWidth()) {
+                                    val selectedOption = qtSpecificSettingOptions.first {
+                                        it.selector == selectedSetting
+                                    }
+                                    OutlinedButton(
+                                        onClick = { settingMenuExpanded = true },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("specific-setting-selector"),
+                                    ) {
+                                        Text(
+                                            "0x${selectedOption.selector.toString(16).uppercase().padStart(2, '0')} · " +
+                                                selectedOption.label,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        Text("▾")
+                                    }
+                                    DropdownMenu(
+                                        expanded = settingMenuExpanded,
+                                        onDismissRequest = { settingMenuExpanded = false },
+                                    ) {
+                                        qtSpecificSettingOptions.forEach { option ->
+                                            DropdownMenuItem(
+                                                text = {
+                                                    Text(
+                                                        "0x${option.selector.toString(16).uppercase().padStart(2, '0')} · " +
+                                                            option.label,
+                                                    )
+                                                },
+                                                onClick = {
+                                                    selectedSetting = option.selector
+                                                    settingMenuExpanded = false
+                                                },
+                                                modifier = Modifier.testTag(
+                                                    "specific-setting:${option.selector}",
+                                                ),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     // A mode-only block no longer disables Send — the drive resolves it on tap.
                     val modeReady =
                         compatibility == RecoveredModelCompatibility.Supported || modeAutoResolvable
                     if (action.mutating) {
                         Button(
-                            onClick = { execute(action) },
+                            onClick = { execute(selectedAction) },
                             enabled =
                                 decision == AuthorizationDecision.Allowed &&
                                     deviceAuthenticated &&
@@ -622,7 +741,7 @@ fun DeviceOperationScreen(
                         }
                     } else {
                         Button(
-                            onClick = { execute(action) },
+                            onClick = { execute(selectedAction) },
                             enabled =
                                 decision == AuthorizationDecision.Allowed &&
                                     deviceAuthenticated &&
@@ -855,6 +974,9 @@ fun DeviceOperationScreen(
                             )
                             decoded.lines.forEach { line ->
                                 Text(line)
+                            }
+                            decoded.vehicleVin?.let { vin ->
+                                VinIdentityContent(vin = vin)
                             }
                         }
                     }

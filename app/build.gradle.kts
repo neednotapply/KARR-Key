@@ -11,8 +11,8 @@ android {
         applicationId = "com.karr.key"
         minSdk = 23
         targetSdk = 36
-        versionCode = 13
-        versionName = "1.0.4"
+        versionCode = 14
+        versionName = "1.0.5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -35,6 +35,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     compileOptions {
@@ -92,6 +93,7 @@ dependencies {
 
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20250517")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
@@ -108,7 +110,7 @@ val verifyOfflineManifest by tasks.registering {
         val manifestText = manifest.asFile.readText()
         listOf(
             "android.permission.INTERNET" to
-                "Map requires INTERNET for viewed OpenStreetMap tiles.",
+                "Map and user-requested NHTSA VIN decoding require INTERNET.",
             "android.permission.ACCESS_NETWORK_STATE" to
                 "The map renderer requires ACCESS_NETWORK_STATE before requesting map tiles.",
         ).forEach { (permission, message) ->

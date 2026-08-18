@@ -1,13 +1,55 @@
 package com.karr.key.ui
 
 import com.karr.key.data.DeviceProfile
+import com.karr.key.data.DeviceReadRecord
 import com.karr.key.protocol.KarrUnitModel
 import com.karr.key.protocol.KarrVulnerabilityStatus
 import java.time.Instant
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class MapEvidenceLineTest {
+    @Test
+    fun restoresReportedPositionFromNewestStoredRead() {
+        val older = DeviceReadRecord(
+            command = "READ_STATE",
+            heading = "Vehicle state",
+            lines = listOf("Position: 36.100000, -121.100000"),
+            unitModel = null,
+            capturedUtc = Instant.parse("2026-01-01T00:00:00Z"),
+        )
+        val newer = older.copy(
+            lines = listOf("Position: 36.686112, -121.804468"),
+            capturedUtc = Instant.parse("2026-01-02T00:00:00Z"),
+        )
+
+        val position = reportedPositionFromReads(listOf(older, newer))
+
+        assertEquals(36.686112, position!!.latitude, 0.0000001)
+        assertEquals(-121.804468, position.longitude, 0.0000001)
+    }
+
+    @Test
+    fun ignoresMalformedOrOutOfRangeStoredPositions() {
+        val read = DeviceReadRecord(
+            command = "READ_STATE",
+            heading = "Vehicle state",
+            lines = listOf("Position: 91.0, -121.0", "Battery: 12.5 V"),
+            unitModel = null,
+            capturedUtc = Instant.EPOCH,
+        )
+
+        assertNull(reportedPositionFromReads(listOf(read)))
+    }
+
+    @Test
+    fun extractsOnlyStructuredVinLinesForMapIdentity() {
+        assertEquals("1HGCM82633A004352", vinFromLines(listOf("VIN: 1HGCM82633A004352")))
+        assertNull(vinFromLines(listOf("Serial: 1HGCM82633A004352")))
+        assertNull(vinFromLines(listOf("VIN: SHORT")))
+    }
+
     private fun profile(
         modelCode: Int?,
         vulnerability: KarrVulnerabilityStatus,

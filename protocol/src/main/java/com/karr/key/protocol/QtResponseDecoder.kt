@@ -8,6 +8,7 @@ data class QtDecodedResponse(
     val securityState: QtSecurityState? = null,
     val unitModel: KarrUnitModel? = null,
     val vehiclePosition: VehiclePosition? = null,
+    val vehicleVin: String? = null,
 )
 
 /** A unit's self-reported GPS position, decoded from an extended READ_STATE response. */
@@ -27,14 +28,78 @@ object QtResponseDecoder {
         unitModel: KarrUnitModel? = null,
     ): QtDecodedResponse? = when (packet.command) {
         QtCommand.READ_ALL_SETTINGS -> decodeSettings(packet.payload, unitModel)
+        QtCommand.READ_SPECIFIC_SETTING -> decodeSpecificSetting(packet.payload, unitModel)
         QtCommand.READ_VEHICLE_BATTERY_VOLTAGE -> decodeBattery(packet.payload)
         QtCommand.READ_STATE -> decodeState(packet.payload)
         QtCommand.READ_FIRMWARE_VERSION -> decodeFirmware(packet.payload)
+        QtCommand.READ_VIN -> decodeVin(packet.payload)
         QtCommand.READ_VIOLATIONS -> decodeViolations(packet.payload)
         QtCommand.READ_MODE -> decodeMode(packet.payload)
         QtCommand.READ_VIOLATION_INHIBIT ->
             decodeViolationInhibit(packet.payload, unitModel)
         else -> null
+    }
+
+    private fun decodeSpecificSetting(
+        payload: ByteArray,
+        unitModel: KarrUnitModel?,
+    ): QtDecodedResponse {
+        if (payload.size < 2) {
+            return malformed(
+                heading = "Specific unit setting",
+                expectation = "a setting selector and value byte",
+                actualBytes = payload.size,
+            )
+        }
+        val selector = payload[0].unsigned()
+        val value = payload[1].unsigned()
+        val option = qtSpecificSettingOptions.firstOrNull { it.selector == selector }
+        val decoded = if (unitModel == KarrUnitModel.DR1_CAN) {
+            decodeDr1SpecificSetting(selector, value)
+        } else {
+            null
+        }
+        return QtDecodedResponse(
+            heading = "Specific unit setting",
+            lines = listOf(
+                "Setting: ${option?.label ?: "Unknown selector"}",
+                "Value: ${decoded ?: "Raw value $value"}",
+                "Selector: 0x${selector.toString(16).uppercase().padStart(2, '0')}",
+            ),
+        )
+    }
+
+    private fun decodeDr1SpecificSetting(selector: Int, value: Int): String? = when (selector) {
+        0x00, 0x01, 0x06, 0x07, 0x0D, 0x10, 0x15 -> onOff(value)
+        0x02 -> choice(value, "No", "Yes")
+        0x03 -> userArming(value)
+        0x04 -> choice(value, "3.5 seconds", "Short pulse", "Double unlock")
+        0x05 -> choice(value, "600 ms", "400 ms", "800 ms")
+        0x0A -> choice(value, "35 ms", "14 ms", "55 ms")
+        0x0B -> factoryOutputDuration(value)
+        0x0C -> choice(value, "Active low", "Active high")
+        0x0E -> alarmOutput(value)
+        0x11 -> "Level $value"
+        0x12 -> "$value days"
+        0x13 -> choice(value, "Green", "Blue", "Red")
+        0x14 -> choice(value, "Passive after doors", "Passive after timer")
+        else -> null
+    }
+
+    private fun decodeVin(payload: ByteArray): QtDecodedResponse {
+        val vin = payload.toString(Charsets.US_ASCII).trimEnd('\u0000', ' ').uppercase(Locale.US)
+        if (vin.length != VIN_LENGTH || vin.any { it !in VIN_CHARACTERS }) {
+            return malformed(
+                heading = "Stored VIN",
+                expectation = "$VIN_LENGTH VIN characters (excluding I, O, and Q)",
+                actualBytes = payload.size,
+            )
+        }
+        return QtDecodedResponse(
+            heading = "Stored VIN",
+            lines = listOf("VIN: $vin"),
+            vehicleVin = vin,
+        )
     }
 
     private fun decodeBattery(payload: ByteArray): QtDecodedResponse {
@@ -563,6 +628,8 @@ object QtResponseDecoder {
     }
 
     private const val FRONT_DRIVER_MASK = 0x01
+    private const val VIN_LENGTH = 17
+    private const val VIN_CHARACTERS = "ABCDEFGHJKLMNPRSTUVWXYZ0123456789"
     private const val FRONT_PASSENGER_MASK = 0x02
     private const val REAR_DRIVER_MASK = 0x04
     private const val REAR_PASSENGER_MASK = 0x08

@@ -8,6 +8,25 @@ import org.junit.Test
 
 class QtResponseDecoderTest {
     @Test
+    fun decodesStoredVinAsStructuredIdentityInput() {
+        val vin = "1HGCM82633A004352"
+
+        val decoded = decode(QtCommand.READ_VIN, vin.toByteArray(Charsets.US_ASCII))
+
+        assertEquals("Stored VIN", decoded.heading)
+        assertEquals(vin, decoded.vehicleVin)
+        assertEquals(listOf("VIN: $vin"), decoded.lines)
+    }
+
+    @Test
+    fun rejectsMalformedStoredVin() {
+        val decoded = decode(QtCommand.READ_VIN, "1HGCM826I3A004352".toByteArray())
+
+        assertNull(decoded.vehicleVin)
+        assertTrue(decoded.lines.single().contains("excluding I, O, and Q"))
+    }
+
+    @Test
     fun decodesCapturedBatteryVoltageAsLittleEndianMillivolts() {
         val decoded = decode(
             command = QtCommand.READ_VEHICLE_BATTERY_VOLTAGE,
@@ -152,6 +171,20 @@ class QtResponseDecoderTest {
         assertTrue(decoded.lines.contains("Factory-alarm output duration: 3 seconds"))
         assertTrue(decoded.lines.contains("Alarm output: Horn"))
         assertTrue(decoded.lines.contains("Alarm color: Green"))
+    }
+
+    @Test
+    fun decodesCapturedDr1SpecificSetting() {
+        val decoded = decode(
+            command = QtCommand.READ_SPECIFIC_SETTING,
+            payload = bytes(0x04, 0x02),
+            unitModel = KarrUnitModel.DR1_CAN,
+        )
+
+        assertEquals("Specific unit setting", decoded.heading)
+        assertTrue(decoded.lines.contains("Setting: Lock / unlock pulse"))
+        assertTrue(decoded.lines.contains("Value: Double unlock"))
+        assertTrue(decoded.lines.contains("Selector: 0x04"))
     }
 
     @Test

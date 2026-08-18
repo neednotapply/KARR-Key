@@ -70,6 +70,7 @@ internal suspend fun LocalDeviceReadStore.recordReadIfApplicable(
             lines = decoded.lines,
             unitModel = (decoded.unitModel ?: fallbackUnitModel)?.displayName,
         )
+        decoded.vehicleVin?.let(::autoDecodeVin)
     }
 }
 

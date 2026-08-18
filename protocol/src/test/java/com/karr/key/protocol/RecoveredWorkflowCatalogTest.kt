@@ -131,7 +131,7 @@ class RecoveredWorkflowCatalogTest {
             operation.command to operation.payload
         }
 
-        assertEquals(37, operations.size)
+        assertEquals(38, operations.size)
         assertEquals(operationPackets.size, operationPackets.distinct().size)
 
         val readState = operations.single { operation ->

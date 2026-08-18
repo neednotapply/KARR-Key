@@ -15,22 +15,26 @@ import android.content.Context
  *   /data/data/com.karr.key/shared_prefs/karr_key_command_compat.xml
  * ```
  *
- * Each entry is keyed `"<modelCode>:<COMMAND_NAME>"` with an outcome token as its value — [OUTCOME_OK]
- * when the unit accepted it, `"REJ:0x.."` when it was rejected (the code says why), [OUTCOME_TIMEOUT]
- * when there was no reply, or [OUTCOME_LINK] on a transport failure. Re-testing overwrites the entry,
- * so the file always reflects the latest result and survives leaving the screen / restarting the app.
+ * Each entry is keyed `"<modelCode>:<COMMAND_NAME>:tx=<HEX_OR_DASH>"`. Successful values begin with
+ * [OUTCOME_OK] and may include the response command and payload, while failures use `"REJ:0x.."`,
+ * [OUTCOME_TIMEOUT], or [OUTCOME_LINK]. Re-testing the same command/payload pair overwrites only that
+ * pair, so payload surveys remain intact across screen changes and app restarts.
  */
 class CommandCompatStore(context: Context) {
     private val preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    /** Records the [outcome] token the unit gave [commandName] on the model coded [modelCode]. */
-    fun record(modelCode: Int, commandName: String, outcome: String) {
-        preferences.edit().putString(key(modelCode, commandName), outcome).apply()
+    /** Records the [outcome] the unit gave this exact [commandName] + [payload] combination. */
+    fun record(modelCode: Int, commandName: String, payload: ByteArray, outcome: String) {
+        preferences.edit().putString(key(modelCode, commandName, payload), outcome).apply()
     }
 
     /** The commands the unit accepted on [modelCode] — the "confirmed working" set the filter hides. */
     fun workingCommands(modelCode: Int): Set<String> =
-        outcomes(modelCode).filterValues { it == OUTCOME_OK }.keys
+        outcomes(modelCode)
+            .filterValues(::isAccepted)
+            .keys
+            .map { it.substringBefore(PAYLOAD_KEY_SEPARATOR) }
+            .toSet()
 
     /** Every recorded command -> outcome for [modelCode]. */
     fun outcomes(modelCode: Int): Map<String, String> {
@@ -54,11 +58,20 @@ class CommandCompatStore(context: Context) {
 
     private fun prefix(modelCode: Int) = "$modelCode:"
 
-    private fun key(modelCode: Int, commandName: String) = "${prefix(modelCode)}$commandName"
+    private fun key(modelCode: Int, commandName: String, payload: ByteArray): String {
+        val tx = if (payload.isEmpty()) "-" else payload.joinToString("") { byte ->
+            (byte.toInt() and 0xff).toString(16).uppercase().padStart(2, '0')
+        }
+        return "${prefix(modelCode)}$commandName$PAYLOAD_KEY_SEPARATOR$tx"
+    }
 
     companion object {
         /** Outcome token for a command the unit accepted. */
         const val OUTCOME_OK = "OK"
+
+        /** True for both the legacy `OK` token and detailed `OK rx=...` success records. */
+        fun isAccepted(outcome: String): Boolean =
+            outcome == OUTCOME_OK || outcome.startsWith("$OUTCOME_OK ")
 
         /** Outcome token for a command that got no unit reply within the timeout. */
         const val OUTCOME_TIMEOUT = "TIMEOUT"
@@ -70,5 +83,6 @@ class CommandCompatStore(context: Context) {
         const val OUTCOME_REJECT_PREFIX = "REJ:"
 
         private const val PREFS_NAME = "karr_key_command_compat"
+        private const val PAYLOAD_KEY_SEPARATOR = ":tx="
     }
 }

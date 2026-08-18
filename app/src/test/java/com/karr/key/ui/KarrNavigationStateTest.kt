@@ -166,7 +166,7 @@ class KarrNavigationStateTest {
             operation.command to operation.payload
         }
 
-        assertEquals(36, operations.size)
+        assertEquals(37, operations.size)
         assertEquals(packets.size, packets.distinct().size)
         assertEquals(
             UserRole.entries.toSet(),

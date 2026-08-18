@@ -87,6 +87,7 @@ internal fun SettingsScreen(
         mutableStateOf(deviceKeys.isProvisioned(DeviceKeyPurpose.DEALER))
     }
     var pendingClear by remember { mutableStateOf<DeviceKeyPurpose?>(null) }
+    var pendingMapHistoryClear by remember { mutableStateOf(false) }
 
     var lastNotification by remember { mutableStateOf<String?>(null) }
     var selfTest by remember { mutableStateOf<String?>(null) }
@@ -187,6 +188,42 @@ internal fun SettingsScreen(
         )
     }
 
+    if (pendingMapHistoryClear) {
+        AlertDialog(
+            onDismissRequest = { pendingMapHistoryClear = false },
+            title = { Text("Clear map history?") },
+            text = {
+                Text(
+                    "This permanently removes all saved map observations, stored unit reads, " +
+                        "and device profiles. This cannot be undone.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingMapHistoryClear = false
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                mapHistoryStore.clear()
+                                deviceReadStore.clear()
+                                deviceProfileStore.clear()
+                            }
+                            historyCount = 0
+                            snackbar.showSnackbar("Map history cleared.")
+                        }
+                    },
+                ) {
+                    Text("Clear history")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingMapHistoryClear = false }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+
     val runSelfTest = {
         val packet = QtProtocolCodec.generateOriginal(QtCommand.READ_STATE)
         selfTest = when (val parsed = QtProtocolCodec.parse(packet)) {
@@ -256,17 +293,7 @@ internal fun SettingsScreen(
             )
             SettingsSection.MAP -> MapSettingsSection(
                 historyCount = historyCount,
-                onClear = {
-                    scope.launch {
-                        withContext(Dispatchers.IO) {
-                            mapHistoryStore.clear()
-                            deviceReadStore.clear()
-                            deviceProfileStore.clear()
-                        }
-                        historyCount = 0
-                        snackbar.showSnackbar("Map history cleared.")
-                    }
-                },
+                onClear = { pendingMapHistoryClear = true },
                 onExport = {
                     requestMapHistoryExport { result ->
                         scope.launch {

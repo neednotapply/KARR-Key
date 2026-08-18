@@ -60,9 +60,9 @@ maintained.
   connection, access keys, and transport diagnostics stay in the Device center.
   Inventory, jobs, accounts, imported records, external artifacts, remote
   history, transactions, and submissions stay excluded.
-- Map is the only Internet-using app surface. It may request viewed
-  OpenStreetMap tiles and foreground device location, but it must not add a
-  backend, account system, tile prefetch, or remote history.
+- Map may request viewed OpenStreetMap tiles, and an explicit VIN-decode action may send the
+  collected VIN to NHTSA vPIC automatically, with a manual retry when that lookup fails. No other
+  surface may add a backend, account system, tile prefetch, or remote history.
 - The map renderer requires `ACCESS_NETWORK_STATE` to detect connectivity before
   it requests raster tiles. `preBuild` checks that this and Map's `INTERNET`
   permission, foreground location permissions, and Bluetooth scan

@@ -59,8 +59,8 @@ enum class QtCommandLayer(val label: String) {
  */
 val QtCommand.profile: QtCommandProfile
     get() = when (this) {
-        // Protocol control and unit-emitted markers. Sending them to a unit is meaningless, but they
-        // are real codes and the console lists everything, so they are tagged rather than hidden.
+        // Protocol control and unit-emitted markers. Sending them to a unit is meaningless; they
+        // remain classified and documented here even though the interactive console hides them.
         QtCommand.ACK_OK -> protocol("Generic acknowledgement the unit sends; not a command.")
         QtCommand.AUTH_SUCCESS -> protocol("Unit-emitted result of a successful auth handshake.")
         QtCommand.AUTH_FAILED -> protocol("Unit-emitted result of a failed auth handshake.")

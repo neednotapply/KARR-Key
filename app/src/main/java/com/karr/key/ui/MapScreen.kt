@@ -156,7 +156,24 @@ internal fun MapScreen(
     // one giant clustering pass and one giant draw call before anything appears on screen.
     var estimates by remember { mutableStateOf<List<DeviceMapEstimate>>(emptyList()) }
     var selectedDeviceAddresses by remember { mutableStateOf<Set<String>>(emptySet()) }
-    val selectedEstimates = estimates.filter { it.address in selectedDeviceAddresses }
+    // Older/read-only imports can retain the decoded READ_STATE snapshot without a corresponding
+    // vehicle-GPS map-history row. Recover that position from the stored read so the coordinate
+    // affordance and its map line do not disappear merely because the secondary history row is
+    // absent.
+    val displayedEstimates = remember(estimates, readsByAddress) {
+        estimates.map { estimate ->
+            if (estimate.reportedPosition != null) {
+                estimate
+            } else {
+                estimate.copy(
+                    reportedPosition = reportedPositionFromReads(
+                        readsByAddress[estimate.address].orEmpty(),
+                    ),
+                )
+            }
+        }
+    }
+    val selectedEstimates = displayedEstimates.filter { it.address in selectedDeviceAddresses }
     // The unit whose reported-GPS line is currently revealed. Set by tapping the coords in that
     // unit's card; cleared by any other action (selecting a unit, a map button) so the line is
     // transient and only shows for the location you just asked to view.
@@ -259,7 +276,7 @@ internal fun MapScreen(
 
     Box(modifier.fillMaxSize()) {
         KarrMapView(
-            estimates = estimates,
+            estimates = displayedEstimates,
             phoneLocation = phoneLocation,
             focusRequest = focusRequest,
             mapOrientationDegrees = if (headingUp) (360f - deviceHeadingDegrees) % 360f else 0f,
@@ -372,7 +389,7 @@ internal fun MapScreen(
 
     if (showDeviceSearch) {
         DeviceSearchDialog(
-            estimates = estimates,
+            estimates = displayedEstimates,
             profilesByAddress = profilesByAddress,
             onDismiss = { showDeviceSearch = false },
             onSelect = { estimate ->
@@ -389,7 +406,7 @@ internal fun MapScreen(
     }
 
     readDetailAddress?.let { address ->
-        val estimate = estimates.firstOrNull { it.address == address }
+        val estimate = displayedEstimates.firstOrNull { it.address == address }
         val reads = readsByAddress[address].orEmpty()
         val reported = estimate?.reportedPosition
         UnitReadDataDialog(
@@ -847,6 +864,9 @@ private fun UnitReadDataDialog(
                                             style = MaterialTheme.typography.bodySmall,
                                         )
                                     }
+                                vinFromLines(record.lines)?.let { vin ->
+                                    VinIdentityContent(vin = vin)
+                                }
                                 Text(
                                     "Read ${formatLastSeen(record.capturedUtc)}",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -869,6 +889,22 @@ private fun UnitReadDataDialog(
 
 private fun formatLastSeen(instant: Instant): String =
     LAST_SEEN_FORMAT.format(instant)
+
+/** Returns the newest valid unit-reported coordinate retained in decoded READ_STATE lines. */
+internal fun reportedPositionFromReads(reads: List<DeviceReadRecord>): GeoPoint? = reads
+    .sortedByDescending(DeviceReadRecord::capturedUtc)
+    .asSequence()
+    .flatMap { record -> record.lines.asSequence() }
+    .mapNotNull(::reportedPositionFromLine)
+    .firstOrNull()
+
+private fun reportedPositionFromLine(line: String): GeoPoint? {
+    val match = REPORTED_POSITION_REGEX.matchEntire(line.trim()) ?: return null
+    val latitude = match.groupValues[1].toDoubleOrNull() ?: return null
+    val longitude = match.groupValues[2].toDoubleOrNull() ?: return null
+    if (latitude !in -90.0..90.0 || longitude !in -180.0..180.0) return null
+    return GeoPoint(latitude, longitude)
+}
 
 @Composable
 private fun KarrMapView(
@@ -1750,6 +1786,10 @@ private const val MAX_CONFIDENCE_RADIUS_METERS = 250.0
 // of lag behind a co-moving unit).
 private const val RECENCY_DECAY_SECONDS = 10.0
 private const val METERS_PER_DEGREE_LATITUDE = 111_320.0
+private val REPORTED_POSITION_REGEX = Regex(
+    "^Position:\\s*([+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+))\\s*,\\s*" +
+        "([+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+))$",
+)
 private const val MAP_ESTIMATE_REVEAL_BLOCK_SIZE = 30
 private val MIN_TOUCH_TARGET_RADIUS = 24.dp
 private val CLUSTER_CELL_SIZE = 64.dp

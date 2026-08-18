@@ -43,6 +43,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.karr.key.BuildConfig
 import com.karr.key.R
 import com.karr.key.core.AuthorizationDecision
 import com.karr.key.core.Session
@@ -213,8 +214,10 @@ private fun OperationsCatalogPane(
             bottom = 32.dp,
         ),
     ) {
-        item(key = "command-console-entry") {
-            CommandConsoleEntryCard(onOpen = onOpenCommandConsole)
+        if (BuildConfig.DEBUG) {
+            item(key = "command-console-entry") {
+                CommandConsoleEntryCard(onOpen = onOpenCommandConsole)
+            }
         }
 
         if (deviceAuthenticated) {

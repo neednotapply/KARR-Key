@@ -49,6 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.karr.key.BuildConfig
 import com.karr.key.R
 import com.karr.key.ble.BleCommandExchange
 import com.karr.key.ble.BleCommandExchangeResult
@@ -72,11 +73,11 @@ import com.karr.key.protocol.profile
 import kotlinx.coroutines.launch
 
 /**
- * A raw, uncurated protocol console: it lists every [QtCommand], lets a tester attach a hex payload,
- * frames it as an original `0xAA` packet, sends it to the connected unit, and records what came
- * back. Unlike the Operations catalog it applies no role or model gating — the point is exactly to
- * probe which commands a given unit accepts, rejects, or ignores, which is the empirical answer to
- * "what does this hardware support". Destructive commands still ask for confirmation first.
+ * A raw protocol console for commands that are not yet in the primary Operations catalog. It lets
+ * a tester attach a hex payload, frames it as an original `0xAA` packet, sends it to the connected
+ * unit, and records what came back. Unlike the Operations catalog it applies no role or model
+ * gating — the point is to probe which remaining commands a given unit accepts, rejects, or ignores.
+ * Destructive commands still ask for confirmation first.
  *
  * One curated behavior does carry over: if the command + payload being sent matches a recovered
  * operation that is only available in certain unit modes, the console auto-drives the unit to a
@@ -93,6 +94,9 @@ internal fun CommandConsoleScreen(
     unitMode: KarrDeviceMode?,
     modifier: Modifier = Modifier,
 ) {
+    // This research surface and its compatibility records must never operate in release builds.
+    if (!BuildConfig.DEBUG) return
+
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val exchange = remember(controller) { BleCommandExchange(controller) }
@@ -106,6 +110,7 @@ internal fun CommandConsoleScreen(
     val results = remember { mutableStateMapOf<QtCommand, ConsoleResult>() }
     var sending by remember { mutableStateOf<QtCommand?>(null) }
     var pendingConfirm by remember { mutableStateOf<QtCommand?>(null) }
+    val consoleCommands = remember { commandConsoleCommands() }
     // Commands already confirmed working on the connected model, loaded once per model. The hide
     // filter uses this snapshot; a command tested in the current session stays visible regardless
     // (see below), so a freshly-accepted command doesn't vanish before its result can be read.
@@ -139,8 +144,8 @@ internal fun CommandConsoleScreen(
                         // snapshot; the filter still keeps it visible this session (it has a result).
                         val outcome = result.storeOutcome
                         if (outcome != null && unitModel != null) {
-                            compatStore.record(unitModel.code, command.name, outcome)
-                            if (outcome == CommandCompatStore.OUTCOME_OK) {
+                            compatStore.record(unitModel.code, command.name, parsed.value, outcome)
+                            if (CommandCompatStore.isAccepted(outcome)) {
                                 workingSnapshot = workingSnapshot + command.name
                             }
                         }
@@ -152,7 +157,8 @@ internal fun CommandConsoleScreen(
         }
     }
 
-    val commands = matchingCommands(query).filterNot { command ->
+    val matchingCommands = matchingCommands(query, consoleCommands)
+    val commands = matchingCommands.filterNot { command ->
         // Hide only commands already confirmed working on this model — and keep any command tested
         // this session visible so its result stays on screen.
         hideWorking &&
@@ -161,7 +167,7 @@ internal fun CommandConsoleScreen(
             results[command] == null
     }
     val hiddenWorkingCount = if (unitModel != null) {
-        matchingCommands(query).count { command ->
+        matchingCommands.count { command ->
             command.name in workingSnapshot && results[command] == null
         }
     } else {
@@ -198,7 +204,7 @@ internal fun CommandConsoleScreen(
                 } else {
                     null
                 },
-                supportingText = { Text("${commands.size} of ${QtCommand.entries.size} commands") },
+                supportingText = { Text("${commands.size} of ${consoleCommands.size} commands") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -287,10 +293,44 @@ internal fun CommandConsoleScreen(
     }
 }
 
-private fun matchingCommands(query: String): List<QtCommand> {
+/** Removes Operations entries by protocol command identity, irrespective of label or payload. */
+internal fun commandConsoleCommands(
+    operationCommands: Set<QtCommand> = listableOperations().mapTo(mutableSetOf()) { it.command },
+): List<QtCommand> = QtCommand.entries
+    .filterNot(operationCommands::contains)
+    // Unit-emitted response/marker codes remain documented in the protocol catalog, but are not
+    // meaningful client sends and therefore do not belong in the interactive console.
+    .filterNot { command -> command.profile.layer == QtCommandLayer.PROTOCOL }
+
+/**
+ * Payloads observed at actual send call sites in the preserved Xamarin APKs under `research/`.
+ * These are deliberately separate from the Operations-derived presets: the console only contains
+ * commands which are not represented in Operations, and an APK caller is stronger evidence than a
+ * guessed byte range. Dangerous dynamic values (secure keys, firmware/CAN chunks, settings blobs)
+ * are intentionally excluded.
+ */
+internal data class ConsolePayloadPreset(
+    val label: String,
+    val payload: List<Int>,
+)
+
+internal val researchedConsolePayloads: Map<QtCommand, List<ConsolePayloadPreset>> = mapOf(
+    QtCommand.LEARN_DOORS to listOf(
+        ConsolePayloadPreset("Learn mode 0", listOf(0x00)),
+        ConsolePayloadPreset("Learn mode 1", listOf(0x01)),
+        ConsolePayloadPreset("Dome-light learn", listOf(0x03)),
+        ConsolePayloadPreset("Arm/disarm learn", listOf(0x04)),
+    ),
+    QtCommand.REMOTE_TEST_MODE to listOf(
+        ConsolePayloadPreset("Stop remote test", listOf(0x00)),
+        ConsolePayloadPreset("Start remote test", listOf(0x01)),
+    ),
+)
+
+private fun matchingCommands(query: String, commands: List<QtCommand>): List<QtCommand> {
     val normalized = query.trim()
-    if (normalized.isEmpty()) return QtCommand.entries
-    return QtCommand.entries.filter { command ->
+    if (normalized.isEmpty()) return commands
+    return commands.filter { command ->
         val profile = command.profile
         command.name.contains(normalized, ignoreCase = true) ||
             command.code.toString() == normalized ||
@@ -344,10 +384,15 @@ private suspend fun runCommand(
         is BleCommandExchangeResult.Acknowledged -> {
             val decoded = QtResponseDecoder.decode(result.response, unitModel)
             val responseName = result.response.command?.name ?: hexByte(result.response.commandCode)
-            val accepted = if (result.response.command == QtCommand.ACK_OK) {
-                "ACK_OK"
+            val responsePayload = if (result.response.payload.isEmpty()) {
+                "-"
             } else {
-                "ACCEPTED rx=$responseName ${result.response.payload.size}B"
+                KarrTrace.hex(result.response.payload)
+            }
+            val accepted = if (result.response.command == QtCommand.ACK_OK) {
+                "ACK_OK rx=$responsePayload"
+            } else {
+                "ACCEPTED rx=$responseName payload=$responsePayload"
             }
             traceCompat(unitModel, effectiveMode, command, payload, accepted)
             ConsoleResult(
@@ -355,7 +400,7 @@ private suspend fun runCommand(
                 headline = "${modeNote}Accepted",
                 detail = result.response.rawResponseText(result.rawFrame),
                 decodedLines = decoded?.let { listOf(it.heading) + it.lines },
-                storeOutcome = CommandCompatStore.OUTCOME_OK,
+                storeOutcome = "${CommandCompatStore.OUTCOME_OK} rx=$responseName:$responsePayload",
             )
         }
         is BleCommandExchangeResult.Rejected -> {
@@ -588,6 +633,42 @@ private fun CommandRow(
                         )
                     }
                 }
+            }
+
+            val researchedPayloads = remember(command) {
+                researchedConsolePayloads[command].orEmpty()
+            }
+            if (researchedPayloads.isNotEmpty()) {
+                Text(
+                    text = if (command == QtCommand.READ_SPECIFIC_SETTING) {
+                        "Recovered setting selectors"
+                    } else {
+                        "Original APK payloads"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    researchedPayloads.forEach { preset ->
+                        val hex = preset.payload.toPayloadHex()
+                        SuggestionChip(
+                            onClick = { onPayloadChange(hex) },
+                            enabled = enabled && !sending,
+                            label = { Text("${preset.label} · $hex", maxLines = 1) },
+                            modifier = Modifier.testTag("command-research-preset:${command.name}:$hex"),
+                        )
+                    }
+                }
+                Text(
+                    text = if (command == QtCommand.READ_SPECIFIC_SETTING) {
+                        "Selectors mirror offsets 0x00–0x15 in the recovered 22-byte " +
+                            "FullSettings layout. Unmapped labels are intentionally not guessed."
+                    } else {
+                        "Recovered from a real send path in the preserved original apps."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
             OutlinedTextField(

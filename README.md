@@ -91,9 +91,11 @@ Select an image to view it at full resolution.
   replying, and the vehicle physically doing something.
 
 Vehicle operations, Bluetooth authentication, access keys, and history work
-locally with no account system, cloud service, or backend. The Map page uses
-Android foreground location and requests OpenStreetMap tiles on demand, caching
-only tiles the user views.
+locally with no account system or app backend. The Map page uses Android foreground location and
+requests OpenStreetMap tiles on demand, caching only tiles the user views. After a VIN is read, an
+the app automatically sends it to the public NHTSA vPIC service for decoding. If that lookup fails,
+the VIN remains visible with a manual retry action. The resulting vehicle identity is cached locally
+with encrypted storage.
 
 ## App layout
 

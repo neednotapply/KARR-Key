@@ -6,7 +6,7 @@
         android:name="android.hardware.bluetooth_le"
         android:required="false" />
 
-    <!-- Map uses OpenStreetMap tiles on demand and caches viewed tiles locally. -->
+    <!-- Map uses OpenStreetMap tiles; user-requested VIN decoding uses NHTSA vPIC. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- The local map renderer checks connectivity before requesting raster tiles. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />

@@ -478,6 +478,12 @@ object RecoveredWorkflowCatalog {
         "installer.settings" to listOf(
             read("read-settings", "Read all unit settings", QtCommand.READ_ALL_SETTINGS),
             read(
+                id = "read-specific-setting",
+                label = "Read specific unit setting",
+                command = QtCommand.READ_SPECIFIC_SETTING,
+                payload = listOf(0x00),
+            ),
+            read(
                 "read-violation-inhibit",
                 "Read violation inhibit settings",
                 QtCommand.READ_VIOLATION_INHIBIT,
@@ -554,6 +560,8 @@ object RecoveredWorkflowCatalog {
         operations
             .filterNot { operation -> operation.category == "Experimental" }
             .filterNot { operation -> operation.command == QtCommand.CHANGE_MODE }
+            // This read requires an explicit user-selected setting payload.
+            .filterNot { operation -> operation.command == QtCommand.READ_SPECIFIC_SETTING }
             .sortedWith(compareBy({ operation -> operation.category != "Reads" }, { it.label }))
     }
 
@@ -622,12 +630,14 @@ object RecoveredWorkflowCatalog {
         id: String,
         label: String,
         command: QtCommand,
+        payload: List<Int> = emptyList(),
         modelRequirement: RecoveredModelRequirement? = null,
     ) = RecoveredDeviceAction(
         id = id,
         label = label,
         description = "Requests ${command.name} from the authenticated unit.",
         command = command,
+        payload = payload,
         modelRequirement = modelRequirement,
         source = when (command) {
             QtCommand.READ_ALL_SETTINGS,
@@ -731,6 +741,9 @@ object RecoveredWorkflowCatalog {
             "Reads locally stored alarm and violation history from the connected unit."
         action.command == QtCommand.READ_ALL_SETTINGS ->
             "Reads the connected unit's configurable security and control settings."
+        action.command == QtCommand.READ_SPECIFIC_SETTING ->
+            "Reads one selected security or control setting. Confirmed on DR1; other unit " +
+                "types remain available for compatibility testing."
         action.command == QtCommand.READ_VIOLATION_INHIBIT ->
             "Reads which alarm and violation inputs are currently inhibited."
         action.command == QtCommand.READ_REMOTES ->

@@ -5,6 +5,11 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import java.time.Instant
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /**
  * Persists the latest decoded READ result of each operation, keyed to the unit's MAC address, so
@@ -20,6 +25,22 @@ class LocalDeviceReadStore(
     context: Context,
     private val cipher: StringCipher = AndroidKeystoreCipher("karr_key_device_reads_v1"),
 ) : SQLiteOpenHelper(context, "karr_key_device_reads.db", null, DATABASE_VERSION) {
+    private val identityStore = LocalVehicleIdentityStore(context.applicationContext)
+    private val identityDecodeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    fun autoDecodeVin(vin: String) {
+        identityDecodeScope.launch {
+            if (identityStore.get(vin) == null) {
+                runCatching { decodeVinWithVpic(vin) }
+                    .onSuccess(identityStore::put)
+            }
+        }
+    }
+
+    override fun close() {
+        identityDecodeScope.cancel()
+        super.close()
+    }
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """
