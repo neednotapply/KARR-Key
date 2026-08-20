@@ -57,8 +57,15 @@ object CompatibleKarrDevice {
             return manufacturerEvidence
         }
 
-        if (normalizedName?.startsWith("DR") == true ||
-            normalizedName?.startsWith("QT") == true
+        // A *possible* (not confirmed) legacy candidate must still have the "DR "/"QT " family shape:
+        // two capital letters, a space, then a serial. Matching the original (un-uppercased) name
+        // keeps look-alikes like "Dryer", "Drone", "DRlegacy", or "QT-4" out — none has the
+        // capitalised two-letter-plus-space prefix — while a real "DR <serial>" whose serial isn't
+        // the exact recovered format still lands here. A full valid serial is already confirmed
+        // above (case-insensitively), so a lowercase one is not lost by this stricter prefix.
+        val trimmedName = name?.trim()
+        if (trimmedName != null &&
+            (trimmedName.startsWith("DR ") || trimmedName.startsWith("QT "))
         ) {
             return KarrDeviceClassification(
                 tier = KarrCandidateTier.POSSIBLE,

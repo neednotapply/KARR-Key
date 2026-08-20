@@ -83,6 +83,19 @@ sealed interface BleSessionState {
         val unitMode: KarrDeviceMode? = null,
         val linkDiagnostics: BleLinkDiagnostics = BleLinkDiagnostics(),
     ) : BleSessionState
+    /**
+     * A patched KARR unit: it accepted the Bluetooth/UART link but never issued the legacy
+     * `REQUEST_AUTH` challenge the recovered keys answer — it either stayed silent or replied with a
+     * non-legacy frame the legacy codec cannot parse — then dropped the link. Unlike a vulnerable
+     * unit it never reaches [Ready], so this terminal state is how the app learns the unit is not
+     * exposed to the legacy technique. [evidence] describes which of the two patched behaviours was
+     * observed.
+     */
+    data class PatchedUnitDetected(
+        val address: String,
+        val name: String?,
+        val evidence: String,
+    ) : BleSessionState
     data class Error(val message: String) : BleSessionState
 }
 
@@ -107,6 +120,26 @@ internal fun BleSessionState.withLinkDiagnostics(
 } else {
     this
 }
+
+/**
+ * Whether a just-closed connection matches the patched-unit signature: the unit accepted the UART
+ * link ([uartSubscribed]) but the connection ended before it ever issued the legacy `REQUEST_AUTH`
+ * challenge ([sawLegacyAuthChallenge] is false) — the behaviour a patched KARR unit shows, whether
+ * it stayed silent or replied with a non-legacy frame. Excludes automatic-reconnect drops
+ * ([isReconnect]) and post-authentication drops ([previousState] already [BleSessionState.Ready]),
+ * neither of which says anything about the legacy challenge. A user-initiated disconnect never
+ * reaches this check because it nulls the active GATT first.
+ */
+internal fun isPatchedUnitDisconnect(
+    uartSubscribed: Boolean,
+    sawLegacyAuthChallenge: Boolean,
+    isReconnect: Boolean,
+    previousState: BleSessionState,
+): Boolean =
+    uartSubscribed &&
+        !sawLegacyAuthChallenge &&
+        !isReconnect &&
+        previousState !is BleSessionState.Ready
 
 interface BleController {
     val state: StateFlow<BleSessionState>

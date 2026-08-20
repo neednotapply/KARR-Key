@@ -29,12 +29,26 @@ class CompatibleKarrDeviceTest {
 
     @Test
     fun keepsBroaderLegacyPrefixesAsPossibleCandidates() {
-        listOf("DR", "DRlegacy", "QT", "QT-4", "QT X").forEach { name ->
+        // Two capitals, a space, then a serial that isn't the exact recovered hex format: still a
+        // possible legacy candidate, just not a confirmed one.
+        listOf("DR X", "QT X", "QT 123456", "DR LEGACY1").forEach { name ->
             assertEquals(
                 name,
                 KarrCandidateTier.POSSIBLE,
                 CompatibleKarrDevice.classify(name).tier,
             )
+        }
+    }
+
+    @Test
+    fun rejectsDrQtLookalikesWithoutTheCapitalTwoLetterSpacePrefix() {
+        // Valid matches are "DR <serial>" / "QT <serial>": two capital letters, a space, a serial.
+        // A name that merely begins with those letters — a dryer, a drone, a lowercase or hyphenated
+        // prefix, or the bare prefix — is not a candidate.
+        listOf("Dryer", "Drone", "DRlegacy", "Quartz", "QT-4", "DR", "QT", "dr legacy").forEach { name ->
+            val result = CompatibleKarrDevice.classify(name)
+            assertEquals(name, KarrCandidateTier.OTHER, result.tier)
+            assertFalse(name, result.isCandidate)
         }
     }
 

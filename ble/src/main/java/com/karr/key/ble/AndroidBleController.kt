@@ -100,6 +100,14 @@ class AndroidBleController(
     @Volatile
     private var reconnectJob: Job? = null
     private var shuttingDown = false
+    // Per-connection patched-unit detection. A patched KARR unit accepts the GATT/UART link but
+    // never issues the legacy REQUEST_AUTH challenge — it either stays silent or emits a non-legacy
+    // frame the recovered codec can't parse — then drops the link. These flags let the terminal
+    // disconnect tell "patched" apart from an ordinary connection error. Reset at every connection.
+    private var uartSubscribedThisConnection = false
+    private var sawLegacyAuthChallenge = false
+    private var sawNonLegacyFrame = false
+    private var patchedCandidateName: String? = null
 
     override val state: StateFlow<BleSessionState> = _state.asStateFlow()
     override val devices: StateFlow<List<DiscoveredDevice>> = _devices.asStateFlow()
@@ -311,6 +319,28 @@ class AndroidBleController(
                 authentication.reset()
                 closeGatt(callbackGatt)
                 when {
+                    isPatchedUnitDisconnect(
+                        uartSubscribed = uartSubscribedThisConnection,
+                        sawLegacyAuthChallenge = sawLegacyAuthChallenge,
+                        isReconnect = connectionOrigin == ConnectionOrigin.RECONNECT,
+                        previousState = previousState,
+                    ) -> {
+                        // Patched signature: the unit accepted the UART link but dropped it without
+                        // ever issuing the legacy REQUEST_AUTH challenge. A user-initiated
+                        // disconnect nulls `gatt` first and returns early above, so reaching here
+                        // means the unit itself closed the pre-auth link.
+                        _state.value = BleSessionState.PatchedUnitDetected(
+                            address = callbackGatt.device.address,
+                            name = patchedCandidateName,
+                            evidence = if (sawNonLegacyFrame) {
+                                "Replied with a non-legacy frame and closed the link without " +
+                                    "issuing the legacy 8-byte challenge."
+                            } else {
+                                "Accepted the Bluetooth link but closed it without issuing the " +
+                                    "legacy 8-byte challenge."
+                            },
+                        )
+                    }
                     previousState is BleSessionState.Ready -> {
                         val target = lastAuthenticatedTarget
                         if (target == null) {
@@ -442,6 +472,8 @@ class AndroidBleController(
                 )
                 return
             }
+            uartSubscribedThisConnection = true
+            patchedCandidateName = connectedName(callbackGatt)
             _state.value = BleSessionState.UartSubscribed(
                 address = callbackGatt.device.address,
                 name = connectedName(callbackGatt),
@@ -774,6 +806,10 @@ class AndroidBleController(
         showConnectingState: Boolean,
     ) {
         linkDiagnostics = BleLinkDiagnostics()
+        uartSubscribedThisConnection = false
+        sawLegacyAuthChallenge = false
+        sawNonLegacyFrame = false
+        patchedCandidateName = null
         connectionOrigin = origin
         activeConnectionTarget = target
         if (showConnectingState) {
@@ -978,6 +1014,11 @@ class AndroidBleController(
         }
         if (parsed is PacketParseResult.Success) {
             _state.value = _state.value.withReadModeObservation(parsed.packet)
+        } else if (_state.value is BleSessionState.UartSubscribed) {
+            // First post-subscribe frame that the legacy codec can't parse: a confirmed KARR unit
+            // answering this way is speaking the newer (patched) scheme, not the legacy one. Noted
+            // so the terminal disconnect can report the richer patched evidence.
+            sawNonLegacyFrame = true
         }
         _notifications.tryEmit(copy)
         notificationEvents.trySend(
@@ -1008,6 +1049,9 @@ class AndroidBleController(
         // a patched unit is rejected before READ_MODE, so this is the only point its challenge width
         // is observable.
         if (parsed.packet.command == QtCommand.REQUEST_AUTH) {
+            // The unit issued the legacy challenge, so it is not patched against this technique; a
+            // later disconnect must not be misread as the patched signature.
+            sawLegacyAuthChallenge = true
             _state.value = BleSessionState.AuthenticationRequired(
                 address = address,
                 name = name,

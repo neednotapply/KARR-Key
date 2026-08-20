@@ -22,6 +22,7 @@ internal fun bleNotificationContent(
 ): BleNotificationContent? = when (state) {
     BleSessionState.Idle,
     is BleSessionState.Error,
+    is BleSessionState.PatchedUnitDetected,
     is BleSessionState.ReconnectFailed,
     -> null
 

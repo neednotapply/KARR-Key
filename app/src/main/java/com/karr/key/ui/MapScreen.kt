@@ -178,6 +178,9 @@ internal fun MapScreen(
     // unit's card; cleared by any other action (selecting a unit, a map button) so the line is
     // transient and only shows for the location you just asked to view.
     var revealedReportedAddress by remember { mutableStateOf<String?>(null) }
+    // Uppercased addresses whose full location-history trail is currently drawn on the map. Toggled
+    // per device from its card in the bottom panel; reset when the tap/search selection changes.
+    var historyShownAddresses by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showDeviceSearch by remember { mutableStateOf(false) }
     var readDetailAddress by remember { mutableStateOf<String?>(null) }
     var focusRequest by remember { mutableStateOf<MapFocusRequest?>(null) }
@@ -274,6 +277,51 @@ internal fun MapScreen(
         }
     }
 
+    // How many sightings each unit has (its own stale GPS reports excluded — those are the separate
+    // reported-position annotation), used to label and enable the per-unit "location history" toggle.
+    val historyPointCounts = remember(history) {
+        history
+            .filterNot { it.locationProvider == VEHICLE_GPS_PROVIDER }
+            .groupingBy { it.deviceAddress.uppercase() }
+            .eachCount()
+    }
+    // Oldest-first sighting points for each unit whose history is revealed, drawn as its trail.
+    val historyTrackByAddress = remember(history, historyShownAddresses) {
+        if (historyShownAddresses.isEmpty()) {
+            emptyMap()
+        } else {
+            history
+                .filterNot { it.locationProvider == VEHICLE_GPS_PROVIDER }
+                .filter { it.deviceAddress.uppercase() in historyShownAddresses }
+                .groupBy { it.deviceAddress.uppercase() }
+                .mapValues { (_, group) ->
+                    group.sortedBy(LocalMapObservation::observedUtc)
+                        .map { GeoPoint(it.phoneLatitude, it.phoneLongitude) }
+                }
+        }
+    }
+    val toggleHistory: (String) -> Unit = { address ->
+        val normalized = address.uppercase()
+        if (normalized in historyShownAddresses) {
+            historyShownAddresses = historyShownAddresses - normalized
+        } else {
+            historyShownAddresses = historyShownAddresses + normalized
+            // Fit the map to the whole trail so its spread is visible the moment it is turned on.
+            val points = history
+                .filterNot { it.locationProvider == VEHICLE_GPS_PROVIDER }
+                .filter { it.deviceAddress.uppercase() == normalized }
+                .map { GeoPoint(it.phoneLatitude, it.phoneLongitude) }
+            if (points.size > 1) {
+                focusRequest = MapFocusRequest(
+                    point = points.last(),
+                    zoom = null,
+                    nonce = (focusRequest?.nonce ?: 0) + 1,
+                    boundingBox = BoundingBox.fromGeoPointsSafe(points),
+                )
+            }
+        }
+    }
+
     Box(modifier.fillMaxSize()) {
         KarrMapView(
             estimates = displayedEstimates,
@@ -284,9 +332,11 @@ internal fun MapScreen(
             vulnerabilityByAddress = remember(profilesByAddress) {
                 profilesByAddress.mapValues { (_, profile) -> profile.vulnerability }
             },
+            historyTrackByAddress = historyTrackByAddress,
             onEstimatesSelected = { hits, expand ->
                 selectedDeviceAddresses = hits.map { it.address }.toSet()
                 revealedReportedAddress = null
+                historyShownAddresses = emptySet()
                 KarrTrace.log(KarrTrace.MAP) {
                     "tap -> ${hits.size} device(s): ${hits.joinToString { it.label }}" +
                         if (expand) " (expand cluster)" else ""
@@ -395,6 +445,7 @@ internal fun MapScreen(
             onSelect = { estimate ->
                 selectedDeviceAddresses = setOf(estimate.address)
                 revealedReportedAddress = null
+                historyShownAddresses = emptySet()
                 focusRequest = MapFocusRequest(
                     point = GeoPoint(estimate.latitude, estimate.longitude),
                     zoom = SEARCH_FOCUS_ZOOM,
@@ -416,6 +467,14 @@ internal fun MapScreen(
             radiusMeters = estimate?.radiusMeters,
             reads = reads,
             reportedPosition = reported,
+            historyShown = address.uppercase() in historyShownAddresses,
+            historyPointCount = historyPointCounts[address.uppercase()] ?: 0,
+            onToggleHistory = {
+                toggleHistory(address)
+                // Close so the map — now showing or hiding this unit's trail — is visible, the
+                // same act-then-close flow the Reported GPS row uses.
+                readDetailAddress = null
+            },
             // Tapping the coords here is the one place the reported-GPS line is revealed:
             // recenter on the reported fix and close this dialog so the map is visible.
             onReportedCoordsClick = reported?.let { point ->
@@ -787,6 +846,9 @@ private fun UnitReadDataDialog(
     radiusMeters: Double?,
     reads: List<DeviceReadRecord>,
     reportedPosition: GeoPoint?,
+    historyShown: Boolean,
+    historyPointCount: Int,
+    onToggleHistory: () -> Unit,
     onReportedCoordsClick: (() -> Unit)?,
     onDismiss: () -> Unit,
 ) {
@@ -830,6 +892,24 @@ private fun UnitReadDataDialog(
                                     Modifier
                                 },
                             ),
+                    )
+                }
+                // Location history lives here, one level below the map card and beside Reported GPS:
+                // draws every sighting of this unit as a trail on the map. Only offered when the unit
+                // was seen at more than one point. The call site closes the dialog on tap so the
+                // trail is visible; the toggle label reflects the current on/off state.
+                if (historyPointCount > 1) {
+                    Text(
+                        if (historyShown) {
+                            "Hide location history"
+                        } else {
+                            "Show location history ($historyPointCount) ›"
+                        },
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier
+                            .testTag("map-toggle-history:$address")
+                            .clickable(onClick = onToggleHistory),
                     )
                 }
                 if (ordered.isEmpty()) {
@@ -914,6 +994,7 @@ private fun KarrMapView(
     mapOrientationDegrees: Float,
     revealedReportedAddress: String?,
     vulnerabilityByAddress: Map<String, KarrVulnerabilityStatus>,
+    historyTrackByAddress: Map<String, List<GeoPoint>>,
     onEstimatesSelected: (List<DeviceMapEstimate>, Boolean) -> Unit,
     onReportedPositionTapped: (GeoPoint) -> Unit,
     modifier: Modifier = Modifier,
@@ -975,6 +1056,7 @@ private fun KarrMapView(
             currentHost.overlay.clusterRadiusPx = clusterRadiusPx
             currentHost.overlay.statusGlyphPx = statusGlyphPx
             currentHost.overlay.vulnerabilityByAddress = vulnerabilityByAddress
+            currentHost.overlay.historyTrackByAddress = historyTrackByAddress
             currentHost.overlay.revealedReportedAddress = revealedReportedAddress
             currentHost.overlay.onEstimatesTapped = onEstimatesSelected
             currentHost.overlay.onReportedPositionTapped = onReportedPositionTapped
@@ -1108,6 +1190,10 @@ private class ConfidenceOverlay : Overlay() {
     // glyph (🛡️/⚠️) instead of the plain dot; addresses that were never connected stay a plain dot.
     var vulnerabilityByAddress: Map<String, KarrVulnerabilityStatus> = emptyMap()
     var statusGlyphPx: Float = 0f
+    // Time-ordered sighting points per address whose location history is currently revealed; each is
+    // drawn as a breadcrumb trail (polyline + a dot per sighting) so the user can see everywhere a
+    // unit was seen, not just its single weighted pin. Empty draws none.
+    var historyTrackByAddress: Map<String, List<GeoPoint>> = emptyMap()
 
     // Which cell a marker lands in depends on the zoom, and osmdroid drives the zoom continuously
     // through a pinch (and through an animated zoom), so re-bucketing every frame makes markers hop
@@ -1159,6 +1245,16 @@ private class ConfidenceOverlay : Overlay() {
         style = Paint.Style.STROKE
         strokeWidth = 3f
     }
+    // Solid breadcrumb trail (distinct from the reported-GPS dashed line) connecting a unit's past
+    // sightings in time order, with a dot at each.
+    private val historyLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 4f
+        strokeCap = Paint.Cap.ROUND
+    }
+    private val historyDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
 
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
         if (shadow) return
@@ -1179,6 +1275,10 @@ private class ConfidenceOverlay : Overlay() {
             canvas.drawCircle(point.x.toFloat(), point.y.toFloat(), 10f, phonePaint)
             canvas.drawCircle(point.x.toFloat(), point.y.toFloat(), 18f, guidePaint)
         }
+        if (historyTrackByAddress.isNotEmpty()) {
+            // Drawn before the markers so the current pins and clusters sit on top of the trail.
+            drawHistoryTracks(canvas, projection)
+        }
         val reportedColor = (if (darkTheme) REPORTED_MARKER_DARK else REPORTED_MARKER_LIGHT).toArgb()
         clusterEstimates(mapView, projection).forEach { cluster ->
             // Draw the revealed unit's reported-GPS line + marker whether it is a lone pin or has
@@ -1194,6 +1294,36 @@ private class ConfidenceOverlay : Overlay() {
                 drawSingleEstimate(canvas, projection, singleton.first, singleton.second)
             } else {
                 drawCluster(canvas, cluster)
+            }
+        }
+    }
+
+    // Draws each revealed unit's location-history trail: a polyline through its past sightings in
+    // time order with a dot at each, so the spread the pin is estimated from is visible.
+    private fun drawHistoryTracks(canvas: Canvas, projection: Projection) {
+        val trailColor = (if (darkTheme) MARKER_DOT_DARK else MARKER_DOT_LIGHT).toArgb()
+        historyLinePaint.color = trailColor.withAlpha(150)
+        historyDotPaint.color = trailColor.withAlpha(220)
+        historyTrackByAddress.values.forEach { points ->
+            var previous: Point? = null
+            points.forEach { geoPoint ->
+                val pixel = projection.toPixels(geoPoint, Point())
+                previous?.let { start ->
+                    canvas.drawLine(
+                        start.x.toFloat(),
+                        start.y.toFloat(),
+                        pixel.x.toFloat(),
+                        pixel.y.toFloat(),
+                        historyLinePaint,
+                    )
+                }
+                canvas.drawCircle(
+                    pixel.x.toFloat(),
+                    pixel.y.toFloat(),
+                    HISTORY_DOT_RADIUS_PX,
+                    historyDotPaint,
+                )
+                previous = Point(pixel.x, pixel.y)
             }
         }
     }
@@ -1655,6 +1785,24 @@ internal fun estimateDeviceLocations(
             accumulator.add(observation, weight)
         }
         val latest = sorted.first()
+        // Circle radius reflects how far the unit is *now*, not the tightest bound ever recorded.
+        // It is a recency-weighted mean of the per-sighting confidence radii (the same decay the
+        // position uses), so a weak, distant fresh signal draws a wide circle — an area that can
+        // still contain the unit — and it shrinks as newer, stronger sightings arrive while you
+        // close in. Using `min` instead let one close pass collapse the circle to the floor forever.
+        var radiusWeightSum = 0.0
+        var radiusValueSum = 0.0
+        sorted.forEach { observation ->
+            val ageSeconds = (latestUtcMillis - observation.observedUtc.toEpochMilli()) / 1000.0
+            val recencyWeight = exp(-ageSeconds / RECENCY_DECAY_SECONDS)
+            radiusWeightSum += recencyWeight
+            radiusValueSum += observation.confidenceRadiusMeters * recencyWeight
+        }
+        val currentRadiusMeters = if (radiusWeightSum > 0.0) {
+            radiusValueSum / radiusWeightSum
+        } else {
+            latest.confidenceRadiusMeters
+        }
         // The unit's most recent self-reported GPS (if any) is surfaced as a secondary annotation,
         // not the plotted position — it's a stale last-known fix, useful as a recently-visited spot.
         val reportedPosition = group
@@ -1668,8 +1816,7 @@ internal fun estimateDeviceLocations(
             evidence = latest.classificationEvidence,
             latitude = weighted.latitude,
             longitude = weighted.longitude,
-            radiusMeters = sorted.minOf(LocalMapObservation::confidenceRadiusMeters)
-                .coerceAtLeast(MIN_CONFIDENCE_RADIUS_METERS),
+            radiusMeters = currentRadiusMeters.coerceAtLeast(MIN_CONFIDENCE_RADIUS_METERS),
             rssi = latest.rssi,
             lastSeenUtc = latest.observedUtc,
             reportedPosition = reportedPosition,
@@ -1766,6 +1913,7 @@ private val GUIDE_RING_DARK = Color(0xff94a3b8)
 private val REPORTED_MARKER_LIGHT = Color(0xff7c3aed)
 private val REPORTED_MARKER_DARK = Color(0xffa78bfa)
 private const val REPORTED_MARKER_RADIUS_PX = 10f
+private const val HISTORY_DOT_RADIUS_PX = 5f
 private const val SEARCH_FOCUS_ZOOM = 18.0
 private val LAST_SEEN_FORMAT: DateTimeFormatter =
     DateTimeFormatter.ofPattern("MMM d, yyyy HH:mm").withZone(ZoneId.systemDefault())

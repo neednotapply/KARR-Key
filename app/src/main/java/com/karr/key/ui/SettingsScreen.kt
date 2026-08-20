@@ -293,6 +293,20 @@ internal fun SettingsScreen(
             )
             SettingsSection.MAP -> MapSettingsSection(
                 historyCount = historyCount,
+                onDeduplicate = {
+                    scope.launch {
+                        val removed =
+                            withContext(Dispatchers.IO) { mapHistoryStore.deduplicate() }
+                        historyCount = withContext(Dispatchers.IO) { mapHistoryStore.count() }
+                        snackbar.showSnackbar(
+                            when (removed) {
+                                0 -> "No duplicate observations found."
+                                1 -> "Removed 1 duplicate observation."
+                                else -> "Removed $removed duplicate observations."
+                            },
+                        )
+                    }
+                },
                 onClear = { pendingMapHistoryClear = true },
                 onExport = {
                     requestMapHistoryExport { result ->
@@ -380,6 +394,7 @@ internal fun SettingsScreen(
 @Composable
 private fun MapSettingsSection(
     historyCount: Int?,
+    onDeduplicate: () -> Unit,
     onClear: () -> Unit,
     onExport: () -> Unit,
     onImport: () -> Unit,
@@ -412,11 +427,22 @@ private fun MapSettingsSection(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodySmall,
                     )
-                    OutlinedButton(
-                        onClick = onClear,
-                        enabled = (historyCount ?: 0) > 0,
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Text("Clear map history")
+                        OutlinedButton(
+                            onClick = onDeduplicate,
+                            enabled = (historyCount ?: 0) > 0,
+                        ) {
+                            Text("Remove duplicates")
+                        }
+                        OutlinedButton(
+                            onClick = onClear,
+                            enabled = (historyCount ?: 0) > 0,
+                        ) {
+                            Text("Clear map history")
+                        }
                     }
                 }
             }

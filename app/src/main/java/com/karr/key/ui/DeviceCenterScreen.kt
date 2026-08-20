@@ -42,12 +42,14 @@ import com.karr.key.ble.BleController
 import com.karr.key.ble.BleSessionState
 import com.karr.key.ble.DiscoveredDevice
 import com.karr.key.ble.KarrCandidateTier
+import com.karr.key.protocol.KarrVulnerabilityStatus
 import com.karr.key.protocol.RecoveredWorkflowCatalog
 import kotlinx.coroutines.launch
 
 @Composable
 internal fun DeviceCenterScreen(
     controller: BleController,
+    vulnerabilityByAddress: Map<String, KarrVulnerabilityStatus>,
     autoConnectReadEnabled: Boolean,
     onAutoConnectReadEnabledChanged: (Boolean) -> Unit,
     autoConnectSendOperationId: String,
@@ -83,6 +85,7 @@ internal fun DeviceCenterScreen(
 
     ConnectionSection(
         state = state,
+        vulnerabilityByAddress = vulnerabilityByAddress,
         nearbyCount = nearbyCount,
         karrDevices = karrDevices,
         otherDevices = otherDevices,
@@ -198,6 +201,7 @@ private fun AutoConnectCard(
 @Composable
 private fun ConnectionSection(
     state: BleSessionState,
+    vulnerabilityByAddress: Map<String, KarrVulnerabilityStatus>,
     nearbyCount: Int,
     karrDevices: List<DiscoveredDevice>,
     otherDevices: List<DiscoveredDevice>,
@@ -334,6 +338,7 @@ private fun ConnectionSection(
             items(karrDevices, key = { "karr:${it.address}" }) { device ->
                 DiscoveredDeviceCard(
                     device = device,
+                    vulnerability = vulnerabilityByAddress[device.address.uppercase()],
                     onConnect = if (device.manualProbeEligible) {
                         { onConnect(device) }
                     } else {
@@ -368,7 +373,7 @@ private fun ConnectionSection(
                 )
             }
             items(otherDevices, key = { "other:${it.address}" }) { device ->
-                DiscoveredDeviceCard(device = device, onConnect = null)
+                DiscoveredDeviceCard(device = device, vulnerability = null, onConnect = null)
             }
         }
     }
@@ -377,6 +382,7 @@ private fun ConnectionSection(
 @Composable
 private fun DiscoveredDeviceCard(
     device: DiscoveredDevice,
+    vulnerability: KarrVulnerabilityStatus?,
     onConnect: (() -> Unit)?,
 ) {
     OutlinedCard(Modifier.fillMaxWidth()) {
@@ -402,6 +408,9 @@ private fun DiscoveredDeviceCard(
                 },
                 style = MaterialTheme.typography.bodySmall,
             )
+            vulnerability?.takeIf { it != KarrVulnerabilityStatus.UNKNOWN }?.let { status ->
+                VulnerabilityBadge(status)
+            }
             if (device.classification.isCandidate && !device.connectable) {
                 Text(
                     "Broadcast-only advertisement; connection unavailable.",
@@ -421,6 +430,30 @@ private fun DiscoveredDeviceCard(
     }
 }
 
+/**
+ * A proven-status chip on a scanned unit's card. Both units advertise identically, so this is the
+ * only at-a-glance tell between the vulnerable unit and a patched one; it appears once a connection
+ * has proved the unit's status (and persists via its stored profile across later scans).
+ */
+@Composable
+private fun VulnerabilityBadge(status: KarrVulnerabilityStatus) {
+    val (label, color) = when (status) {
+        KarrVulnerabilityStatus.VULNERABLE ->
+            "⚠️ Vulnerable — answers the legacy challenge" to
+                MaterialTheme.colorScheme.error
+        KarrVulnerabilityStatus.PATCHED ->
+            "🛡️ Patched — refused the legacy handshake" to
+                MaterialTheme.colorScheme.primary
+        KarrVulnerabilityStatus.UNKNOWN -> return
+    }
+    Text(
+        label,
+        color = color,
+        style = MaterialTheme.typography.labelLarge,
+        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+    )
+}
+
 private fun BleSessionState.canDisconnect(): Boolean =
     this is BleSessionState.Ready ||
         this is BleSessionState.Reconnecting ||
@@ -434,6 +467,7 @@ private fun BleSessionState.canDisconnect(): Boolean =
 private fun BleSessionState.canScan(): Boolean =
     this is BleSessionState.Idle ||
         this is BleSessionState.Error ||
+        this is BleSessionState.PatchedUnitDetected ||
         this is BleSessionState.ReconnectFailed
 
 internal fun BleSessionState.connectionStatusLabel(): String = when (this) {
@@ -460,6 +494,9 @@ internal fun BleSessionState.connectionStatusLabel(): String = when (this) {
             ).ifEmpty {
                 listOf("compatibility details not identified")
             }.joinToString("; ")
+    is BleSessionState.PatchedUnitDetected ->
+        "Patched unit: ${name ?: address} — refused the legacy authentication handshake, so it is " +
+            "not vulnerable to this technique. $evidence"
     is BleSessionState.Error -> "Error: $message"
 }
 

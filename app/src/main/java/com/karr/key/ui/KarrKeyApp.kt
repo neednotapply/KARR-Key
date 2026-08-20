@@ -49,6 +49,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -200,6 +201,18 @@ fun KarrKeyApp(
     // verdict is learned at AuthenticationRequired and the model only later, at Ready.
     val lastVulnerability = remember { mutableMapOf<String, KarrVulnerabilityStatus>() }
     val lastModelWrite = remember { mutableMapOf<String, Int?>() }
+    // Observable per-address vulnerability verdict backing the Device-list badge, keyed by
+    // uppercased address. Seeded from stored profiles below and updated as each connection proves a
+    // unit's status, so the two units in the scan list can be told apart at a glance.
+    val vulnerabilityBadges = remember { mutableStateMapOf<String, KarrVulnerabilityStatus>() }
+    LaunchedEffect(deviceProfileStore) {
+        val stored = withContext(Dispatchers.IO) { deviceProfileStore.all() }
+        stored.forEach { (address, profile) ->
+            if (profile.vulnerability != KarrVulnerabilityStatus.UNKNOWN) {
+                vulnerabilityBadges[address.uppercase()] = profile.vulnerability
+            }
+        }
+    }
 
     // Records every KARR sighting to map history during ANY scan, on ANY tab. Hoisted here (like
     // the sweep below) so map persistence isn't tied to the Map screen being composed; the Map
@@ -275,6 +288,19 @@ fun KarrKeyApp(
                 }
                 return@collect
             }
+            // Don't burn a connect on a unit already proven patched: it refuses the legacy handshake
+            // and just drops the link. The auto sweep targets vulnerable units only; a manual
+            // Device-screen connect still reaches patched units (e.g. to re-verify after a firmware
+            // change), and an as-yet-unproven unit is still swept once so its status can be learned.
+            if (vulnerabilityBadges[device.address.uppercase()] ==
+                KarrVulnerabilityStatus.PATCHED
+            ) {
+                KarrTrace.log(KarrTrace.SWEEP) {
+                    "skip ${device.name ?: device.address} (patched; auto-connect targets " +
+                        "vulnerable units only)"
+                }
+                return@collect
+            }
             KarrTrace.log(KarrTrace.SWEEP) {
                 "connect ${device.name ?: device.address} rssi=${device.rssi}"
             }
@@ -301,6 +327,11 @@ fun KarrKeyApp(
                     val vulnerability =
                         KarrVulnerabilityStatus.fromChallengeBytes(current.challengeBytes)
                     val key = current.address.uppercase()
+                    if (vulnerability != KarrVulnerabilityStatus.UNKNOWN &&
+                        vulnerabilityBadges[key] != vulnerability
+                    ) {
+                        vulnerabilityBadges[key] = vulnerability
+                    }
                     if (lastVulnerability[key] != vulnerability) {
                         lastVulnerability[key] = vulnerability
                         withContext(Dispatchers.IO) {
@@ -316,6 +347,9 @@ fun KarrKeyApp(
                     // Reaching Ready means the legacy auth succeeded (vulnerable); READ_MODE also gave
                     // the authoritative model. Persist both for the map label.
                     val key = current.address.uppercase()
+                    if (vulnerabilityBadges[key] != KarrVulnerabilityStatus.VULNERABLE) {
+                        vulnerabilityBadges[key] = KarrVulnerabilityStatus.VULNERABLE
+                    }
                     val modelCode = current.unitModel?.code
                     if (lastModelWrite[key] != modelCode) {
                         lastModelWrite[key] = modelCode
@@ -324,6 +358,25 @@ fun KarrKeyApp(
                                 deviceAddress = current.address,
                                 unitModelCode = modelCode,
                                 vulnerability = KarrVulnerabilityStatus.VULNERABLE,
+                            )
+                        }
+                    }
+                }
+                is BleSessionState.PatchedUnitDetected -> {
+                    // The unit refused the legacy handshake (no REQUEST_AUTH before it dropped the
+                    // link): patched against this technique. Record it so the map and the Device-list
+                    // badge label it, and it survives out of range as a stored profile.
+                    val key = current.address.uppercase()
+                    if (vulnerabilityBadges[key] != KarrVulnerabilityStatus.PATCHED) {
+                        vulnerabilityBadges[key] = KarrVulnerabilityStatus.PATCHED
+                    }
+                    if (lastVulnerability[key] != KarrVulnerabilityStatus.PATCHED) {
+                        lastVulnerability[key] = KarrVulnerabilityStatus.PATCHED
+                        withContext(Dispatchers.IO) {
+                            deviceProfileStore.record(
+                                deviceAddress = current.address,
+                                unitModelCode = null,
+                                vulnerability = KarrVulnerabilityStatus.PATCHED,
                             )
                         }
                     }
@@ -511,6 +564,7 @@ fun KarrKeyApp(
         mapHistoryStore = mapHistoryStore,
         deviceReadStore = deviceReadStore,
         deviceProfileStore = deviceProfileStore,
+        vulnerabilityByAddress = vulnerabilityBadges,
         autoConnectReadEnabled = autoConnectReadEnabled,
         onAutoConnectReadEnabledChanged = { enabled ->
             autoConnectReadEnabled = enabled
@@ -550,6 +604,7 @@ private fun KeyShell(
     mapHistoryStore: LocalMapHistoryStore,
     deviceReadStore: LocalDeviceReadStore,
     deviceProfileStore: LocalDeviceProfileStore,
+    vulnerabilityByAddress: Map<String, KarrVulnerabilityStatus>,
     autoConnectReadEnabled: Boolean,
     onAutoConnectReadEnabledChanged: (Boolean) -> Unit,
     autoConnectSendOperationId: String,
@@ -757,6 +812,7 @@ private fun KeyShell(
                         entry<AppRoute.Device> {
                             DeviceCenterScreen(
                                 controller = bleController,
+                                vulnerabilityByAddress = vulnerabilityByAddress,
                                 autoConnectReadEnabled = autoConnectReadEnabled,
                                 onAutoConnectReadEnabledChanged = onAutoConnectReadEnabledChanged,
                                 autoConnectSendOperationId = autoConnectSendOperationId,
@@ -1237,6 +1293,8 @@ internal fun BleSessionState.homeStatus(accessConfigured: Boolean = true): Strin
             unitModel?.displayName ?: "Model not identified",
             unitMode?.let { mode -> "${mode.displayName} mode" },
         ).joinToString(" • ")
+        is BleSessionState.PatchedUnitDetected ->
+            "Patched unit — it refused the legacy handshake and is not vulnerable to this technique."
         is BleSessionState.Error -> "Device error: $message"
     }
 }

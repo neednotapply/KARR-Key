@@ -232,6 +232,33 @@ class LocalMapHistoryStore(
         writableDatabase.delete("map_observations", null, null)
     }
 
+    /**
+     * Compacts stored history by removing repeat sightings, returning the number of rows removed.
+     * Rows are encrypted with a randomized IV so they cannot be grouped in SQL; they are decrypted,
+     * thinned in memory by [mapObservationIdsToPrune] (keeping the most recent observation in every
+     * [minMeters] neighbourhood per device and provider), and deleted by id in one transaction.
+     */
+    fun deduplicate(minMeters: Double = DEFAULT_DEDUP_METERS): Int =
+        deleteByIds(mapObservationIdsToPrune(recent(limit = MAX_LOOKUP_ROWS), minMeters))
+
+    private fun deleteByIds(ids: List<String>): Int {
+        if (ids.isEmpty()) {
+            return 0
+        }
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            ids.chunked(DELETE_CHUNK).forEach { chunk ->
+                val placeholders = chunk.joinToString(",") { "?" }
+                db.delete("map_observations", "id IN ($placeholders)", chunk.toTypedArray())
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        return ids.size
+    }
+
     private fun LocalMapObservation.toValues() = ContentValues().apply {
         put("id", id)
         put("observed_utc", observedUtc.toString())
@@ -255,6 +282,7 @@ class LocalMapHistoryStore(
     private companion object {
         const val DATABASE_VERSION = 1
         const val MAX_LOOKUP_ROWS = 5_000
+        const val DELETE_CHUNK = 500
         val COLUMNS = arrayOf(
             "id",
             "observed_utc",

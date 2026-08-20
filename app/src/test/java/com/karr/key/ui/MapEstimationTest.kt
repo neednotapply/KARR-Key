@@ -88,6 +88,34 @@ class MapEstimationTest {
         assertTrue("lon=${estimate.longitude}", estimate.longitude < -117.0080)
     }
 
+    @Test
+    fun circleRadiusTracksTheRecentSignalNotTheClosestEverSeen() {
+        // Once very close (tiny radius), then most-recently far and weak (wide radius). The circle
+        // must reflect the recent distance — a wide area that can still hold the unit — not collapse
+        // to the closest bound ever recorded the way `min` did.
+        val closePass = observation(
+            observedUtc = Instant.parse("2026-08-03T10:00:00Z"),
+            latitude = 32.0,
+            longitude = -117.0,
+            rssi = -45,
+            accuracy = 5f,
+        )
+        val recentFarPass = observation(
+            observedUtc = Instant.parse("2026-08-03T10:00:30Z"),
+            latitude = 32.0,
+            longitude = -117.0,
+            rssi = -95,
+            accuracy = 40f,
+        )
+        val closestRadius = confidenceRadiusMeters(estimatedBleRangeMeters(-45), 5f)
+
+        val estimate = estimateDeviceLocations(listOf(closePass, recentFarPass)).single()
+
+        // The recent weak pass (radius ~70 m) dominates; the old close pass (~5 m) is decayed away.
+        assertTrue("radius=${estimate.radiusMeters}", estimate.radiusMeters > 30.0)
+        assertTrue("radius=${estimate.radiusMeters}", estimate.radiusMeters > closestRadius * 2)
+    }
+
     private fun observation(
         observedUtc: Instant,
         latitude: Double,
