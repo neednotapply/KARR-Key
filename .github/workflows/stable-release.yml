@@ -50,6 +50,8 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6
+        with:
+          build-root-directory: src
 
       - name: Materialize CI signing key
         env:
@@ -73,6 +75,8 @@ jobs:
           KARR_RELEASE_STORE_PASSWORD: ${{ secrets.KARR_RELEASE_STORE_PASSWORD }}
           KARR_RELEASE_KEY_ALIAS: ${{ secrets.KARR_RELEASE_KEY_ALIAS }}
           KARR_RELEASE_KEY_PASSWORD: ${{ secrets.KARR_RELEASE_KEY_PASSWORD }}
+        # The Gradle build root is src/, not the repository root.
+        working-directory: src
         run: >-
           ./gradlew --no-daemon
           :shared:core:test :shared:protocol:test
@@ -86,8 +90,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          source_apk="android/app/build/outputs/apk/release/KARR-Key.apk"
-          source_metadata="android/app/build/outputs/apk/release/output-metadata.json"
+          source_apk="src/android/app/build/outputs/apk/release/KARR-Key.apk"
+          source_metadata="src/android/app/build/outputs/apk/release/output-metadata.json"
           actual_version="$(jq -r '.elements[0].versionName' "${source_metadata}")"
           actual_code="$(jq -r '.elements[0].versionCode' "${source_metadata}")"
 

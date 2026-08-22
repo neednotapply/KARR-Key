@@ -46,10 +46,14 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
+        with:
+          build-root-directory: src
 
       # shared/* are plain Kotlin/JVM modules, so their tests run under `test`
       # rather than the Android-only `testDebugUnitTest`.
       - name: Test, lint, and assemble
+        # The Gradle build root is src/, not the repository root.
+        working-directory: src
         run: >-
           ./gradlew --no-daemon
           :shared:core:test :shared:protocol:test
@@ -57,17 +61,17 @@ jobs:
 
       - name: Record APK checksum
         run: |
-          sha256sum android/app/build/outputs/apk/debug/KARR-Key.apk \
-            > android/app/build/outputs/apk/debug/KARR-Key.apk.sha256
+          sha256sum src/android/app/build/outputs/apk/debug/KARR-Key.apk \
+            > src/android/app/build/outputs/apk/debug/KARR-Key.apk.sha256
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v7
         with:
           name: KARR-Key-debug-${{ github.sha }}
           path: |
-            android/app/build/outputs/apk/debug/KARR-Key.apk
-            android/app/build/outputs/apk/debug/KARR-Key.apk.sha256
-            android/app/build/outputs/apk/debug/output-metadata.json
+            src/android/app/build/outputs/apk/debug/KARR-Key.apk
+            src/android/app/build/outputs/apk/debug/KARR-Key.apk.sha256
+            src/android/app/build/outputs/apk/debug/output-metadata.json
           if-no-files-found: error
           retention-days: 90
           compression-level: 0

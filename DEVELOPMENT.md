@@ -15,6 +15,9 @@ Compose operation
 domain and protocol layers can back a desktop host as well as the app.
 `android/*` holds everything that touches the Android SDK.
 
+Module paths below are relative to `src/`, the Gradle build root; the
+repository root holds only documentation, research notes, and CI config.
+
 | Module | Responsibility |
 |---|---|
 | `shared/core` | Domain models, local roles, capabilities, and device policy |
@@ -249,7 +252,8 @@ The Gradle build pins its compilation toolchain to JDK 17, so a JDK 17 must be
 installed or the build fails fast with a "No compatible toolchains" error rather
 than compiling on the wrong JDK. See the environment prerequisites under
 [Building the app](README.md#building-the-app). While iterating, build with the
-default Gradle daemon (for example `.\gradlew.bat :android:app:assembleDebug`); reserve
+default Gradle daemon from `src/` (for example
+`.\gradlew.bat :android:app:assembleDebug`); reserve
 `--no-daemon` for the complete pre-handoff check below, which matches CI:
 
 ```powershell

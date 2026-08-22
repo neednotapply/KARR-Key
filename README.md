@@ -247,6 +247,15 @@ A clone is source-only, so nothing special is required:
 git clone <repo-url>
 ```
 
+The Gradle build lives in `src/`, not the repository root: the root holds no
+`settings.gradle.kts`, so Gradle will not find the build from there. Run every
+Gradle command shown below from `src/`, and open `src/` (not the repository
+root) in Android Studio.
+
+```powershell
+cd src
+```
+
 The original APKs and IDA databases are **not build inputs** and no longer live
 here; they are kept in a separate private evidence repository. See
 [research/README.md](research/README.md) for its location and how to request
@@ -265,11 +274,12 @@ default, so do **not** pass `--no-daemon` here — and build only what you need:
 ```
 
 `installDebug` builds and installs to a connected device or emulator. The debug
-APK is written to `android/app/build/outputs/apk/debug/KARR-Key.apk`, uses package name
+APK is written to `src/android/app/build/outputs/apk/debug/KARR-Key.apk`, uses
+package name
 `com.karr.key`, and is signed with the local debug keystore, so `installDebug`
 (or `adb install -r`) updates it in place without wiping the stored access keys.
 The app version lives in `versionName`/`versionCode` in
-[android/app/build.gradle.kts](android/app/build.gradle.kts).
+[src/android/app/build.gradle.kts](src/android/app/build.gradle.kts).
 
 ### Full check before pushing
 

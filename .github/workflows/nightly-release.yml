@@ -140,11 +140,15 @@ jobs:
       - name: Set up Gradle
         if: steps.reuse.outputs.reused == 'false'
         uses: gradle/actions/setup-gradle@v6
+        with:
+          build-root-directory: src
 
       # Fallback only: reached when CI skipped this commit or its artifact has
       # aged out of its 90-day retention window.
       - name: Test, lint, and assemble
         if: steps.reuse.outputs.reused == 'false'
+        # The Gradle build root is src/, not the repository root.
+        working-directory: src
         run: >-
           ./gradlew --no-daemon
           :shared:core:test :shared:protocol:test
@@ -164,7 +168,7 @@ jobs:
           tag="nightly-$(date -u +%Y%m%d)-${short_sha}"
           apk_name="KARR-Key.apk"
           checksum_name="${apk_name}.sha256"
-          built_dir="android/app/build/outputs/apk/debug"
+          built_dir="src/android/app/build/outputs/apk/debug"
 
           mkdir -p dist
           if [[ "${REUSED}" != "true" ]]; then
