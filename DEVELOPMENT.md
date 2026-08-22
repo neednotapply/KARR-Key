@@ -11,13 +11,22 @@ Compose operation
   -> authenticated BLE session
 ```
 
+`shared/*` is plain Kotlin/JVM with no Android SDK on its classpath, so the
+domain and protocol layers can back a desktop host as well as the app.
+`android/*` holds everything that touches the Android SDK.
+
 | Module | Responsibility |
 |---|---|
-| `app` | Process entrypoint, Bluetooth-first shell, navigation, shared UI |
-| `core` | Domain models, local roles, capabilities, and device policy |
-| `data` | Keystore-backed access state and local operation journal |
-| `protocol` | Packet framing, parsing, commands, authentication interface |
-| `ble` | Serialized scan/connect/discover/subscribe/write session |
+| `shared/core` | Domain models, local roles, capabilities, and device policy |
+| `shared/protocol` | Packet framing, parsing, commands, authentication interface |
+| `android/app` | Process entrypoint, Bluetooth-first shell, navigation, shared UI |
+| `android/data` | Keystore-backed access state and local operation journal |
+| `android/ble` | Serialized scan/connect/discover/subscribe/write session |
+
+Keeping `shared/*` platform-free is an invariant, not a convention: adding an
+`android.*` import there silently forecloses the desktop host. Anything needing
+a platform API takes it as an interface the host installs, the way `KarrTrace`
+takes its log sink.
 
 Operation screens do not own long-lived BLE callbacks or secret material.
 Transport state is the source of device readiness. Provisioned Customer
@@ -240,12 +249,15 @@ The Gradle build pins its compilation toolchain to JDK 17, so a JDK 17 must be
 installed or the build fails fast with a "No compatible toolchains" error rather
 than compiling on the wrong JDK. See the environment prerequisites under
 [Building the app](README.md#building-the-app). While iterating, build with the
-default Gradle daemon (for example `.\gradlew.bat :app:assembleDebug`); reserve
+default Gradle daemon (for example `.\gradlew.bat :android:app:assembleDebug`); reserve
 `--no-daemon` for the complete pre-handoff check below, which matches CI:
 
 ```powershell
-.\gradlew.bat --no-daemon testDebugUnitTest lintDebug assembleDebug
+.\gradlew.bat --no-daemon :shared:core:test :shared:protocol:test testDebugUnitTest lintDebug assembleDebug
 ```
+
+`shared/*` are Kotlin/JVM modules, so their tests run under `test`; the
+Android-only `testDebugUnitTest` does not cover them.
 
 - Protocol changes require byte-exact positive and negative vectors.
 - BLE-classification changes require confirmed, possible, and unrelated
@@ -265,16 +277,20 @@ default Gradle daemon (for example `.\gradlew.bat :app:assembleDebug`); reserve
 - Never attach credentials, device keys, raw authentication material,
   vehicle-identifying captures, or arbitrary proprietary binaries.
 
-CI intentionally skips Git LFS because research artifacts are not build
-inputs.
+This repository no longer stores research binaries, so a clone is source-only.
+The APKs and IDA databases live in the private evidence repository described in
+[research/README.md](research/README.md).
 
 ## Live BLE/protocol tracing
 
 Debug builds emit a structured trace of the live BLE, protocol, and
 authentication pipeline to logcat, so a connected developer can follow a
 real-hardware session — including scanning — without touching the phone. It is
-implemented by `KarrTrace` (`core`) and enabled automatically for any debuggable
-build by `KarrApplication`; it never runs in a release APK. No key material is
+implemented by `KarrTrace` (`shared/core`) and enabled automatically for any
+debuggable build by `KarrApplication`; it never runs in a release APK. Because
+`shared/core` is platform-free, `KarrTrace` writes through a `Sink` that
+`KarrApplication` installs over `android.util.Log` at startup; the default sink
+discards everything, so an uninitialised process stays silent. No key material is
 logged: the `PROVIDE_AUTH` response payload is redacted at the single wire choke
 point regardless of caller.
 

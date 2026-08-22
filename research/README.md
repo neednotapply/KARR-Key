@@ -1,15 +1,34 @@
-# Preserved KARR research evidence
+# KARR research findings
 
-This directory contains the smallest reviewable evidence set retained with
-KARR Key:
+This directory holds the **written findings** from reverse-engineering the
+three shipping KARR Android applications. The evidence binaries those findings
+came from are no longer stored in this repository.
 
-- three untouched source APKs;
-- one IDA project directory per APK;
-- all 20 annotated IDA 9.1 databases, covering 42,427 discovered functions;
-- a concise known-data document and an integrity/coverage manifest per app.
+## Where the evidence lives
 
-The APK and IDA files are stored with Git LFS. They are research inputs, not
-Android build inputs, and are never packaged into KARR Key.
+The source APKs and the annotated IDA 9.1 databases (~392 MB across 3 APKs and
+20 databases) now live in a **separate private repository**:
+
+> **`neednotapply/KARR-Key-research`**
+
+That repository is private and access is granted individually. **Contact
+[@neednotapply](https://github.com/neednotapply) to request access.**
+
+They were split out because they are research inputs, never Android build
+inputs: nothing in this repository reads them, no workflow checks them out, and
+carrying them here made every clone and every CI checkout pay for them.
+
+## What is still here
+
+| File | Contents |
+|---|---|
+| `dr1_field_compatibility.md` | Observed `DR` field behaviour and compatibility notes |
+| `karr_*/KNOWN_DATA.md` | Per-app known-data document |
+| `karr_*/manifest.json` | Per-app integrity and coverage manifest, including the hashes identifying each retained binary |
+
+The `manifest.json` hashes are the link between these notes and the evidence
+repository: they identify exactly which APK and which database a finding came
+from.
 
 ## Projects
 
@@ -20,9 +39,9 @@ Android build inputs, and are never packaged into KARR Key.
 | `karr_installer_v1.39` | Technician fitment, repair, removal, CAN, and validation workflows | 1 | 8 | 16,388 |
 | **Total** |  | **3** | **20** | **42,427** |
 
-Each `ida-project` directory is the project boundary for one APK. An `.i64`
-still represents one native binary, so the databases are intentionally not
-merged. Open the database for the library being investigated.
+Each `ida-project` directory in the evidence repository is the project boundary
+for one APK. An `.i64` still represents one native binary, so the databases are
+intentionally not merged. Open the database for the library being investigated.
 
 ## Cross-app conclusions
 
@@ -48,35 +67,17 @@ Every discovered native function has a validated persistent repeatable
 comment. Real exports and symbol-bearing names were retained; stripped
 functions remain honestly auto-named rather than receiving speculative names.
 
-The repository databases also contain the persistent marker
+The databases also contain the persistent marker
 `[KARR_KEY_RESEARCH_UPDATE_2026_07_28]`. It records the observed `DR`
 devices, the `0x0E` authentication challenge, the GATT-status-19 diagnosis,
 and the app-specific authorization boundaries. No credential, key, or
 challenge response is included.
 
 The full reconstructed C#, Java, smali, extracted native libraries, logs, and
-machine-generated indexes remain outside Git.
+machine-generated indexes remain outside Git entirely.
 
 Reconstructed output is not the publisher's literal original source and may
-contain credential-like constants. The hashes and validation facts required
-to identify the retained evidence are recorded in each `manifest.json`.
-
-## Checkout
-
-For source-only development, prevent Git LFS from materializing research
-binaries:
-
-```powershell
-$env:GIT_LFS_SKIP_SMUDGE = "1"
-git clone https://github.com/neednotapply/KARR-Key.git
-```
-
-To fetch one research project later:
-
-```powershell
-git lfs pull --include="research/karr_bt_v2.15/**"
-```
-
-Use `git lfs pull` without an include filter only when all three projects are
-required. Do not add arbitrary APKs, IDA databases, reconstructed source,
-secrets, captures, or account/vehicle data to this directory.
+contain credential-like constants. Do not add APKs, IDA databases,
+reconstructed source, secrets, captures, or account/vehicle data to this
+directory — they belong in the evidence repository, and `.gitignore` here is
+set up to keep them out.

@@ -241,15 +241,16 @@ Operation details use the normal Android back action.
 
 ### Getting the source
 
-The artifacts under `research/` (original APKs and IDA databases) are stored in
-Git LFS and are **not build inputs**. Skip them when cloning to avoid a large,
-pointless download:
+A clone is source-only, so nothing special is required:
 
 ```powershell
-$env:GIT_LFS_SKIP_SMUDGE = 1; git clone <repo-url>
+git clone <repo-url>
 ```
 
-CI builds with LFS disabled for the same reason.
+The original APKs and IDA databases are **not build inputs** and no longer live
+here; they are kept in a separate private evidence repository. See
+[research/README.md](research/README.md) for its location and how to request
+access.
 
 ### Fast local iteration
 
@@ -257,36 +258,41 @@ For the normal edit-build-run loop, keep the Gradle daemon warm — this is the
 default, so do **not** pass `--no-daemon` here — and build only what you need:
 
 ```powershell
-.\gradlew.bat :app:assembleDebug
+.\gradlew.bat :android:app:assembleDebug
 ```
 ```powershell
 .\gradlew.bat installDebug
 ```
 
 `installDebug` builds and installs to a connected device or emulator. The debug
-APK is written to `app/build/outputs/apk/debug/KARR-Key.apk`, uses package name
+APK is written to `android/app/build/outputs/apk/debug/KARR-Key.apk`, uses package name
 `com.karr.key`, and is signed with the local debug keystore, so `installDebug`
 (or `adb install -r`) updates it in place without wiping the stored access keys.
 The app version lives in `versionName`/`versionCode` in
-[app/build.gradle.kts](app/build.gradle.kts).
+[android/app/build.gradle.kts](android/app/build.gradle.kts).
 
 ### Full check before pushing
 
 This mirrors what CI runs; use `--no-daemon` for a clean, reproducible result.
-Append `:app:assembleDebugAndroidTest` if you also need the instrumented-test
-APK:
+Append `:android:app:assembleDebugAndroidTest` if you also need the
+instrumented-test APK:
 
 ```powershell
-.\gradlew.bat --no-daemon testDebugUnitTest lintDebug assembleDebug
+.\gradlew.bat --no-daemon :shared:core:test :shared:protocol:test testDebugUnitTest lintDebug assembleDebug
 ```
+
+`shared/*` are Kotlin/JVM modules, so their tests run under `test` rather than
+the Android-only `testDebugUnitTest`.
 
 On Linux or macOS, use `./gradlew`.
 
 The build also checks that Map's Internet and network-state permissions are
 explicit, Bluetooth scan keeps `neverForLocation`, and foreground location
 permissions are explicit. GitHub Actions runs this same tests/lint/debug build
-on every push and pull request. A nightly prerelease is created only when the
-main branch has changed since the previous release.
+on every push and pull request that can affect the APK; commits touching only
+`docs/`, `research/`, or Markdown skip it. A scheduled prerelease runs weekly
+and only when the main branch has changed in a way that affects the build,
+reusing the APK CI already produced for that commit rather than rebuilding it.
 
 ### Releases
 

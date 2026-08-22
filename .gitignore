@@ -52,8 +52,8 @@ logs/
 assemblies.blob
 **/managed_symbols.csv
 
-# Only the three reviewed research projects are allowed back through the broad
-# ignores above. Their binary filenames are explicitly enumerated.
+# Only the written findings of the three reviewed research projects come back
+# through the broad ignores above: the notes, not the evidence binaries.
 !research/README.md
 !research/karr_bt_dealer_v3.131/
 !research/karr_bt_v2.15/
@@ -61,27 +61,11 @@ assemblies.blob
 research/karr_*/**
 !research/karr_*/KNOWN_DATA.md
 !research/karr_*/manifest.json
-!research/karr_*/ida-project/
-!research/karr_bt_dealer_v3.131/KARR+BT+Dealer_3.131_APKPure.apk
-!research/karr_bt_dealer_v3.131/ida-project/libmono-btls-shared.i64
-!research/karr_bt_dealer_v3.131/ida-project/libmonodroid.i64
-!research/karr_bt_dealer_v3.131/ida-project/libmono-native.i64
-!research/karr_bt_dealer_v3.131/ida-project/libmonosgen-2.0.i64
-!research/karr_bt_dealer_v3.131/ida-project/libxa-internal-api.i64
-!research/karr_bt_dealer_v3.131/ida-project/libxamarin-app.i64
-!research/karr_bt_v2.15/KARR+BT_2.15_APKPure.apk
-!research/karr_bt_v2.15/ida-project/libmono-btls-shared.i64
-!research/karr_bt_v2.15/ida-project/libmonodroid.i64
-!research/karr_bt_v2.15/ida-project/libmono-native.i64
-!research/karr_bt_v2.15/ida-project/libmonosgen-2.0.i64
-!research/karr_bt_v2.15/ida-project/libxa-internal-api.i64
-!research/karr_bt_v2.15/ida-project/libxamarin-app.i64
-!research/karr_installer_v1.39/KARR+Installer_1.39_APKPure.apk
-!research/karr_installer_v1.39/ida-project/libe_sqlite3.i64
-!research/karr_installer_v1.39/ida-project/libmono-btls-shared.i64
-!research/karr_installer_v1.39/ida-project/libmonodroid.i64
-!research/karr_installer_v1.39/ida-project/libmono-native.i64
-!research/karr_installer_v1.39/ida-project/libmonosgen-2.0.i64
-!research/karr_installer_v1.39/ida-project/libsqlite3_xamarin.i64
-!research/karr_installer_v1.39/ida-project/libxa-internal-api.i64
-!research/karr_installer_v1.39/ida-project/libxamarin-app.i64
+
+# The APKs and IDA databases themselves now live in the separate private
+# evidence repository described in research/README.md. They remain on disk for
+# local analysis but are never committed here again; the broad *.apk and *.i64
+# rules above are what keep them out.
+
+# Extracted Xamarin assemblies and on-device UI dumps from research sessions.
+/out/

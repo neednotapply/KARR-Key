@@ -17,28 +17,3 @@ gradlew text eol=lf
 *.png binary
 *.jpg binary
 *.jpeg binary
-
-# Approved private research evidence. No other APK or IDA path is LFS-enabled.
-research/karr_bt_dealer_v3.131/KARR+BT+Dealer_3.131_APKPure.apk filter=lfs diff=lfs merge=lfs -text
-research/karr_bt_dealer_v3.131/ida-project/libmono-btls-shared.i64 filter=lfs diff=lfs merge=lfs -text
-research/karr_bt_dealer_v3.131/ida-project/libmonodroid.i64 filter=lfs diff=lfs merge=lfs -text
-research/karr_bt_dealer_v3.131/ida-project/libmono-native.i64 filter=lfs diff=lfs merge=lfs -text
-research/karr_bt_dealer_v3.131/ida-project/libmonosgen-2.0.i64 filter=lfs diff=lfs merge=lfs -text
-research/karr_bt_dealer_v3.131/ida-project/libxa-internal-api.i64 filter=lfs diff=lfs merge=lfs -text
-research/karr_bt_dealer_v3.131/ida-project/libxamarin-app.i64 filter=lfs diff=lfs merge=lfs -text
-research/karr_bt_v2.15/KARR+BT_2.15_APKPure.apk filter=lfs diff=lfs merge=lfs -text
-research/karr_bt_v2.15/ida-project/libmono-btls-shared.i64 filter=lfs diff=lfs merge=lfs -text
-research/karr_bt_v2.15/ida-project/libmonodroid.i64 filter=lfs diff=lfs merge=lfs -text
-research/karr_bt_v2.15/ida-project/libmono-native.i64 filter=lfs diff=lfs merge=lfs -text
-research/karr_bt_v2.15/ida-project/libmonosgen-2.0.i64 filter=lfs diff=lfs merge=lfs -text
-research/karr_bt_v2.15/ida-project/libxa-internal-api.i64 filter=lfs diff=lfs merge=lfs -text
-research/karr_bt_v2.15/ida-project/libxamarin-app.i64 filter=lfs diff=lfs merge=lfs -text
-research/karr_installer_v1.39/KARR+Installer_1.39_APKPure.apk filter=lfs diff=lfs merge=lfs -text
-research/karr_installer_v1.39/ida-project/libe_sqlite3.i64 filter=lfs diff=lfs merge=lfs -text
-research/karr_installer_v1.39/ida-project/libmono-btls-shared.i64 filter=lfs diff=lfs merge=lfs -text
-research/karr_installer_v1.39/ida-project/libmonodroid.i64 filter=lfs diff=lfs merge=lfs -text
-research/karr_installer_v1.39/ida-project/libmono-native.i64 filter=lfs diff=lfs merge=lfs -text
-research/karr_installer_v1.39/ida-project/libmonosgen-2.0.i64 filter=lfs diff=lfs merge=lfs -text
-research/karr_installer_v1.39/ida-project/libsqlite3_xamarin.i64 filter=lfs diff=lfs merge=lfs -text
-research/karr_installer_v1.39/ida-project/libxa-internal-api.i64 filter=lfs diff=lfs merge=lfs -text
-research/karr_installer_v1.39/ida-project/libxamarin-app.i64 filter=lfs diff=lfs merge=lfs -text
