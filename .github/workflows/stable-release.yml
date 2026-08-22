@@ -73,7 +73,12 @@ jobs:
           KARR_RELEASE_STORE_PASSWORD: ${{ secrets.KARR_RELEASE_STORE_PASSWORD }}
           KARR_RELEASE_KEY_ALIAS: ${{ secrets.KARR_RELEASE_KEY_ALIAS }}
           KARR_RELEASE_KEY_PASSWORD: ${{ secrets.KARR_RELEASE_KEY_PASSWORD }}
-        run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleRelease
+        # The Gradle build root is src/, not the repository root.
+        working-directory: src
+        run: >-
+          ./gradlew --no-daemon
+          :shared:core:test :shared:protocol:test
+          testDebugUnitTest lintDebug assembleRelease
 
       - name: Verify and prepare signed APK
         id: assets
@@ -83,8 +88,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          source_apk="app/build/outputs/apk/release/KARR-Key.apk"
-          source_metadata="app/build/outputs/apk/release/output-metadata.json"
+          source_apk="src/android/app/build/outputs/apk/release/KARR-Key.apk"
+          source_metadata="src/android/app/build/outputs/apk/release/output-metadata.json"
           actual_version="$(jq -r '.elements[0].versionName' "${source_metadata}")"
           actual_code="$(jq -r '.elements[0].versionCode' "${source_metadata}")"
 
@@ -143,7 +148,9 @@ jobs:
           name: KARR-Key-${{ github.ref_name }}-${{ github.sha }}
           path: dist/
           if-no-files-found: error
-          retention-days: 90
+          # Belt-and-braces copy only: the signed APK is attached to the GitHub
+          # release permanently, so this does not need to live for 90 days.
+          retention-days: 30
           compression-level: 0
 
       - name: Create GitHub release from workflow outputs

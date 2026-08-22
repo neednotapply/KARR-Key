@@ -4,7 +4,21 @@ on:
   push:
     branches:
       - main
+    # Documentation, research notes, and editor config cannot change the APK,
+    # so they must not spend a full test/lint/assemble cycle.
+    paths-ignore:
+      - "docs/**"
+      - "research/**"
+      - "**/*.md"
+      - ".editorconfig"
+      - ".gitattributes"
   pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "research/**"
+      - "**/*.md"
+      - ".editorconfig"
+      - ".gitattributes"
 
 permissions:
   contents: read
@@ -33,22 +47,35 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
+      # shared/* are plain Kotlin/JVM modules, so their tests run under `test`
+      # rather than the Android-only `testDebugUnitTest`.
       - name: Test, lint, and assemble
-        run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
+        # The Gradle build root is src/, not the repository root.
+        working-directory: src
+        run: >-
+          ./gradlew --no-daemon
+          :shared:core:test :shared:protocol:test
+          testDebugUnitTest lintDebug assembleDebug
 
       - name: Record APK checksum
         run: |
-          sha256sum app/build/outputs/apk/debug/KARR-Key.apk \
-            > app/build/outputs/apk/debug/KARR-Key.apk.sha256
+          sha256sum src/android/app/build/outputs/apk/debug/KARR-Key.apk \
+            > src/android/app/build/outputs/apk/debug/KARR-Key.apk.sha256
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v7
         with:
           name: KARR-Key-debug-${{ github.sha }}
           path: |
-            app/build/outputs/apk/debug/KARR-Key.apk
-            app/build/outputs/apk/debug/KARR-Key.apk.sha256
-            app/build/outputs/apk/debug/output-metadata.json
+            src/android/app/build/outputs/apk/debug/KARR-Key.apk
+            src/android/app/build/outputs/apk/debug/KARR-Key.apk.sha256
+            src/android/app/build/outputs/apk/debug/output-metadata.json
           if-no-files-found: error
-          retention-days: 90
+          # 90 days of ~15 MB debug APKs, one per CI run, exhausted the
+          # repository's artifact storage quota and blocked all uploads. Two
+          # weeks still comfortably outlives the weekly scheduled release that
+          # reuses this artifact.
+          retention-days: 14
+          # An APK is already a compressed zip, so recompressing costs time
+          # without shrinking it.
           compression-level: 0

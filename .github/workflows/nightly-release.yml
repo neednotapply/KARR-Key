@@ -1,12 +1,17 @@
-name: Nightly Release
+# Cadence is weekly, not nightly. The tag prefix and file name stay "nightly"
+# so existing releases and any links to them keep working.
+name: Scheduled Release
 
 on:
   schedule:
-    - cron: "15 2 * * *"
+    - cron: "15 2 * * 1"
       timezone: America/Los_Angeles
+  workflow_dispatch:
 
 permissions:
   contents: write
+  # Needed to locate and download the Android CI artifact for this commit.
+  actions: read
 
 concurrency:
   group: nightly-release
@@ -55,7 +60,16 @@ jobs:
             fi
 
             previous_sha="$(git rev-list -n 1 "${latest_tag}")"
-            if git diff --quiet "${previous_sha}" "${current_sha}" --; then
+            # Mirror the CI path filter: docs and research never alter the APK,
+            # so a docs-only commit must not cut a release that is byte-identical
+            # to the previous one.
+            if git diff --quiet "${previous_sha}" "${current_sha}" -- \
+              . \
+              ':(exclude)docs' \
+              ':(exclude)research' \
+              ':(exclude)*.md' \
+              ':(exclude).editorconfig' \
+              ':(exclude).gitattributes'; then
               changed=false
             fi
           fi
@@ -68,7 +82,7 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
 
           {
-            echo "### Nightly release check"
+            echo "### Scheduled release check"
             echo
             echo "- Current commit: \`${current_sha}\`"
             if [[ -n "${latest_tag}" ]]; then
@@ -77,27 +91,72 @@ jobs:
             else
               echo "- Previous release: none"
             fi
-            echo "- Repository changes detected: \`${changed}\`"
+            echo "- Build-affecting changes detected: \`${changed}\`"
           } >> "${GITHUB_STEP_SUMMARY}"
 
-      - name: Set up Java
+      # Android CI already built this exact commit when it landed on main.
+      # Downloading that APK costs seconds; rebuilding it costs ~5 minutes.
+      - name: Reuse the CI build for this commit
         if: steps.changes.outputs.changed == 'true'
+        id: reuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.changes.outputs.current_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist
+          reused=false
+          run_id="$(
+            gh run list \
+              --workflow=android-ci.yml \
+              --commit "${TARGET_SHA}" \
+              --status success \
+              --limit 1 \
+              --json databaseId \
+              --jq '.[0].databaseId // ""'
+          )"
+
+          if [[ -n "${run_id}" ]] && gh run download "${run_id}" \
+            --name "KARR-Key-debug-${TARGET_SHA}" \
+            --dir dist; then
+            if [[ -f dist/KARR-Key.apk ]]; then
+              reused=true
+            fi
+          fi
+
+          echo "reused=${reused}" >> "${GITHUB_OUTPUT}"
+          echo "- Reused Android CI artifact: \`${reused}\`" \
+            >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Set up Java
+        if: steps.reuse.outputs.reused == 'false'
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Set up Gradle
-        if: steps.changes.outputs.changed == 'true'
+        if: steps.reuse.outputs.reused == 'false'
         uses: gradle/actions/setup-gradle@v6
 
+      # Fallback only: reached when CI skipped this commit or its artifact has
+      # aged out of its 90-day retention window.
       - name: Test, lint, and assemble
-        if: steps.changes.outputs.changed == 'true'
-        run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
+        if: steps.reuse.outputs.reused == 'false'
+        # The Gradle build root is src/, not the repository root.
+        working-directory: src
+        run: >-
+          ./gradlew --no-daemon
+          :shared:core:test :shared:protocol:test
+          testDebugUnitTest lintDebug assembleDebug
 
       - name: Prepare release assets
         if: steps.changes.outputs.changed == 'true'
         id: assets
+        env:
+          REUSED: ${{ steps.reuse.outputs.reused }}
         shell: bash
         run: |
           set -euo pipefail
@@ -107,9 +166,14 @@ jobs:
           tag="nightly-$(date -u +%Y%m%d)-${short_sha}"
           apk_name="KARR-Key.apk"
           checksum_name="${apk_name}.sha256"
+          built_dir="src/android/app/build/outputs/apk/debug"
 
           mkdir -p dist
-          cp app/build/outputs/apk/debug/KARR-Key.apk "dist/${apk_name}"
+          if [[ "${REUSED}" != "true" ]]; then
+            cp "${built_dir}/${apk_name}" "dist/${apk_name}"
+            cp "${built_dir}/output-metadata.json" dist/output-metadata.json
+          fi
+
           (
             cd dist
             sha256sum "${apk_name}" > "${checksum_name}"
@@ -120,6 +184,7 @@ jobs:
             echo "title=KARR Key Nightly ${release_date}"
             echo "apk_path=dist/${apk_name}"
             echo "checksum_path=dist/${checksum_name}"
+            echo "metadata_path=dist/output-metadata.json"
           } >> "${GITHUB_OUTPUT}"
 
       - name: Create nightly prerelease
@@ -131,6 +196,7 @@ jobs:
           RELEASE_TARGET: ${{ steps.changes.outputs.current_sha }}
           APK_PATH: ${{ steps.assets.outputs.apk_path }}
           CHECKSUM_PATH: ${{ steps.assets.outputs.checksum_path }}
+          METADATA_PATH: ${{ steps.assets.outputs.metadata_path }}
         shell: bash
         run: |
           set -euo pipefail
@@ -138,7 +204,7 @@ jobs:
           gh release create "${RELEASE_TAG}" \
             "${APK_PATH}#Nightly debug APK" \
             "${CHECKSUM_PATH}#SHA-256 checksum" \
-            "app/build/outputs/apk/debug/output-metadata.json#Android output metadata" \
+            "${METADATA_PATH}#Android output metadata" \
             --target "${RELEASE_TARGET}" \
             --title "${RELEASE_TITLE}" \
             --generate-notes \
