@@ -150,7 +150,9 @@ jobs:
           name: KARR-Key-${{ github.ref_name }}-${{ github.sha }}
           path: dist/
           if-no-files-found: error
-          retention-days: 90
+          # Belt-and-braces copy only: the signed APK is attached to the GitHub
+          # release permanently, so this does not need to live for 90 days.
+          retention-days: 30
           compression-level: 0
 
       - name: Create GitHub release from workflow outputs
