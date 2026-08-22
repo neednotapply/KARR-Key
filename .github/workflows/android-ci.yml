@@ -46,8 +46,6 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
-        with:
-          build-root-directory: src
 
       # shared/* are plain Kotlin/JVM modules, so their tests run under `test`
       # rather than the Android-only `testDebugUnitTest`.

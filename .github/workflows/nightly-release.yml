@@ -140,8 +140,6 @@ jobs:
       - name: Set up Gradle
         if: steps.reuse.outputs.reused == 'false'
         uses: gradle/actions/setup-gradle@v6
-        with:
-          build-root-directory: src
 
       # Fallback only: reached when CI skipped this commit or its artifact has
       # aged out of its 90-day retention window.
