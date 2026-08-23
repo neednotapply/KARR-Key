@@ -63,14 +63,19 @@ jobs:
           ./gradlew --no-daemon
           :desktop:app:test :desktop:app:packageDistributionForCurrentOS
 
-      - name: Upload desktop installers
+      - name: Upload desktop installer
+        # The packaging step above is the gate; this upload is best-effort. Only
+        # on main pushes (PRs don't need a stored installer), and never fails the
+        # build when the artifact-storage quota is full. MSI only — the EXE is a
+        # second ~60 MB copy of the same app image, so uploading both wastes the
+        # quota.
+        if: github.event_name == 'push'
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: KARR-Key-desktop-${{ github.sha }}
-          path: |
-            src/desktop/app/build/compose/binaries/main/msi/*.msi
-            src/desktop/app/build/compose/binaries/main/exe/*.exe
+          path: src/desktop/app/build/compose/binaries/main/msi/*.msi
           if-no-files-found: error
-          retention-days: 14
-          # Installers are already compressed; recompressing wastes time.
+          retention-days: 7
+          # An MSI is already compressed; recompressing wastes time.
           compression-level: 0
