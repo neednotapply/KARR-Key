@@ -9,11 +9,8 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-interface StringCipher {
-    fun encrypt(plainText: String): String
-    fun decrypt(cipherText: String): String
-}
-
+// The StringCipher interface moved to shared:persistence (same package) for
+// reuse by the desktop host; this Android Keystore implementation stays here.
 class AndroidKeystoreCipher(
     private val alias: String = "karr_key_local_v1",
 ) : StringCipher {

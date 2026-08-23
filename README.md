@@ -281,14 +281,44 @@ package name
 The app version lives in `versionName`/`versionCode` in
 [src/android/app/build.gradle.kts](src/android/app/build.gradle.kts).
 
-### Full check before pushing
+### Desktop app
 
-This mirrors what CI runs; use `--no-daemon` for a clean, reproducible result.
-Append `:android:app:assembleDebugAndroidTest` if you also need the
-instrumented-test APK:
+The Compose Desktop host in `desktop/app` reuses the same `shared/*` domain,
+protocol, transport, and persistence modules as the Android app and
+re-implements the UI for mouse, scroll-wheel, and keyboard. It adds an in-app
+**Terminal** dock that shows the live BLE / protocol / authentication trace that
+on Android only reaches `adb logcat`.
+
+Run it, or build a self-contained installer or app image (all from `src/`):
 
 ```powershell
-.\gradlew.bat --no-daemon :shared:core:test :shared:protocol:test testDebugUnitTest lintDebug assembleDebug
+.\gradlew.bat :desktop:app:run
+```
+```powershell
+.\gradlew.bat :desktop:app:packageMsi
+```
+
+`run` launches the window directly. `packageMsi` produces a double-click
+installer under
+`src/desktop/app/build/compose/binaries/main/msi/` (needs the WiX Toolset);
+`packageDistributionForCurrentOS` or `createDistributable` produce a runnable
+app image (with a bundled JRE) that needs no installer and no WiX.
+
+For real Bluetooth on Windows, build the native helper in
+[src/desktop/blebridge](src/desktop/blebridge) and set `KARR_BLE=windows` (see
+that folder's README). Without a helper the app runs but scans nothing; set
+`KARR_BLE=mock` to explore every screen and the terminal against a **simulated**
+KARR unit with no hardware.
+
+### Full check before pushing
+
+This mirrors what CI runs, plus the desktop and new shared modules; use
+`--no-daemon` for a clean, reproducible result. Append
+`:android:app:assembleDebugAndroidTest` if you also need the instrumented-test
+APK:
+
+```powershell
+.\gradlew.bat --no-daemon :shared:core:test :shared:protocol:test :shared:transport:test :shared:persistence:test testDebugUnitTest lintDebug assembleDebug :desktop:app:test
 ```
 
 `shared/*` are Kotlin/JVM modules, so their tests run under `test` rather than

@@ -24,6 +24,10 @@ kotlin {
 dependencies {
     implementation(project(":shared:core"))
     implementation(project(":shared:protocol"))
+    // api so android:app keeps resolving the persistence value types and codecs
+    // (LocalOperation, LocalMapObservation, DeviceReadRecord, StringCipher, …)
+    // it imports from the com.karr.key.data package, now in the shared module.
+    api(project(":shared:persistence"))
     implementation(project(":android:ble"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")

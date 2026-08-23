@@ -23,6 +23,10 @@ kotlin {
 dependencies {
     implementation(project(":shared:core"))
     implementation(project(":shared:protocol"))
+    // api so android:app keeps resolving the transport types (BleController,
+    // BleSessionState, exchanges, …) it imports from the com.karr.key.ble
+    // package, which now lives in the shared module.
+    api(project(":shared:transport"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")

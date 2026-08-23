@@ -2,13 +2,8 @@ package com.karr.key.data
 
 import android.content.Context
 
-interface SecureValueStore {
-    fun put(name: String, value: String)
-    fun get(name: String): String?
-    fun remove(name: String)
-    fun clear()
-}
-
+// The SecureValueStore interface moved to shared:persistence (same package) for
+// reuse by the desktop host; this Android implementation stays here.
 class EncryptedLocalValueStore(
     context: Context,
     private val cipher: StringCipher = AndroidKeystoreCipher("karr_key_local_values_v1"),

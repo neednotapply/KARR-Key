@@ -12,8 +12,9 @@ Compose operation
 ```
 
 `shared/*` is plain Kotlin/JVM with no Android SDK on its classpath, so the
-domain and protocol layers can back a desktop host as well as the app.
-`android/*` holds everything that touches the Android SDK.
+domain, protocol, transport, and persistence layers back both the Android app
+and the Compose Desktop host in `desktop/*`. `android/*` and `desktop/*` hold
+everything that touches a platform SDK.
 
 Module paths below are relative to `src/`, the Gradle build root; the
 repository root holds only documentation, research notes, and CI config.
@@ -22,14 +23,67 @@ repository root holds only documentation, research notes, and CI config.
 |---|---|
 | `shared/core` | Domain models, local roles, capabilities, and device policy |
 | `shared/protocol` | Packet framing, parsing, commands, authentication interface |
-| `android/app` | Process entrypoint, Bluetooth-first shell, navigation, shared UI |
+| `shared/transport` | Platform-free BLE contract: `BleController`, session models, device classification, command/mode exchanges, reconnect/freshness policy |
+| `shared/persistence` | Platform-free store value types + codecs (operation/map/read records, the READ-snapshot JSON codec, the WiGLE CSV codec, dedup, the cipher/secure-value contracts, the device-key store) |
+| `android/app` | Android process entrypoint, Bluetooth-first shell, navigation, shared UI |
 | `android/data` | Keystore-backed access state and local operation journal |
-| `android/ble` | Serialized scan/connect/discover/subscribe/write session |
+| `android/ble` | Serialized Android scan/connect/discover/subscribe/write session |
+| `desktop/app` | Compose Desktop host: mouse-first shell, ported screens, in-app terminal, file-backed stores, the desktop map, and the BLE controller |
+| `desktop/blebridge` | Windows-native WinRT BLE helper (C#), a raw transport the desktop host drives over JSON stdio |
 
 Keeping `shared/*` platform-free is an invariant, not a convention: adding an
 `android.*` import there silently forecloses the desktop host. Anything needing
 a platform API takes it as an interface the host installs, the way `KarrTrace`
 takes its log sink.
+
+### Desktop host
+
+`desktop/app` is a Compose Desktop application that depends only on `shared/*`.
+It re-implements the screens for mouse/scroll/keyboard rather than sharing the
+Android Compose UI, but reuses the same protocol, transport, and persistence
+modules, so device classification, the authentication handshake, the operation
+catalog, and the READ/CSV codecs are single-source. Platform seams are filled by
+desktop implementations of the same contracts the Android app satisfies:
+
+- **BLE.** `desktop/app` provides a `BleController` over a raw `RawBleTransport`.
+  `WindowsBleController` drives the `shared/transport` session state machine over
+  a helper process that speaks a small JSON stdio protocol. The default helper is
+  `karr_ble_bridge.py` (Python + [bleak](https://bleak.readthedocs.io), bundled in
+  the app resources), which uses WinRT on Windows and CoreBluetooth/BlueZ
+  elsewhere — real BLE scanning is confirmed. It needs Python 3.9+ with bleak
+  (`python -m pip install bleak`); `KARR_PYTHON` overrides the interpreter and
+  `KARR_BLE_HELPER` overrides the helper (a `.py`, or a native `.exe` such as the
+  C#/WinRT alternative in `desktop/blebridge`). If no helper/interpreter is found,
+  an inert controller scans nothing (no phantom unit) and says how to enable one.
+  `MockBleController` (a simulated unit) is opt-in with `KARR_BLE=mock`. The auth
+  orchestration is unit-tested against a fake transport; connect→auth→Ready is
+  pending validation against a physical KARR unit.
+- **Persistence.** File-backed stores under `%APPDATA%/KARR Key`, encrypted with
+  an AES key held in the per-user profile (`FileStringCipher`), mirror the
+  Android Keystore-backed stores. `EncryptedDeviceKeyStore` is shared unchanged.
+- **Terminal.** The desktop counterpart of the Android logcat trace: a
+  `KarrTrace.Sink` feeds an in-app, filterable Terminal dock. It is enabled on
+  the desktop host by design (the Android trace is debug-only). Redaction stays
+  at the single wire choke point, so no key material reaches it.
+- **Map.** OpenStreetMap tiles via JXMapViewer embedded in a Compose `SwingPanel`
+  (mouse pan/zoom); the RSSI/geo estimation, confidence circles, clustering,
+  reported-GPS annotations, history trails, search, and unit-data dialog are
+  ported from the Android map. A user-triggered **Locate me** control estimates
+  the desktop's position from its IP address — the coarse, web-style fix a
+  browser uses without GPS, via one HTTPS lookup (`DesktopLocationProvider`) — to
+  drop a "you are here" marker and enable recenter-on-me; a **Set location**
+  control also lets the user click the map to place an exact fix. That IP lookup
+  is a distinct, user-initiated network client; OS location services (Windows
+  Geolocation, macOS CoreLocation, Linux GeoClue) would be a more accurate native
+  follow-up. **Device positions come from stored/imported map history + reads**,
+  which carry real GPS (the phone's GPS at scan time, or the unit's own reported
+  GPS), so the RSSI estimate and confidence circle render just as on the phone.
+  The desktop never records NEW sightings at its own coarse location (live map
+  recording is off), so no device is mis-placed there — the desktop location
+  (IP or "Set location") only drives the "you are here" marker/recenter, never
+  device positions. WiGLE import/export lives in Settings › Map. The estimated
+  location persists across tab switches (hoisted to the shell). The Terminal dock
+  is hidden by default and toggled from the top bar.
 
 Operation screens do not own long-lived BLE callbacks or secret material.
 Transport state is the source of device readiness. Provisioned Customer

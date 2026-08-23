@@ -7,22 +7,9 @@ import java.net.URI
 import java.time.Instant
 import org.json.JSONObject
 
-data class VehicleIdentity(
-    val vin: String,
-    val modelYear: String?,
-    val make: String?,
-    val model: String?,
-    val trim: String?,
-    val bodyClass: String?,
-    val decodedUtc: Instant,
-) {
-    val title: String
-        get() = listOfNotNull(modelYear, make, model).filter(String::isNotBlank).joinToString(" ")
-
-    val details: String?
-        get() = listOfNotNull(trim, bodyClass).filter(String::isNotBlank).distinct().joinToString(" · ")
-            .ifBlank { null }
-}
+// The VehicleIdentity value type moved to shared:persistence (same package) for
+// reuse by the desktop host. The NHTSA network decode and encrypted cache below
+// stay on Android, which bundles org.json.
 
 /** Encrypted, VIN-keyed cache for identities explicitly decoded by the user. */
 class LocalVehicleIdentityStore(

@@ -1,0 +1,546 @@
+package com.karr.key.desktop.ui
+import com.karr.key.desktop.resources.*
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import org.jetbrains.compose.resources.painterResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.unit.dp
+import com.karr.key.ble.BleController
+import com.karr.key.ble.BleSessionState
+import com.karr.key.ble.DiscoveredDevice
+import com.karr.key.ble.KarrCandidateTier
+import com.karr.key.protocol.KarrVulnerabilityStatus
+import com.karr.key.protocol.RecoveredWorkflowCatalog
+import kotlinx.coroutines.launch
+
+@Composable
+internal fun DeviceCenterScreen(
+    controller: BleController,
+    vulnerabilityByAddress: Map<String, KarrVulnerabilityStatus>,
+    autoConnectReadEnabled: Boolean,
+    onAutoConnectReadEnabledChanged: (Boolean) -> Unit,
+    autoConnectSendOperationId: String,
+    onAutoConnectSendOperationSelected: (String) -> Unit,
+    requestPermissions: (((Boolean) -> Unit) -> Unit),
+    snackbar: SnackbarHostState,
+    modifier: Modifier = Modifier,
+) {
+    val state by controller.state.collectAsState()
+    val devices by controller.devices.collectAsState()
+    val karrDevices = karrDevicesForConnection(devices)
+    val otherDevices = otherDevicesForConnection(devices)
+    val karrUnitCount = karrDevices.size
+    val nearbyCount = devices.size
+    val scope = rememberCoroutineScope()
+    var showOtherDevices by remember { mutableStateOf(false) }
+
+    val startScan = {
+        requestPermissions { granted ->
+            if (granted) {
+                controller.startScan().onFailure { failure ->
+                    scope.launch {
+                        snackbar.showSnackbar(failure.message ?: "BLE scan failed.")
+                    }
+                }
+            } else {
+                scope.launch {
+                    snackbar.showSnackbar("Bluetooth permission was not granted.")
+                }
+            }
+        }
+    }
+
+    ConnectionSection(
+        state = state,
+        vulnerabilityByAddress = vulnerabilityByAddress,
+        nearbyCount = nearbyCount,
+        karrDevices = karrDevices,
+        otherDevices = otherDevices,
+        karrUnitCount = karrUnitCount,
+        showOtherDevices = showOtherDevices,
+        onShowOtherDevicesChanged = { showOtherDevices = it },
+        autoConnectReadEnabled = autoConnectReadEnabled,
+        onAutoConnectReadEnabledChanged = onAutoConnectReadEnabledChanged,
+        autoConnectSendOperationId = autoConnectSendOperationId,
+        onAutoConnectSendOperationSelected = onAutoConnectSendOperationSelected,
+        onScan = startScan,
+        onStopScan = controller::stopScan,
+        onDisconnect = controller::disconnect,
+        onRetryReconnect = {
+            controller.retryReconnect().onFailure { failure ->
+                scope.launch {
+                    snackbar.showSnackbar(
+                        failure.message ?: "Automatic reconnect could not be retried.",
+                    )
+                }
+            }
+        },
+        onConnect = { device ->
+            controller.connect(device.address).onFailure { failure ->
+                scope.launch {
+                    snackbar.showSnackbar(
+                        failure.message ?: "Connection failed.",
+                    )
+                }
+            }
+        },
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun AutoConnectCard(
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+    selectedOperationId: String,
+    onOperationSelected: (String) -> Unit,
+) {
+    val operations = remember { RecoveredWorkflowCatalog.autoConnectOperations }
+    val selectedLabel = remember(selectedOperationId, operations) {
+        operations.firstOrNull { it.id == selectedOperationId }?.label
+            ?: operations.firstOrNull()?.label
+            ?: "Read unit state"
+    }
+    var expanded by remember { mutableStateOf(false) }
+    OutlinedCard(Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        "Auto-connect & send",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        "While scanning, automatically connects to each confirmed KARR unit " +
+                            "found, sends the selected operation once connected, then disconnects " +
+                            "and resumes scanning. Any read result is saved to the map.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = onEnabledChange,
+                )
+            }
+            Box(Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = { expanded = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("auto-connect-operation"),
+                ) {
+                    Text(selectedLabel, modifier = Modifier.weight(1f))
+                    Text("▾")
+                }
+                DropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false },
+                ) {
+                    operations.forEach { operation ->
+                        DropdownMenuItem(
+                            text = { Text(operation.label) },
+                            onClick = {
+                                onOperationSelected(operation.id)
+                                expanded = false
+                            },
+                            modifier = Modifier.testTag("auto-connect-operation:${operation.id}"),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConnectionSection(
+    state: BleSessionState,
+    vulnerabilityByAddress: Map<String, KarrVulnerabilityStatus>,
+    nearbyCount: Int,
+    karrDevices: List<DiscoveredDevice>,
+    otherDevices: List<DiscoveredDevice>,
+    karrUnitCount: Int,
+    showOtherDevices: Boolean,
+    onShowOtherDevicesChanged: (Boolean) -> Unit,
+    autoConnectReadEnabled: Boolean,
+    onAutoConnectReadEnabledChanged: (Boolean) -> Unit,
+    autoConnectSendOperationId: String,
+    onAutoConnectSendOperationSelected: (String) -> Unit,
+    onScan: () -> Unit,
+    onStopScan: () -> Unit,
+    onDisconnect: () -> Unit,
+    onRetryReconnect: () -> Unit,
+    onConnect: (DiscoveredDevice) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            start = 16.dp,
+            top = 20.dp,
+            end = 16.dp,
+            bottom = 32.dp,
+        ),
+    ) {
+        item {
+            SectionHeader(
+                title = "Connection",
+                supportingText = "Unexpected drops reconnect automatically.",
+            )
+        }
+        item {
+            OutlinedCard(Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        text = state.connectionStatusLabel(),
+                        modifier = Modifier.semantics {
+                            liveRegion = LiveRegionMode.Polite
+                            stateDescription = state.connectionStatusLabel()
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Button(
+                            onClick = if (state is BleSessionState.Scanning) {
+                                onStopScan
+                            } else {
+                                onScan
+                            },
+                            enabled = state is BleSessionState.Scanning || state.canScan(),
+                        ) {
+                            Icon(
+                                painter = painterResource(
+                                    if (state is BleSessionState.Scanning) {
+                                        Res.drawable.ic_stop
+                                    } else {
+                                        Res.drawable.ic_wifi
+                                    },
+                                ),
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text(
+                                text = if (state is BleSessionState.Scanning) "Stop" else "Scan",
+                                modifier = Modifier.padding(start = 6.dp),
+                            )
+                        }
+                        if (state is BleSessionState.ReconnectFailed) {
+                            OutlinedButton(onClick = onRetryReconnect) {
+                                Text("Retry reconnect")
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = onDisconnect,
+                            enabled = state.canDisconnect(),
+                        ) {
+                            Icon(
+                                painter = painterResource(Res.drawable.ic_block),
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text(
+                                text = if (
+                                    state is BleSessionState.Reconnecting ||
+                                    state is BleSessionState.ReconnectFailed
+                                ) {
+                                    "Cancel reconnect"
+                                } else {
+                                    "Disconnect"
+                                },
+                                modifier = Modifier.padding(start = 6.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        item {
+            AutoConnectCard(
+                enabled = autoConnectReadEnabled,
+                onEnabledChange = onAutoConnectReadEnabledChanged,
+                selectedOperationId = autoConnectSendOperationId,
+                onOperationSelected = onAutoConnectSendOperationSelected,
+            )
+        }
+        item {
+            SectionHeader(
+                title = scanCountLabel(
+                    karrUnitCount,
+                    nearbyCount,
+                ),
+            )
+        }
+        if (karrDevices.isEmpty()) {
+            item {
+                Text(
+                    if (state is BleSessionState.Scanning) {
+                        "Scanning for KARR signals."
+                    } else {
+                        "No KARR signals found."
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            items(karrDevices, key = { "karr:${it.address}" }) { device ->
+                DiscoveredDeviceCard(
+                    device = device,
+                    vulnerability = vulnerabilityByAddress[device.address.uppercase()],
+                    onConnect = if (device.manualProbeEligible) {
+                        { onConnect(device) }
+                    } else {
+                        null
+                    },
+                )
+            }
+        }
+        if (otherDevices.isNotEmpty()) {
+            item {
+                OutlinedButton(
+                    onClick = {
+                        onShowOtherDevicesChanged(!showOtherDevices)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        if (showOtherDevices) {
+                            "Hide other nearby (${otherDevices.size})"
+                        } else {
+                            "Show other nearby (${otherDevices.size})"
+                        },
+                    )
+                }
+            }
+        }
+        if (showOtherDevices) {
+            item {
+                SectionHeader(
+                    title = "Other nearby advertisements",
+                    supportingText = "No recovered KARR identifier was found.",
+                )
+            }
+            items(otherDevices, key = { "other:${it.address}" }) { device ->
+                DiscoveredDeviceCard(device = device, vulnerability = null, onConnect = null)
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiscoveredDeviceCard(
+    device: DiscoveredDevice,
+    vulnerability: KarrVulnerabilityStatus?,
+    onConnect: (() -> Unit)?,
+) {
+    OutlinedCard(Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                device.name ?: "Unnamed BLE device",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            CodeSurface("${device.address}  RSSI ${device.rssi}")
+            val isConfirmed =
+                device.classification.tier == KarrCandidateTier.CONFIRMED_FORMAT
+            Text(
+                device.classificationDescription(),
+                color = if (isConfirmed) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                style = MaterialTheme.typography.bodySmall,
+            )
+            vulnerability?.takeIf { it != KarrVulnerabilityStatus.UNKNOWN }?.let { status ->
+                VulnerabilityBadge(status)
+            }
+            if (device.classification.isCandidate && !device.connectable) {
+                Text(
+                    "Broadcast-only advertisement; connection unavailable.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            if (onConnect != null) {
+                OutlinedButton(
+                    onClick = onConnect,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(device.connectionActionLabel())
+                }
+            }
+        }
+    }
+}
+
+/**
+ * A proven-status chip on a scanned unit's card. Both units advertise identically, so this is the
+ * only at-a-glance tell between the vulnerable unit and a patched one; it appears once a connection
+ * has proved the unit's status (and persists via its stored profile across later scans).
+ */
+@Composable
+private fun VulnerabilityBadge(status: KarrVulnerabilityStatus) {
+    val (label, color) = when (status) {
+        KarrVulnerabilityStatus.VULNERABLE ->
+            "⚠️ Vulnerable — answers the legacy challenge" to
+                MaterialTheme.colorScheme.error
+        KarrVulnerabilityStatus.PATCHED ->
+            "🛡️ Patched — refused the legacy handshake" to
+                MaterialTheme.colorScheme.primary
+        KarrVulnerabilityStatus.UNKNOWN -> return
+    }
+    Text(
+        label,
+        color = color,
+        style = MaterialTheme.typography.labelLarge,
+        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+    )
+}
+
+private fun BleSessionState.canDisconnect(): Boolean =
+    this is BleSessionState.Ready ||
+        this is BleSessionState.Reconnecting ||
+        this is BleSessionState.ReconnectFailed ||
+        this is BleSessionState.Connecting ||
+        this is BleSessionState.DiscoveringUart ||
+        this is BleSessionState.UartSubscribed ||
+        this is BleSessionState.AuthenticationRequired ||
+        this is BleSessionState.Authenticating
+
+private fun BleSessionState.canScan(): Boolean =
+    this is BleSessionState.Idle ||
+        this is BleSessionState.Error ||
+        this is BleSessionState.PatchedUnitDetected ||
+        this is BleSessionState.ReconnectFailed
+
+internal fun BleSessionState.connectionStatusLabel(): String = when (this) {
+    BleSessionState.Idle -> "Idle"
+    BleSessionState.Scanning -> "Scanning"
+    is BleSessionState.Reconnecting ->
+        "Reconnecting to $serial (attempt $attempt of $maxAttempts): $step"
+    is BleSessionState.ReconnectFailed ->
+        "Reconnect to $serial stopped after $attempts attempts: $message"
+    is BleSessionState.Connecting -> "Connecting to $address"
+    is BleSessionState.DiscoveringUart -> "Discovering KARR UART on $address"
+    is BleSessionState.UartSubscribed ->
+        "Bluetooth connected: ${name ?: address}; waiting for KARR authentication"
+    is BleSessionState.AuthenticationRequired ->
+        "KARR authentication required: ${name ?: address} " +
+            "($challengeBytes-byte challenge). Bluetooth link is healthy."
+    is BleSessionState.Authenticating ->
+        "Authenticating ${name ?: address}: $step"
+    is BleSessionState.Ready ->
+        "Authenticated and ready: ${name ?: address}; " +
+            listOfNotNull(
+                unitModel?.displayName,
+                unitMode?.let { mode -> "${mode.displayName} mode" },
+            ).ifEmpty {
+                listOf("compatibility details not identified")
+            }.joinToString("; ")
+    is BleSessionState.PatchedUnitDetected ->
+        "Patched unit: ${name ?: address} — refused the legacy authentication handshake, so it is " +
+            "not vulnerable to this technique. $evidence"
+    is BleSessionState.Error -> "Error: $message"
+}
+
+internal fun scanCountLabel(
+    karrUnitCount: Int,
+    nearbyCount: Int,
+): String {
+    val karrUnits = if (karrUnitCount == 1) {
+        "1 KARR unit"
+    } else {
+        "$karrUnitCount KARR units"
+    }
+    return "$karrUnits / $nearbyCount nearby"
+}
+
+internal fun karrDevicesForConnection(
+    devices: List<DiscoveredDevice>,
+): List<DiscoveredDevice> = devices
+    .asSequence()
+    .filter { it.classification.isCandidate }
+    .sortedWith(
+        compareByDescending<DiscoveredDevice> { it.rssi }
+            .thenBy { it.name ?: it.address },
+    )
+    .toList()
+
+internal fun DiscoveredDevice.classificationDescription(): String =
+    when (classification.tier) {
+        KarrCandidateTier.CONFIRMED_FORMAT ->
+            "Confirmed KARR format: ${classification.evidence}"
+        KarrCandidateTier.POSSIBLE ->
+            "Possible KARR match: ${classification.evidence}"
+        KarrCandidateTier.OTHER -> classification.evidence
+    }
+
+internal fun DiscoveredDevice.connectionActionLabel(): String =
+    if (classification.tier == KarrCandidateTier.CONFIRMED_FORMAT) {
+        "Connect"
+    } else {
+        "Probe connection"
+    }
+
+internal fun otherDevicesForConnection(
+    devices: List<DiscoveredDevice>,
+): List<DiscoveredDevice> = devices.filter {
+    it.classification.tier == KarrCandidateTier.OTHER
+}

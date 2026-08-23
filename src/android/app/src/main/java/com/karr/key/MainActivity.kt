@@ -57,7 +57,8 @@ class MainActivity : ComponentActivity() {
                     withContext(Dispatchers.IO) {
                         val observations = mapHistoryStore.recent(limit = MAP_EXPORT_LIMIT)
                         val reads = deviceReadStore.allGroupedByAddress()
-                        val csv = MapHistoryCsv.encode(observations, reads)
+                        val profiles = deviceProfileStore.all()
+                        val csv = MapHistoryCsv.encode(observations, reads, profiles)
                         contentResolver.openOutputStream(uri)?.use { stream ->
                             stream.write(csv.toByteArray(Charsets.UTF_8))
                         } ?: error("Unable to open the destination file.")
@@ -85,6 +86,9 @@ class MainActivity : ComponentActivity() {
                             MapHistoryCsv.decodeContent(reader.lineSequence())
                         }
                         deviceReadStore.upsertAll(content.readsByAddress)
+                        content.profilesByAddress.forEach { (address, profile) ->
+                            deviceProfileStore.record(address, profile.unitModelCode, profile.vulnerability)
+                        }
                         mapHistoryStore.upsertAll(content.observations)
                     }
                 },

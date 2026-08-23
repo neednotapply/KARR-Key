@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Windows-native BLE helper for the KARR Key desktop host. It performs raw BLE
+    transport over WinRT (Windows.Devices.Bluetooth) and speaks a line-delimited
+    JSON protocol on stdio to the JVM WindowsBleTransport. Build:
+
+      dotnet publish -c Release -r win-x64 --self-contained false
+
+    Output KarrBleBridge.exe is placed next to the desktop app under blebridge/,
+    or pointed at with the KARR_BLE_HELPER environment variable. Requires the
+    .NET 8 SDK and Windows 10 build 19041+ for the BLE APIs.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>KarrBleBridge</AssemblyName>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+</Project>

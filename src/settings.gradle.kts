@@ -17,12 +17,15 @@ dependencyResolutionManagement {
 rootProject.name = "KARR-Key"
 
 // shared/* is platform-free Kotlin/JVM reused by every host; android/* is the
-// Android app and the modules that touch the Android SDK. A desktop host joins
-// as desktop/* and depends only on shared/*.
+// Android app and the modules that touch the Android SDK. desktop/* is the
+// Compose Desktop host and depends only on shared/*.
 include(
     ":shared:core",
     ":shared:protocol",
+    ":shared:transport",
+    ":shared:persistence",
     ":android:app",
     ":android:ble",
     ":android:data",
+    ":desktop:app",
 )
