@@ -1,0 +1,76 @@
+name: Desktop CI
+
+# Builds, tests, and packages the Compose Desktop host. Runs on Windows because
+# the release artifact is a Windows installer (jpackage MSI/EXE needs the target
+# OS). Kept separate from android-ci.yml so a desktop/Windows/WiX hiccup never
+# blocks the Android build that the release workflows reuse.
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "docs/**"
+      - "research/**"
+      - "**/*.md"
+      - ".editorconfig"
+      - ".gitattributes"
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "research/**"
+      - "**/*.md"
+      - ".editorconfig"
+      - ".gitattributes"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          lfs: false
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      # The desktop module depends only on shared/*, but the Gradle build also
+      # configures the android/* modules, so the Windows runner's preinstalled
+      # Android SDK is relied on the same way android-ci.yml relies on it.
+      # packageDistributionForCurrentOS builds the MSI + EXE via jpackage (WiX is
+      # preinstalled on windows-latest); :desktop:app:test covers the desktop
+      # logic (transport handshake, persistence, map estimation/overlay).
+      - name: Test and package the desktop app
+        working-directory: src
+        shell: bash
+        run: >-
+          ./gradlew --no-daemon
+          :desktop:app:test :desktop:app:packageDistributionForCurrentOS
+
+      - name: Upload desktop installers
+        uses: actions/upload-artifact@v7
+        with:
+          name: KARR-Key-desktop-${{ github.sha }}
+          path: |
+            src/desktop/app/build/compose/binaries/main/msi/*.msi
+            src/desktop/app/build/compose/binaries/main/exe/*.exe
+          if-no-files-found: error
+          retention-days: 14
+          # Installers are already compressed; recompressing wastes time.
+          compression-level: 0

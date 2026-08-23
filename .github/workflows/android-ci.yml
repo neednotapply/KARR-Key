@@ -48,13 +48,16 @@ jobs:
         uses: gradle/actions/setup-gradle@v6
 
       # shared/* are plain Kotlin/JVM modules, so their tests run under `test`
-      # rather than the Android-only `testDebugUnitTest`.
+      # rather than the Android-only `testDebugUnitTest`. transport and
+      # persistence hold relocated protocol/BLE logic with byte-exact vectors, so
+      # they belong in the same gate as core and protocol.
       - name: Test, lint, and assemble
         # The Gradle build root is src/, not the repository root.
         working-directory: src
         run: >-
           ./gradlew --no-daemon
           :shared:core:test :shared:protocol:test
+          :shared:transport:test :shared:persistence:test
           testDebugUnitTest lintDebug assembleDebug
 
       - name: Record APK checksum
