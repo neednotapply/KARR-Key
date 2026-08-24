@@ -73,6 +73,7 @@ dependencies {
     implementation(project(":shared:protocol"))
     implementation(project(":android:ble"))
     implementation(project(":android:data"))
+    implementation(project(":android:auto"))
 
     val composeBom = platform("androidx.compose:compose-bom:2026.06.00")
     implementation(composeBom)

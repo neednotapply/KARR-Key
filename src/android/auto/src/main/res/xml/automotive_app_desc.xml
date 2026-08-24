@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Declares KARR Key as an Android Auto templated app. Android Auto (phone
+  projected) requires this descriptor, referenced from the
+  `com.google.android.gms.car.application` meta-data, IN ADDITION to the
+  CarAppService intent-filter: Play Services' car module reads it to admit the
+  app into the projected launcher. Without it the service still registers and
+  resolves, but the app is filtered out of the car app list.
+-->
+<automotiveApp>
+    <uses name="template" />
+</automotiveApp>

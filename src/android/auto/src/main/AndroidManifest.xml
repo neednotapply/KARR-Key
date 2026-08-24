@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The car Map renders its own OSM tiles onto a navigation surface (CarNavMapScreen), which
+         requires the NAVIGATION category plus these permissions. NAVIGATION_TEMPLATES grants the
+         navigation templates, ACCESS_SURFACE grants the drawable map surface, and INTERNET is for
+         fetching map tiles. -->
+    <uses-permission android:name="androidx.car.app.NAVIGATION_TEMPLATES" />
+    <uses-permission android:name="androidx.car.app.ACCESS_SURFACE" />
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application>
+        <service
+            android:name="com.karr.key.auto.KarrCarAppService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.car.app.CarAppService" />
+                <!-- NAVIGATION (not IOT) because the app renders its own map surface; navigation
+                     apps may use the list/message/pane templates our other screens rely on. -->
+                <category android:name="androidx.car.app.category.NAVIGATION" />
+            </intent-filter>
+        </service>
+
+        <!-- Required for Android Auto (phone projected) to admit this templated app
+             into the car launcher, alongside the CarAppService above. -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+
+        <meta-data
+            android:name="androidx.car.app.minCarApiLevel"
+            android:value="1" />
+    </application>
+</manifest>

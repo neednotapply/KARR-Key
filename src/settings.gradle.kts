@@ -27,5 +27,6 @@ include(
     ":android:app",
     ":android:ble",
     ":android:data",
+    ":android:auto",
     ":desktop:app",
 )

@@ -9,13 +9,14 @@ import com.karr.key.core.KarrTrace
 import com.karr.key.data.AutoConnectReadPreferences
 import com.karr.key.data.EncryptedDeviceKeyStore
 import com.karr.key.data.EncryptedLocalValueStore
+import com.karr.key.data.KarrCarServices
 import com.karr.key.protocol.LegacyDeviceAuthenticator
 
-class KarrApplication : Application() {
-    lateinit var deviceKeys: EncryptedDeviceKeyStore
+class KarrApplication : Application(), KarrCarServices {
+    override lateinit var deviceKeys: EncryptedDeviceKeyStore
         private set
 
-    lateinit var bleController: BleController
+    override lateinit var bleController: BleController
         private set
 
     lateinit var autoConnectReadPreferences: AutoConnectReadPreferences

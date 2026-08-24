@@ -28,6 +28,7 @@ repository root holds only documentation, research notes, and CI config.
 | `android/app` | Android process entrypoint, Bluetooth-first shell, navigation, shared UI |
 | `android/data` | Keystore-backed access state and local operation journal |
 | `android/ble` | Serialized Android scan/connect/discover/subscribe/write session |
+| `android/auto` | Android Auto (Car App Library) host: a curated, confirm-gated Customer-role subset of the operation catalog, driven off the same live `BleController` singleton the phone UI and foreground service use |
 | `desktop/app` | Compose Desktop host: mouse-first shell, ported screens, in-app terminal, file-backed stores, the desktop map, and the BLE controller |
 | `desktop/blebridge` | Windows-native WinRT BLE helper (C#), a raw transport the desktop host drives over JSON stdio |
 
