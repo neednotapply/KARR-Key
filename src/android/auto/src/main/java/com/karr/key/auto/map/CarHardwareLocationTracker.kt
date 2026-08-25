@@ -40,7 +40,8 @@ internal class CarHardwareLocationTracker(
         runCatching {
             val carSensors = carContext.getCarService(CarHardwareManager::class.java).carSensors
             carSensors.addCarHardwareLocationListener(
-                CarSensors.UPDATE_RATE_NORMAL,
+                // UI rate, not NORMAL — heading-up needs fixes fast enough to track a turn.
+                CarSensors.UPDATE_RATE_UI,
                 ContextCompat.getMainExecutor(carContext),
                 listener,
             )

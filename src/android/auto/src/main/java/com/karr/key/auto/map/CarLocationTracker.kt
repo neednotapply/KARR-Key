@@ -17,7 +17,7 @@ import androidx.core.content.ContextCompat
  */
 internal class CarLocationTracker(
     context: Context,
-    private val onLocation: (latitude: Double, longitude: Double, bearingDeg: Float?) -> Unit,
+    private val onLocation: (latitude: Double, longitude: Double, bearingDeg: Float?, speedMps: Float?) -> Unit,
 ) {
     private val appContext = context.applicationContext
     private val locationManager = appContext.getSystemService(LocationManager::class.java)
@@ -25,9 +25,11 @@ internal class CarLocationTracker(
 
     private fun report(location: Location) {
         // A GPS-derived bearing only exists while moving; null when parked, so heading-up keeps its
-        // last heading rather than snapping to north.
+        // last heading rather than snapping to north. Speed rides along so the renderer can ignore
+        // the jittery low-speed bearings that made heading feel unsolid.
         val bearing = if (location.hasBearing()) location.bearing else null
-        onLocation(location.latitude, location.longitude, bearing)
+        val speed = if (location.hasSpeed()) location.speed else null
+        onLocation(location.latitude, location.longitude, bearing, speed)
     }
 
     @SuppressLint("MissingPermission")
@@ -62,7 +64,9 @@ internal class CarLocationTracker(
             PackageManager.PERMISSION_GRANTED
 
     private companion object {
-        const val MIN_INTERVAL_MS = 2_000L
-        const val MIN_DISTANCE_M = 5f
+        // 1 s, distance-agnostic: heading has to track a turn, and a turn covers little ground, so
+        // gate on time not distance. A car head unit isn't battery-constrained the way a phone is.
+        const val MIN_INTERVAL_MS = 1_000L
+        const val MIN_DISTANCE_M = 0f
     }
 }

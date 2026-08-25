@@ -13,7 +13,7 @@ import androidx.car.app.CarContext
  */
 internal class FusedCarLocation(
     carContext: CarContext,
-    private val onLocation: (latitude: Double, longitude: Double, bearingDeg: Float?) -> Unit,
+    private val onLocation: (latitude: Double, longitude: Double, bearingDeg: Float?, speedMps: Float?) -> Unit,
 ) {
     private var lastCarFixElapsedMs = Long.MIN_VALUE
 
@@ -22,9 +22,9 @@ internal class FusedCarLocation(
         emit(location)
     }
 
-    private val phoneTracker = CarLocationTracker(carContext) { latitude, longitude, bearing ->
+    private val phoneTracker = CarLocationTracker(carContext) { latitude, longitude, bearing, speed ->
         // Fall through to the phone only while the car isn't actively serving fixes.
-        if (!carActive()) onLocation(latitude, longitude, bearing)
+        if (!carActive()) onLocation(latitude, longitude, bearing, speed)
     }
 
     private fun carActive(): Boolean =
@@ -33,7 +33,8 @@ internal class FusedCarLocation(
 
     private fun emit(location: Location) {
         val bearing = if (location.hasBearing()) location.bearing else null
-        onLocation(location.latitude, location.longitude, bearing)
+        val speed = if (location.hasSpeed()) location.speed else null
+        onLocation(location.latitude, location.longitude, bearing, speed)
     }
 
     fun start() {

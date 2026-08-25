@@ -37,8 +37,8 @@ internal class CarNavMapScreen(
             screenManager.push(CarUnitDetailScreen(carContext, services, unit))
         },
     )
-    private val locationTracker = FusedCarLocation(carContext) { lat, lon, bearing ->
-        renderer.setMyLocation(lat, lon, bearing)
+    private val locationTracker = FusedCarLocation(carContext) { lat, lon, bearing, speed ->
+        renderer.setMyLocation(lat, lon, bearing, speed)
     }
 
     init {

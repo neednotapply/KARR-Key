@@ -45,6 +45,8 @@ internal class CarMapRenderer(
     private var units: List<MappedUnit> = emptyList()
     private var myLocation: Pair<Double, Double>? = null
     private var bearingDeg = 0f
+    // Whether we've locked onto a real heading yet — the first good bearing snaps in, later ones ease.
+    private var hasHeading = false
     // Opens north-up so all devices are in view (the overview); the compass button switches to
     // heading-up ("headed forward"), which then follows and rotates to the car's GPS bearing.
     private var headingUp = false
@@ -178,15 +180,33 @@ internal class CarMapRenderer(
         render()
     }
 
-    fun setMyLocation(lat: Double, lon: Double, bearing: Float?) {
+    fun setMyLocation(lat: Double, lon: Double, bearing: Float?, speedMps: Float?) {
         myLocation = lat to lon
-        if (bearing != null) bearingDeg = bearing
+        updateHeading(bearing, speedMps)
         if (!hasCentered) {
             centerLat = lat
             centerLon = lon
             hasCentered = true
         }
         render()
+    }
+
+    /**
+     * Fold a fresh GPS bearing into the displayed heading. Course-over-ground is only meaningful
+     * while moving — below [MIN_HEADING_SPEED_MPS] it's noise, so we hold the last heading (what a
+     * car nav does at a stop) rather than letting the map spin. A known good bearing eases in along
+     * the shortest arc so turns rotate smoothly instead of snapping; the very first one snaps.
+     */
+    private fun updateHeading(bearing: Float?, speedMps: Float?) {
+        if (bearing == null) return
+        val movingEnough = speedMps == null || speedMps >= MIN_HEADING_SPEED_MPS
+        if (!movingEnough) return
+        bearingDeg = if (hasHeading) {
+            HeadingMath.circularSmooth(bearingDeg, bearing, HEADING_SMOOTHING)
+        } else {
+            HeadingMath.normalize(bearing)
+        }
+        hasHeading = true
     }
 
     fun isHeadingUp(): Boolean = headingUp
@@ -505,5 +525,10 @@ internal class CarMapRenderer(
         const val MAX_ZOOM = 19
         const val DEFAULT_ZOOM = 15
         const val MAX_LAT = 85.05112878
+        // Below this speed GPS course-over-ground is noise, so hold heading instead of spinning.
+        // ~2 m/s ≈ 7 km/h ≈ 4.5 mph — walking pace; a crawling car still holds until it's rolling.
+        const val MIN_HEADING_SPEED_MPS = 2.0f
+        // Fraction of the turn closed per fix: high enough to track a turn, low enough to de-jitter.
+        const val HEADING_SMOOTHING = 0.35f
     }
 }
