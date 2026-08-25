@@ -10,8 +10,8 @@ import androidx.car.app.navigation.model.NavigationTemplate
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
-import com.karr.key.auto.map.CarLocationTracker
 import com.karr.key.auto.map.CarMapRenderer
+import com.karr.key.auto.map.FusedCarLocation
 import com.karr.key.data.KarrCarServices
 import com.karr.key.data.LocalMapHistoryStore
 import kotlinx.coroutines.Dispatchers
@@ -37,7 +37,7 @@ internal class CarNavMapScreen(
             screenManager.push(CarUnitDetailScreen(carContext, services, unit))
         },
     )
-    private val locationTracker = CarLocationTracker(carContext) { lat, lon, bearing ->
+    private val locationTracker = FusedCarLocation(carContext) { lat, lon, bearing ->
         renderer.setMyLocation(lat, lon, bearing)
     }
 
