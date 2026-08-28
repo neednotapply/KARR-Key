@@ -14,8 +14,8 @@ import com.karr.key.protocol.compatibilityWith
 
 /**
  * Which operations the Android Auto surface offers, and whether a given one can run right now.
- * Pure logic, no `CarContext`/BLE — shared by [OperationCategoryScreen] (to grey out a blocked
- * row with its reason) and [CarCommandExecutor] (to gate the actual send) so the two can't drift.
+ * Pure logic, no `CarContext`/BLE — shared by [OperationsScreen] (to grey out a blocked row with
+ * its reason) and [CarCommandExecutor] (to gate the actual send) so the two can't drift.
  * Dealer/Installer operations are bench/installation workflows and are never offered here,
  * regardless of the current session's roles.
  */
