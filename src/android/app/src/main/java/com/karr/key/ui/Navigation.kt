@@ -10,7 +10,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.toMutableStateList
 import androidx.navigation3.runtime.NavKey
-import com.karr.key.BuildConfig
 import com.karr.key.R
 import com.karr.key.protocol.RecoveredDeviceOperation
 
@@ -135,7 +134,6 @@ internal class KarrNavigationState private constructor(
     }
 
     fun openCommandConsole() {
-        if (!BuildConfig.DEBUG) return
         val stack = stacks.getValue(TopLevelDestination.OPERATIONS)
         if (stack.firstOrNull() != AppRoute.Operations) {
             stack.clear()
@@ -336,7 +334,7 @@ private fun AppRoute.Companion.decode(value: String): AppRoute? {
         "operation" -> parts.getOrNull(1)
             ?.takeIf(String::isNotBlank)
             ?.let(AppRoute::OperationDetail)
-        "command-console" -> AppRoute.CommandConsole.takeIf { BuildConfig.DEBUG }
+        "command-console" -> AppRoute.CommandConsole
         // Old feature details pointed to an intermediate menu that no longer exists.
         "feature" -> null
         else -> null

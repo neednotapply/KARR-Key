@@ -43,7 +43,6 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.karr.key.BuildConfig
 import com.karr.key.R
 import com.karr.key.core.AuthorizationDecision
 import com.karr.key.core.Session
@@ -214,10 +213,8 @@ private fun OperationsCatalogPane(
             bottom = 32.dp,
         ),
     ) {
-        if (BuildConfig.DEBUG) {
-            item(key = "command-console-entry") {
-                CommandConsoleEntryCard(onOpen = onOpenCommandConsole)
-            }
+        item(key = "command-console-entry") {
+            CommandConsoleEntryCard(onOpen = onOpenCommandConsole)
         }
 
         if (deviceAuthenticated) {
@@ -501,6 +498,14 @@ private fun CommandConsoleEntryCard(onOpen: () -> Unit) {
                         "ignores. Uncurated — for probing hardware support.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                // The console carries destructive commands and applies no role gating, so the
+                // hazard is named at the door rather than only on the rows inside.
+                Text(
+                    "Includes destructive commands — firmware, secure keys, factory reset. Each " +
+                        "is tagged Destructive and confirms before it sends.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
         }

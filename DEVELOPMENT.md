@@ -374,7 +374,7 @@ adb logcat -s KARR/Ble KARR/Cmd KARR/Auth KARR/Proto KARR/Policy KARR/Sweep KARR
 
 ### Command compatibility log
 
-Every send from the debug **Command console** emits one `KARR/Compat` line pairing the
+Every send from the **Command console** emits one `KARR/Compat` line pairing the
 connected unit's model with the command and the unit's response, so a testing pass builds a
 per-model command-support picture without persisting anything to the app database. Filter to
 just that channel:

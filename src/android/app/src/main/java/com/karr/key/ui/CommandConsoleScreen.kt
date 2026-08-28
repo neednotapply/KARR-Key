@@ -49,7 +49,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.karr.key.BuildConfig
 import com.karr.key.R
 import com.karr.key.ble.BleCommandExchange
 import com.karr.key.ble.BleCommandExchangeResult
@@ -94,9 +93,6 @@ internal fun CommandConsoleScreen(
     unitMode: KarrDeviceMode?,
     modifier: Modifier = Modifier,
 ) {
-    // This research surface and its compatibility records must never operate in release builds.
-    if (!BuildConfig.DEBUG) return
-
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val exchange = remember(controller) { BleCommandExchange(controller) }

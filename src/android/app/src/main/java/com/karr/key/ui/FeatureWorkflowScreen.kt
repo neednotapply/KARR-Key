@@ -31,7 +31,6 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
-import com.karr.key.BuildConfig
 import com.karr.key.ble.BleCommandExchange
 import com.karr.key.ble.BleCommandExchangeResult
 import com.karr.key.ble.BleController
@@ -137,9 +136,7 @@ fun DeviceOperationScreen(
     val exchange = remember(controller) { BleCommandExchange(controller) }
     val modeChangeExchange = remember(controller) { BleModeChangeExchange(controller) }
     val context = LocalContext.current
-    val compatibilityStore = remember(context) {
-        if (BuildConfig.DEBUG) CommandCompatStore(context) else null
-    }
+    val compatibilityStore = remember(context) { CommandCompatStore(context) }
     val scope = rememberCoroutineScope()
     var commandStatus by remember(operation.id) { mutableStateOf<String?>(null) }
     var decodedResponse by remember(operation.id) {
@@ -151,7 +148,7 @@ fun DeviceOperationScreen(
     fun recordSpecificSettingResult(action: RecoveredDeviceAction, outcome: String) {
         if (action.command != QtCommand.READ_SPECIFIC_SETTING || unitModel == null) return
         val tx = ByteArray(action.payload.size) { index -> action.payload[index].toByte() }
-        compatibilityStore?.record(unitModel.code, action.command.name, tx, outcome)
+        compatibilityStore.record(unitModel.code, action.command.name, tx, outcome)
         KarrTrace.log(KarrTrace.COMPAT) {
             val txHex = if (tx.isEmpty()) "-" else KarrTrace.hex(tx)
             "${unitModel.displayName} / ${unitMode?.displayName ?: "?"} | " +
