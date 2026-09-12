@@ -73,7 +73,6 @@ jobs:
           KARR_RELEASE_STORE_PASSWORD: ${{ secrets.KARR_RELEASE_STORE_PASSWORD }}
           KARR_RELEASE_KEY_ALIAS: ${{ secrets.KARR_RELEASE_KEY_ALIAS }}
           KARR_RELEASE_KEY_PASSWORD: ${{ secrets.KARR_RELEASE_KEY_PASSWORD }}
-        # The Gradle build root is src/, not the repository root.
         working-directory: src
         run: >-
           ./gradlew --no-daemon
@@ -142,17 +141,8 @@ jobs:
             echo "- Signing certificate SHA-256: \`${cert_sha256}\`"
           } >> "${GITHUB_STEP_SUMMARY}"
 
-      - name: Preserve workflow artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: KARR-Key-${{ github.ref_name }}-${{ github.sha }}
-          path: dist/
-          if-no-files-found: error
-          # Belt-and-braces copy only: the signed APK is attached to the GitHub
-          # release permanently, so this does not need to live for 90 days.
-          retention-days: 30
-          compression-level: 0
-
+      # The signed APK is attached directly to the GitHub Release below. Do not
+      # also upload it as an Actions artifact and consume the separate quota.
       - name: Create GitHub release from workflow outputs
         env:
           GH_TOKEN: ${{ github.token }}
