@@ -3,25 +3,33 @@ name: Desktop CI
 # Builds, tests, and packages the Compose Desktop host. Runs on Windows because
 # the release artifact is a Windows installer (jpackage MSI/EXE needs the target
 # OS). Kept separate from android-ci.yml so a desktop/Windows/WiX hiccup never
-# blocks the Android build that the release workflows reuse.
+# blocks the Android build.
 
 on:
   push:
     branches:
       - main
-    paths-ignore:
-      - "docs/**"
-      - "research/**"
-      - "**/*.md"
-      - ".editorconfig"
-      - ".gitattributes"
+    paths:
+      - "src/desktop/**"
+      - "src/shared/**"
+      - "src/build.gradle.kts"
+      - "src/settings.gradle.kts"
+      - "src/gradle.properties"
+      - "src/gradle/**"
+      - "src/gradlew"
+      - "src/gradlew.bat"
+      - ".github/workflows/desktop-ci.yml"
   pull_request:
-    paths-ignore:
-      - "docs/**"
-      - "research/**"
-      - "**/*.md"
-      - ".editorconfig"
-      - ".gitattributes"
+    paths:
+      - "src/desktop/**"
+      - "src/shared/**"
+      - "src/build.gradle.kts"
+      - "src/settings.gradle.kts"
+      - "src/gradle.properties"
+      - "src/gradle/**"
+      - "src/gradlew"
+      - "src/gradlew.bat"
+      - ".github/workflows/desktop-ci.yml"
 
 permissions:
   contents: read
