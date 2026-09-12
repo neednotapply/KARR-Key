@@ -4,21 +4,28 @@ on:
   push:
     branches:
       - main
-    # Documentation, research notes, and editor config cannot change the APK,
-    # so they must not spend a full test/lint/assemble cycle.
-    paths-ignore:
-      - "docs/**"
-      - "research/**"
-      - "**/*.md"
-      - ".editorconfig"
-      - ".gitattributes"
+    # Run only when Android/shared code or Gradle configuration can affect the APK.
+    paths:
+      - "src/android/**"
+      - "src/shared/**"
+      - "src/build.gradle.kts"
+      - "src/settings.gradle.kts"
+      - "src/gradle.properties"
+      - "src/gradle/**"
+      - "src/gradlew"
+      - "src/gradlew.bat"
+      - ".github/workflows/android-ci.yml"
   pull_request:
-    paths-ignore:
-      - "docs/**"
-      - "research/**"
-      - "**/*.md"
-      - ".editorconfig"
-      - ".gitattributes"
+    paths:
+      - "src/android/**"
+      - "src/shared/**"
+      - "src/build.gradle.kts"
+      - "src/settings.gradle.kts"
+      - "src/gradle.properties"
+      - "src/gradle/**"
+      - "src/gradlew"
+      - "src/gradlew.bat"
+      - ".github/workflows/android-ci.yml"
 
 permissions:
   contents: read
@@ -66,10 +73,10 @@ jobs:
             > src/android/app/build/outputs/apk/debug/KARR-Key.apk.sha256
 
       - name: Upload debug APK
+        if: github.event_name == 'push'
         uses: actions/upload-artifact@v7
-        # The build is what this workflow verifies; a full artifact-storage quota
-        # must not turn a passing build red. The scheduled release rebuilds when
-        # the reusable artifact is absent, so a skipped upload is recoverable.
+        # PRs still build and test, but do not retain a ~15 MB APK. Main-branch
+        # pushes keep a short-lived artifact for manual prereleases/reuse.
         continue-on-error: true
         with:
           name: KARR-Key-debug-${{ github.sha }}
@@ -78,11 +85,7 @@ jobs:
             src/android/app/build/outputs/apk/debug/KARR-Key.apk.sha256
             src/android/app/build/outputs/apk/debug/output-metadata.json
           if-no-files-found: error
-          # 90 days of ~15 MB debug APKs, one per CI run, exhausted the
-          # repository's artifact storage quota and blocked all uploads. Two
-          # weeks still comfortably outlives the weekly scheduled release that
-          # reuses this artifact.
-          retention-days: 14
+          retention-days: 10
           # An APK is already a compressed zip, so recompressing costs time
           # without shrinking it.
           compression-level: 0
