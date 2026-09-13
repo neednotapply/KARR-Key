@@ -1,3 +1,4 @@
+# One-shot cleanup: remove only active artifacts whose original retention exceeded 30 days.
 name: Cleanup legacy Actions artifacts
 
 on:
