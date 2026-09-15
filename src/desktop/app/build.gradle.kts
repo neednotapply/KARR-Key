@@ -51,7 +51,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
             packageName = "KARR Key"
-            packageVersion = "1.0.5"
+            packageVersion = "1.0.6"
             description = "KARR Key desktop research host"
             vendor = "KARR Key"
             // Bundles app-resources/common/* (the bleak BLE helper) into the app
