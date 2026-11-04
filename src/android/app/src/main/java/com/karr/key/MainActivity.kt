@@ -44,6 +44,7 @@ class MainActivity : ComponentActivity() {
     private var locationPermissionResult: ((Boolean) -> Unit)? = null
     private var mapExportResult: ((Result<Int>) -> Unit)? = null
     private var mapImportResult: ((Result<MapHistoryImportSummary>) -> Unit)? = null
+    private var keyFileResult: ((Result<String>) -> Unit)? = null
 
     private val mapExportLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("text/csv"),
@@ -90,6 +91,29 @@ class MainActivity : ComponentActivity() {
                             deviceProfileStore.record(address, profile.unitModelCode, profile.vulnerability)
                         }
                         mapHistoryStore.upsertAll(content.observations)
+                    }
+                },
+            )
+        }
+    }
+
+    private val keyFileLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        val callback = keyFileResult
+        keyFileResult = null
+        if (uri == null) return@registerForActivityResult
+        activityScope.launch {
+            callback?.invoke(
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        val bytes = contentResolver.openInputStream(uri)?.use { stream ->
+                            stream.readNBytes(KEY_FILE_MAX_BYTES + 1)
+                        } ?: error("Unable to open the selected file.")
+                        require(bytes.size <= KEY_FILE_MAX_BYTES) {
+                            "That file is too large to be a key file."
+                        }
+                        String(bytes, Charsets.UTF_8)
                     }
                 },
             )
@@ -150,6 +174,7 @@ class MainActivity : ComponentActivity() {
                     requestMapLocationPermissions = ::requestMapLocationPermissions,
                     requestMapHistoryExport = ::requestMapHistoryExport,
                     requestMapHistoryImport = ::requestMapHistoryImport,
+                    requestKeyFileImport = ::requestKeyFileImport,
                 )
             }
         }
@@ -172,6 +197,11 @@ class MainActivity : ComponentActivity() {
     private fun requestMapHistoryImport(onResult: (Result<MapHistoryImportSummary>) -> Unit) {
         mapImportResult = onResult
         mapImportLauncher.launch(MAP_IMPORT_MIME_TYPES)
+    }
+
+    private fun requestKeyFileImport(onResult: (Result<String>) -> Unit) {
+        keyFileResult = onResult
+        keyFileLauncher.launch(KEY_FILE_MIME_TYPES)
     }
 
     private fun defaultMapExportFileName(): String {
@@ -247,6 +277,8 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         const val MAP_EXPORT_LIMIT = 5_000
+        const val KEY_FILE_MAX_BYTES = 16 * 1024
+        val KEY_FILE_MIME_TYPES = arrayOf("application/json", "text/plain", "*/*")
         val MAP_IMPORT_MIME_TYPES = arrayOf(
             "text/csv",
             "text/comma-separated-values",

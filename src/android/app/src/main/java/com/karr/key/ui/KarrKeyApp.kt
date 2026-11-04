@@ -148,6 +148,7 @@ fun KarrKeyApp(
     requestMapLocationPermissions: (((Boolean) -> Unit) -> Unit),
     requestMapHistoryExport: (((Result<Int>) -> Unit) -> Unit),
     requestMapHistoryImport: (((Result<MapHistoryImportSummary>) -> Unit) -> Unit),
+    requestKeyFileImport: (((Result<String>) -> Unit) -> Unit),
 ) {
     var provisioningRevision by remember { mutableIntStateOf(0) }
     val session = remember(repository, deviceKeys, provisioningRevision) {
@@ -580,6 +581,7 @@ fun KarrKeyApp(
         requestMapLocationPermissions = requestMapLocationPermissions,
         requestMapHistoryExport = requestMapHistoryExport,
         requestMapHistoryImport = requestMapHistoryImport,
+        requestKeyFileImport = requestKeyFileImport,
         snackbar = snackbar,
         operationsQuery = operationsQuery,
         operationsFilters = operationsFilters,
@@ -614,6 +616,7 @@ private fun KeyShell(
     requestMapLocationPermissions: (((Boolean) -> Unit) -> Unit),
     requestMapHistoryExport: (((Result<Int>) -> Unit) -> Unit),
     requestMapHistoryImport: (((Result<MapHistoryImportSummary>) -> Unit) -> Unit),
+    requestKeyFileImport: (((Result<String>) -> Unit) -> Unit),
     snackbar: SnackbarHostState,
     operationsQuery: String,
     operationsFilters: OperationFilters,
@@ -805,6 +808,7 @@ private fun KeyShell(
                                 onProvisioningChanged = onProvisioningChanged,
                                 requestMapHistoryExport = requestMapHistoryExport,
                                 requestMapHistoryImport = requestMapHistoryImport,
+                                requestKeyFileImport = requestKeyFileImport,
                                 snackbar = snackbar,
                                 modifier = Modifier.fillMaxSize(),
                             )

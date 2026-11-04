@@ -67,6 +67,7 @@ internal fun SettingsScreen(
     onProvisioningChanged: () -> Unit,
     requestMapHistoryExport: (((Result<Int>) -> Unit) -> Unit),
     requestMapHistoryImport: (((Result<MapHistoryImportSummary>) -> Unit) -> Unit),
+    requestKeyFileImport: (((Result<String>) -> Unit) -> Unit),
     snackbar: SnackbarHostState,
     modifier: Modifier = Modifier,
 ) {
@@ -125,6 +126,53 @@ internal fun SettingsScreen(
                     failure.message ?: "The key could not be stored.",
                 )
             }
+        }
+    }
+
+    fun importKeyFile(content: String) {
+        val file = ResearchKeyFile.parse(content).getOrElse { failure ->
+            scope.launch {
+                snackbar.showSnackbar(failure.message ?: "The key file is invalid.")
+            }
+            return
+        }
+        val imported = mutableListOf<String>()
+        var failureMessage: String? = null
+        try {
+            file.customer?.let { key ->
+                deviceKeys.provision(DeviceKeyPurpose.CUSTOMER, key)
+                    .onSuccess {
+                        customerKeyInput = ""
+                        customerSaveAttempted = false
+                        customerKeyProvisioned = true
+                        imported += "Customer"
+                    }
+                    .onFailure { failureMessage = it.message }
+            }
+            file.dealer?.let { key ->
+                deviceKeys.provision(DeviceKeyPurpose.DEALER, key)
+                    .onSuccess {
+                        dealerKeyInput = ""
+                        dealerSaveAttempted = false
+                        dealerKeyProvisioned = true
+                        imported += "Dealer"
+                    }
+                    .onFailure { failureMessage = it.message }
+            }
+        } finally {
+            file.wipe()
+        }
+        if (imported.isNotEmpty()) onProvisioningChanged()
+        scope.launch {
+            snackbar.showSnackbar(
+                when {
+                    failureMessage != null && imported.isEmpty() ->
+                        failureMessage ?: "The key could not be stored."
+                    failureMessage != null ->
+                        "Imported ${imported.joinToString(" and ")} key; the other could not be stored."
+                    else -> "${imported.joinToString(" and ")} key encrypted locally."
+                },
+            )
         }
     }
 
@@ -289,6 +337,18 @@ internal fun SettingsScreen(
                 },
                 onClearCustomer = { pendingClear = DeviceKeyPurpose.CUSTOMER },
                 onClearDealer = { pendingClear = DeviceKeyPurpose.DEALER },
+                onImportKeyFile = {
+                    requestKeyFileImport { result ->
+                        result.onSuccess { importKeyFile(it) }
+                            .onFailure { failure ->
+                                scope.launch {
+                                    snackbar.showSnackbar(
+                                        failure.message ?: "The key file could not be read.",
+                                    )
+                                }
+                            }
+                    }
+                },
                 modifier = sectionModifier,
             )
             SettingsSection.MAP -> MapSettingsSection(
@@ -515,6 +575,7 @@ private fun AccessKeysSection(
     onSaveDealer: () -> Unit,
     onClearCustomer: () -> Unit,
     onClearDealer: () -> Unit,
+    onImportKeyFile: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val customerValid = customerInput.isBlank() ||
@@ -532,6 +593,29 @@ private fun AccessKeysSection(
             bottom = 32.dp,
         ),
     ) {
+        item {
+            OutlinedCard(Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        "Import from JSON",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        "Load a key file containing Customer_Key and/or Dealer_Key " +
+                            "as 16-byte hex strings. Keys are encrypted locally and the " +
+                            "file is not retained.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Button(onClick = onImportKeyFile) {
+                        Text("Choose key file")
+                    }
+                }
+            }
+        }
         item {
             KeyProvisioningCard(
                 title = "Customer",
