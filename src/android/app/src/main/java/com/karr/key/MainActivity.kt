@@ -108,7 +108,16 @@ class MainActivity : ComponentActivity() {
                 runCatching {
                     withContext(Dispatchers.IO) {
                         val bytes = contentResolver.openInputStream(uri)?.use { stream ->
-                            stream.readNBytes(KEY_FILE_MAX_BYTES + 1)
+                            // Bounded read (InputStream.readNBytes needs API 33; minSdk is 23).
+                            val out = java.io.ByteArrayOutputStream()
+                            val chunk = ByteArray(1024)
+                            while (out.size() <= KEY_FILE_MAX_BYTES) {
+                                val want = minOf(chunk.size, KEY_FILE_MAX_BYTES + 1 - out.size())
+                                val read = stream.read(chunk, 0, want)
+                                if (read < 0) break
+                                out.write(chunk, 0, read)
+                            }
+                            out.toByteArray()
                         } ?: error("Unable to open the selected file.")
                         require(bytes.size <= KEY_FILE_MAX_BYTES) {
                             "That file is too large to be a key file."

@@ -22,7 +22,7 @@ internal class ResearchKeyFile(val customer: ByteArray?, val dealer: ByteArray?)
          */
         fun parse(json: String): Result<ResearchKeyFile> = runCatching {
             val root = try {
-                JSONObject(json.trimStart('﻿'))
+                JSONObject(json.trimStart('\uFEFF'))
             } catch (_: JSONException) {
                 throw IllegalArgumentException("The file is not valid JSON.")
             }
