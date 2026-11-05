@@ -159,6 +159,12 @@ class MainActivity : ComponentActivity() {
         deviceReadStore = LocalDeviceReadStore(this)
         deviceProfileStore = LocalDeviceProfileStore(this)
 
+        // One-time, idempotent: moves pre-existing map rows to the fast data-key format so the
+        // Map loads quickly. Best-effort; an interrupted run simply resumes on the next launch.
+        activityScope.launch(Dispatchers.IO) {
+            runCatching { mapHistoryStore.upgradeLegacyEncryption() }
+        }
+
         setContent {
             KarrKeyTheme {
                 KarrKeyApp(

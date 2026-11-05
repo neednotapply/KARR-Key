@@ -5,4 +5,10 @@ package com.karr.key.data
 interface StringCipher {
     fun encrypt(plainText: String): String
     fun decrypt(cipherText: String): String
+
+    /**
+     * True when [cipherText] is readable but stored in a slower, superseded format that a store
+     * may re-encrypt in place. Ciphers with a single format never need an upgrade.
+     */
+    fun needsUpgrade(cipherText: String): Boolean = false
 }

@@ -12,7 +12,10 @@ import java.util.UUID
 // by the desktop host; the SQLite store implementation stays here.
 class LocalMapHistoryStore(
     context: Context,
-    private val cipher: StringCipher = AndroidKeystoreCipher("karr_key_map_history_v1"),
+    // Bulk location data: uses the in-process data-key format so loading ~1,000 rows doesn't
+    // cost ~6,000 Keystore binder calls (~16 s). Rows written before this change stay readable
+    // and are re-encrypted by [upgradeLegacyEncryption].
+    private val cipher: StringCipher = AndroidKeystoreCipher("karr_key_map_history_v1", context),
 ) : SQLiteOpenHelper(context, "karr_key_map_history.db", null, DATABASE_VERSION) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -190,6 +193,80 @@ class LocalMapHistoryStore(
         }
     }
 
+    /**
+     * Re-encrypts rows still stored in the slow Keystore-direct format into the fast data-key
+     * format, returning how many rows were upgraded. Safe to run repeatedly and while the map is
+     * reading: the slow decrypt/encrypt happens outside any transaction, and each batch commits
+     * atomically, so an interruption leaves every row readable in one format or the other. A row
+     * that cannot be decrypted is skipped rather than blocking the rest.
+     */
+    @Synchronized
+    fun upgradeLegacyEncryption(): Int {
+        val pendingIds = readableDatabase.query(
+            "map_observations",
+            arrayOf("id") + ENCRYPTED_COLUMNS,
+            null, null, null, null, null,
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    val needsUpgrade = ENCRYPTED_COLUMNS.indices.any { index ->
+                        cursor.getString(index + 1)?.let(cipher::needsUpgrade) == true
+                    }
+                    if (needsUpgrade) add(cursor.getString(0))
+                }
+            }
+        }
+        var upgraded = 0
+        pendingIds.chunked(UPGRADE_BATCH).forEach { ids ->
+            val updates = ids.mapNotNull { id -> runCatching { upgradedValues(id) }.getOrNull() }
+            if (updates.isEmpty()) return@forEach
+            val db = writableDatabase
+            db.beginTransaction()
+            try {
+                updates.forEach { (id, original, values) ->
+                    // Every write re-encrypts with a fresh random IV, so an unchanged address
+                    // ciphertext proves the row wasn't rewritten (e.g. by an import) since we
+                    // read it; if it was, the newer data wins and this stale upgrade is dropped.
+                    val changed = db.update(
+                        "map_observations",
+                        values,
+                        "id = ? AND encrypted_device_address = ?",
+                        arrayOf(id, original),
+                    )
+                    if (changed > 0) upgraded++
+                }
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+        }
+        return upgraded
+    }
+
+    private data class PendingUpgrade(
+        val id: String,
+        val originalAddressCipher: String,
+        val values: ContentValues,
+    )
+
+    private fun upgradedValues(id: String): PendingUpgrade? {
+        readableDatabase.query(
+            "map_observations",
+            ENCRYPTED_COLUMNS,
+            "id = ?",
+            arrayOf(id),
+            null, null, null,
+        ).use { cursor ->
+            if (!cursor.moveToFirst()) return null
+            val values = ContentValues()
+            ENCRYPTED_COLUMNS.forEachIndexed { index, column ->
+                val stored = cursor.getString(index) ?: return@forEachIndexed
+                values.put(column, cipher.encrypt(cipher.decrypt(stored)))
+            }
+            return PendingUpgrade(id, cursor.getString(0), values)
+        }
+    }
+
     fun count(): Int {
         readableDatabase.rawQuery(
             "SELECT COUNT(*) FROM map_observations",
@@ -256,6 +333,15 @@ class LocalMapHistoryStore(
         const val DATABASE_VERSION = 1
         const val MAX_LOOKUP_ROWS = 5_000
         const val DELETE_CHUNK = 500
+        const val UPGRADE_BATCH = 50
+        val ENCRYPTED_COLUMNS = arrayOf(
+            "encrypted_device_address",
+            "encrypted_device_name",
+            "encrypted_classification_evidence",
+            "encrypted_phone_latitude",
+            "encrypted_phone_longitude",
+            "encrypted_location_provider",
+        )
         val COLUMNS = arrayOf(
             "id",
             "observed_utc",
